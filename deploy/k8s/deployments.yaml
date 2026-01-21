@@ -1,0 +1,310 @@
+---
+# OPA Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opa-service
+  namespace: spiffe-demo
+  labels:
+    app: opa-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opa-service
+  template:
+    metadata:
+      labels:
+        app: opa-service
+    spec:
+      containers:
+        - name: opa-service
+          image: spiffe-demo/opa-service:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8085
+          args:
+            - serve
+            - --policy-dir=/policies
+          env:
+            - name: SPIFFE_DEMO_SERVICE_PORT
+              value: "8085"
+            - name: SPIFFE_DEMO_SERVICE_MOCK_SPIFFE
+              value: "true"
+          volumeMounts:
+            - name: policies
+              mountPath: /policies
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8085
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8085
+            initialDelaySeconds: 2
+            periodSeconds: 5
+      volumes:
+        - name: policies
+          configMap:
+            name: opa-policies
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opa-service
+  namespace: spiffe-demo
+spec:
+  type: ClusterIP
+  selector:
+    app: opa-service
+  ports:
+    - port: 8085
+      targetPort: 8085
+---
+# Document Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: document-service
+  namespace: spiffe-demo
+  labels:
+    app: document-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: document-service
+  template:
+    metadata:
+      labels:
+        app: document-service
+    spec:
+      containers:
+        - name: document-service
+          image: spiffe-demo/document-service:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8084
+          args:
+            - serve
+          env:
+            - name: SPIFFE_DEMO_SERVICE_PORT
+              value: "8084"
+            - name: SPIFFE_DEMO_SERVICE_MOCK_SPIFFE
+              value: "true"
+            - name: SPIFFE_DEMO_OPA_HOST
+              value: "opa-service"
+            - name: SPIFFE_DEMO_OPA_PORT
+              value: "8085"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8084
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8084
+            initialDelaySeconds: 2
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: document-service
+  namespace: spiffe-demo
+spec:
+  type: ClusterIP
+  selector:
+    app: document-service
+  ports:
+    - port: 8084
+      targetPort: 8084
+---
+# User Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: spiffe-demo
+  labels:
+    app: user-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: user-service
+  template:
+    metadata:
+      labels:
+        app: user-service
+    spec:
+      containers:
+        - name: user-service
+          image: spiffe-demo/user-service:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8082
+          args:
+            - serve
+          env:
+            - name: SPIFFE_DEMO_SERVICE_PORT
+              value: "8082"
+            - name: SPIFFE_DEMO_SERVICE_MOCK_SPIFFE
+              value: "true"
+            - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
+              value: "http://document-service:8084"
+            - name: SPIFFE_DEMO_AGENT_SERVICE_URL
+              value: "http://agent-service:8083"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8082
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8082
+            initialDelaySeconds: 2
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service
+  namespace: spiffe-demo
+spec:
+  type: ClusterIP
+  selector:
+    app: user-service
+  ports:
+    - port: 8082
+      targetPort: 8082
+---
+# Agent Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-service
+  namespace: spiffe-demo
+  labels:
+    app: agent-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-service
+  template:
+    metadata:
+      labels:
+        app: agent-service
+    spec:
+      containers:
+        - name: agent-service
+          image: spiffe-demo/agent-service:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8083
+          args:
+            - serve
+          env:
+            - name: SPIFFE_DEMO_SERVICE_PORT
+              value: "8083"
+            - name: SPIFFE_DEMO_SERVICE_MOCK_SPIFFE
+              value: "true"
+            - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
+              value: "http://document-service:8084"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8083
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8083
+            initialDelaySeconds: 2
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-service
+  namespace: spiffe-demo
+spec:
+  type: ClusterIP
+  selector:
+    app: agent-service
+  ports:
+    - port: 8083
+      targetPort: 8083
+---
+# Web Dashboard
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-dashboard
+  namespace: spiffe-demo
+  labels:
+    app: web-dashboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: web-dashboard
+  template:
+    metadata:
+      labels:
+        app: web-dashboard
+    spec:
+      containers:
+        - name: web-dashboard
+          image: spiffe-demo/web-dashboard:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8080
+          args:
+            - serve
+          env:
+            - name: SPIFFE_DEMO_SERVICE_PORT
+              value: "8080"
+            - name: SPIFFE_DEMO_SERVICE_MOCK_SPIFFE
+              value: "true"
+            - name: SPIFFE_DEMO_USER_SERVICE_URL
+              value: "http://user-service:8082"
+            - name: SPIFFE_DEMO_AGENT_SERVICE_URL
+              value: "http://agent-service:8083"
+            - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
+              value: "http://document-service:8084"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-dashboard
+  namespace: spiffe-demo
+spec:
+  type: NodePort
+  selector:
+    app: web-dashboard
+  ports:
+    - port: 8080
+      targetPort: 8080
+      nodePort: 30080

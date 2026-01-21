@@ -1,0 +1,57 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Build artifacts
+*.o
+*.a
+*.test
+
+# Go workspace
+go.work
+go.work.sum
+
+# IDE and editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs and temp files
+tmp/
+logs/
+*.log
+
+# Test coverage
+coverage.out
+coverage.html
+*.coverprofile
+
+# Environment files
+.env
+.env.local
+.env.*.local
+*.env
+
+# Config overrides (keep defaults)
+config.local.yaml
+config.*.yaml
+!config.yaml
+
+# Kubernetes secrets (if any)
+*-secret.yaml
+secrets/
+
+# Kind cluster data
+.kind/
+
+# Debug files
+debug
+*.prof
+*.pprof

@@ -1,0 +1,459 @@
+/* Red Hat Design System Colors and Typography */
+:root {
+    /* Red Hat Color Palette */
+    --rh-red: #EE0000;
+    --rh-red-dark: #CC0000;
+    --rh-blue: #0066CC;
+    --rh-blue-light: #73BCF7;
+    --rh-green: #3E8635;
+    --rh-green-light: #92D400;
+    --rh-gold: #F0AB00;
+    --rh-orange: #EC7A08;
+    --rh-purple: #6753AC;
+    --rh-cyan: #009596;
+
+    /* Neutrals */
+    --rh-black: #151515;
+    --rh-gray-dark: #3C3F42;
+    --rh-gray: #6A6E73;
+    --rh-gray-light: #D2D2D2;
+    --rh-gray-lighter: #F0F0F0;
+    --rh-white: #FFFFFF;
+
+    /* Semantic Colors */
+    --color-success: var(--rh-green);
+    --color-warning: var(--rh-gold);
+    --color-danger: #C9190B;
+    --color-info: var(--rh-blue);
+
+    /* Spacing */
+    --spacing-xs: 4px;
+    --spacing-sm: 8px;
+    --spacing-md: 16px;
+    --spacing-lg: 24px;
+    --spacing-xl: 32px;
+
+    /* Border Radius */
+    --border-radius: 3px;
+}
+
+/* Typography - Red Hat Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@400;500;600;700&family=Red+Hat+Text:wght@400;500;600&family=Red+Hat+Mono:wght@400;500&display=swap');
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Red Hat Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--rh-black);
+    background-color: var(--rh-gray-lighter);
+}
+
+h1, h2, h3, h4, h5, h6 {
+    font-family: 'Red Hat Display', sans-serif;
+    font-weight: 600;
+    margin-bottom: var(--spacing-md);
+}
+
+h1 { font-size: 28px; }
+h2 { font-size: 24px; }
+h3 { font-size: 20px; }
+h4 { font-size: 18px; }
+
+code, pre, .mono {
+    font-family: 'Red Hat Mono', 'Consolas', 'Monaco', monospace;
+}
+
+/* Layout */
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: var(--spacing-lg);
+}
+
+/* Header */
+.header {
+    background-color: var(--rh-black);
+    color: var(--rh-white);
+    padding: var(--spacing-md) var(--spacing-lg);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.header h1 {
+    font-size: 20px;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.header .logo {
+    width: 32px;
+    height: 32px;
+}
+
+.header .subtitle {
+    font-size: 12px;
+    color: var(--rh-gray-light);
+    font-weight: 400;
+}
+
+/* Cards */
+.card {
+    background: var(--rh-white);
+    border-radius: var(--border-radius);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    margin-bottom: var(--spacing-md);
+}
+
+.card-header {
+    padding: var(--spacing-md);
+    border-bottom: 1px solid var(--rh-gray-light);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.card-header h3 {
+    margin: 0;
+    font-size: 16px;
+}
+
+.card-body {
+    padding: var(--spacing-md);
+}
+
+/* Buttons */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-sm) var(--spacing-md);
+    font-family: 'Red Hat Text', sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    border: none;
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-decoration: none;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-primary {
+    background-color: var(--rh-blue);
+    color: var(--rh-white);
+}
+
+.btn-primary:hover:not(:disabled) {
+    background-color: #004080;
+}
+
+.btn-danger {
+    background-color: var(--color-danger);
+    color: var(--rh-white);
+}
+
+.btn-danger:hover:not(:disabled) {
+    background-color: #A30000;
+}
+
+.btn-success {
+    background-color: var(--rh-green);
+    color: var(--rh-white);
+}
+
+.btn-success:hover:not(:disabled) {
+    background-color: #2E6B27;
+}
+
+.btn-secondary {
+    background-color: var(--rh-gray-lighter);
+    color: var(--rh-black);
+    border: 1px solid var(--rh-gray-light);
+}
+
+.btn-secondary:hover:not(:disabled) {
+    background-color: var(--rh-gray-light);
+}
+
+/* Form Elements */
+.form-group {
+    margin-bottom: var(--spacing-md);
+}
+
+.form-label {
+    display: block;
+    margin-bottom: var(--spacing-xs);
+    font-weight: 500;
+    font-size: 13px;
+}
+
+.form-select, .form-input {
+    width: 100%;
+    padding: var(--spacing-sm) var(--spacing-md);
+    font-family: 'Red Hat Text', sans-serif;
+    font-size: 14px;
+    border: 1px solid var(--rh-gray-light);
+    border-radius: var(--border-radius);
+    background-color: var(--rh-white);
+}
+
+.form-select:focus, .form-input:focus {
+    outline: none;
+    border-color: var(--rh-blue);
+    box-shadow: 0 0 0 1px var(--rh-blue);
+}
+
+/* Grid Layout */
+.grid {
+    display: grid;
+    gap: var(--spacing-md);
+}
+
+.grid-2 {
+    grid-template-columns: repeat(2, 1fr);
+}
+
+.grid-3 {
+    grid-template-columns: repeat(3, 1fr);
+}
+
+@media (max-width: 768px) {
+    .grid-2, .grid-3 {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Console Log */
+.console {
+    background-color: var(--rh-black);
+    color: var(--rh-green-light);
+    font-family: 'Red Hat Mono', monospace;
+    font-size: 12px;
+    padding: var(--spacing-md);
+    border-radius: var(--border-radius);
+    height: 300px;
+    overflow-y: auto;
+}
+
+.console-entry {
+    padding: 2px 0;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.console-entry.info { color: var(--rh-blue-light); }
+.console-entry.success { color: var(--rh-green-light); }
+.console-entry.warn { color: var(--rh-gold); }
+.console-entry.error { color: #FF6B6B; }
+.console-entry.debug { color: var(--rh-gray-light); }
+
+/* Status Badges */
+.badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: 10px;
+}
+
+.badge-success {
+    background-color: #E7F6E7;
+    color: var(--rh-green);
+}
+
+.badge-danger {
+    background-color: #FBEAEA;
+    color: var(--color-danger);
+}
+
+.badge-warning {
+    background-color: #FFF4E5;
+    color: var(--rh-orange);
+}
+
+.badge-info {
+    background-color: #E7F1FA;
+    color: var(--rh-blue);
+}
+
+/* Permission Matrix */
+.permission-matrix {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.permission-matrix th,
+.permission-matrix td {
+    padding: var(--spacing-sm);
+    text-align: left;
+    border-bottom: 1px solid var(--rh-gray-light);
+}
+
+.permission-matrix th {
+    background-color: var(--rh-gray-lighter);
+    font-weight: 600;
+}
+
+.permission-matrix .check {
+    color: var(--rh-green);
+}
+
+.permission-matrix .cross {
+    color: var(--color-danger);
+}
+
+/* Alerts */
+.alert {
+    padding: var(--spacing-md);
+    border-radius: var(--border-radius);
+    margin-bottom: var(--spacing-md);
+    border-left: 4px solid;
+}
+
+.alert-success {
+    background-color: #F3FAF2;
+    border-color: var(--rh-green);
+    color: var(--rh-black);
+}
+
+.alert-danger {
+    background-color: #FBEAEA;
+    border-color: var(--color-danger);
+    color: var(--rh-black);
+}
+
+.alert-warning {
+    background-color: #FFF4E5;
+    border-color: var(--rh-gold);
+    color: var(--rh-black);
+}
+
+.alert-info {
+    background-color: #E7F1FA;
+    border-color: var(--rh-blue);
+    color: var(--rh-black);
+}
+
+/* SPIFFE ID Display */
+.spiffe-id {
+    font-family: 'Red Hat Mono', monospace;
+    font-size: 12px;
+    background-color: var(--rh-gray-lighter);
+    padding: 2px 6px;
+    border-radius: var(--border-radius);
+    word-break: break-all;
+}
+
+/* Result Panel */
+.result-panel {
+    padding: var(--spacing-md);
+    border-radius: var(--border-radius);
+    margin-top: var(--spacing-md);
+}
+
+.result-panel.granted {
+    background-color: #F3FAF2;
+    border: 1px solid var(--rh-green);
+}
+
+.result-panel.denied {
+    background-color: #FBEAEA;
+    border: 1px solid var(--color-danger);
+}
+
+/* Service Status Indicators */
+.service-status {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.status-dot.healthy {
+    background-color: var(--rh-green);
+}
+
+.status-dot.offline {
+    background-color: var(--color-danger);
+}
+
+.status-dot.unknown {
+    background-color: var(--rh-gray);
+}
+
+/* Tabs */
+.tabs {
+    display: flex;
+    border-bottom: 1px solid var(--rh-gray-light);
+    margin-bottom: var(--spacing-md);
+}
+
+.tab {
+    padding: var(--spacing-sm) var(--spacing-md);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    color: var(--rh-gray);
+    font-weight: 500;
+}
+
+.tab:hover {
+    color: var(--rh-black);
+}
+
+.tab.active {
+    color: var(--rh-blue);
+    border-bottom-color: var(--rh-blue);
+}
+
+/* Document Card */
+.document-card {
+    border: 1px solid var(--rh-gray-light);
+    border-radius: var(--border-radius);
+    padding: var(--spacing-md);
+    margin-bottom: var(--spacing-sm);
+}
+
+.document-card .title {
+    font-weight: 600;
+    margin-bottom: var(--spacing-xs);
+}
+
+.document-card .meta {
+    font-size: 12px;
+    color: var(--rh-gray);
+}
+
+/* Action Row */
+.action-row {
+    display: flex;
+    gap: var(--spacing-sm);
+    margin-top: var(--spacing-md);
+}
+
+/* Section Divider */
+.section-divider {
+    height: 1px;
+    background-color: var(--rh-gray-light);
+    margin: var(--spacing-lg) 0;
+}

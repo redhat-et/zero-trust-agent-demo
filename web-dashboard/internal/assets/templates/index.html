@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <link rel="stylesheet" href="/static/css/redhat.css">
+</head>
+<body>
+    <header class="header">
+        <div>
+            <h1>
+                <svg class="logo" viewBox="0 0 32 32" fill="currentColor">
+                    <path d="M16 2C8.268 2 2 8.268 2 16s6.268 14 14 14 14-6.268 14-14S23.732 2 16 2zm0 2c6.627 0 12 5.373 12 12s-5.373 12-12 12S4 22.627 4 16 9.373 4 16 4z"/>
+                    <path d="M16 8a8 8 0 100 16 8 8 0 000-16zm0 2a6 6 0 110 12 6 6 0 010-12z"/>
+                </svg>
+                SPIFFE/SPIRE Zero Trust Demo
+            </h1>
+            <span class="subtitle">Workload Identity & Policy-Based Access Control for AI Agents</span>
+        </div>
+        <div class="service-status">
+            <span id="connection-status" class="status-dot unknown" title="Connecting..."></span>
+            <span>Event Stream</span>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="grid grid-3">
+            <!-- Control Panel -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>Access Control</h3>
+                </div>
+                <div class="card-body">
+                    <div class="form-group">
+                        <label class="form-label">Select User</label>
+                        <select id="user-select" class="form-select">
+                            <option value="">Loading users...</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Select Agent (Optional)</label>
+                        <select id="agent-select" class="form-select">
+                            <option value="">Loading agents...</option>
+                        </select>
+                        <small style="color: var(--rh-gray); font-size: 12px;">
+                            Select an agent to delegate access, or leave empty for direct user access.
+                        </small>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Select Document</label>
+                        <select id="document-select" class="form-select">
+                            <option value="">Loading documents...</option>
+                        </select>
+                    </div>
+
+                    <div class="action-row">
+                        <button id="direct-access-btn" class="btn btn-primary">
+                            Direct Access
+                        </button>
+                        <button id="delegate-btn" class="btn btn-success" disabled>
+                            Delegate to Agent
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Permission Matrix -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>Permission Matrix</h3>
+                </div>
+                <div class="card-body">
+                    <table class="permission-matrix">
+                        <thead>
+                            <tr>
+                                <th>User</th>
+                                <th>Eng</th>
+                                <th>Fin</th>
+                                <th>Admin</th>
+                                <th>HR</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Alice</td>
+                                <td class="check">&#10003;</td>
+                                <td class="check">&#10003;</td>
+                                <td class="cross">&#10007;</td>
+                                <td class="cross">&#10007;</td>
+                            </tr>
+                            <tr>
+                                <td>Bob</td>
+                                <td class="cross">&#10007;</td>
+                                <td class="check">&#10003;</td>
+                                <td class="check">&#10003;</td>
+                                <td class="cross">&#10007;</td>
+                            </tr>
+                            <tr>
+                                <td>Carol</td>
+                                <td class="cross">&#10007;</td>
+                                <td class="cross">&#10007;</td>
+                                <td class="cross">&#10007;</td>
+                                <td class="check">&#10003;</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <div class="section-divider"></div>
+
+                    <table class="permission-matrix">
+                        <thead>
+                            <tr>
+                                <th>Agent</th>
+                                <th>Eng</th>
+                                <th>Fin</th>
+                                <th>Admin</th>
+                                <th>HR</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>GPT-4</td>
+                                <td class="check">&#10003;</td>
+                                <td class="check">&#10003;</td>
+                                <td class="cross">&#10007;</td>
+                                <td class="cross">&#10007;</td>
+                            </tr>
+                            <tr>
+                                <td>Claude</td>
+                                <td class="check">&#10003;</td>
+                                <td class="check">&#10003;</td>
+                                <td class="check">&#10003;</td>
+                                <td class="check">&#10003;</td>
+                            </tr>
+                            <tr>
+                                <td>Summarizer</td>
+                                <td class="cross">&#10007;</td>
+                                <td class="check">&#10003;</td>
+                                <td class="cross">&#10007;</td>
+                                <td class="cross">&#10007;</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <div class="alert alert-info" style="margin-top: 16px;">
+                        <strong>Permission Intersection:</strong><br>
+                        Agent access = User permissions &#8745; Agent capabilities
+                    </div>
+                </div>
+            </div>
+
+            <!-- Service Status -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>Service Status</h3>
+                </div>
+                <div class="card-body">
+                    <div class="service-status" style="margin-bottom: 12px;">
+                        <span id="status-user-service" class="status-dot unknown"></span>
+                        <span>User Service (:8082)</span>
+                    </div>
+                    <div class="service-status" style="margin-bottom: 12px;">
+                        <span id="status-agent-service" class="status-dot unknown"></span>
+                        <span>Agent Service (:8083)</span>
+                    </div>
+                    <div class="service-status" style="margin-bottom: 12px;">
+                        <span id="status-document-service" class="status-dot unknown"></span>
+                        <span>Document Service (:8084)</span>
+                    </div>
+
+                    <div class="section-divider"></div>
+
+                    <h4 style="font-size: 14px; margin-bottom: 8px;">Documents</h4>
+                    <div id="document-list">
+                        <div style="color: var(--rh-gray);">Loading documents...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Result Panel -->
+        <div id="result-panel" class="result-panel" style="display: none;">
+        </div>
+
+        <!-- Console Output -->
+        <div class="card" style="margin-top: 16px;">
+            <div class="card-header">
+                <h3>Console Output</h3>
+                <button id="clear-console-btn" class="btn btn-secondary">Clear</button>
+            </div>
+            <div class="card-body" style="padding: 0;">
+                <div id="console" class="console">
+                    <div class="console-entry info">[Initializing SPIFFE/SPIRE Zero Trust Demo...]</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Zero Trust Principles -->
+        <div class="card" style="margin-top: 16px;">
+            <div class="card-header">
+                <h3>Zero Trust Principles Demonstrated</h3>
+            </div>
+            <div class="card-body">
+                <div class="grid grid-2">
+                    <div>
+                        <h4>1. Cryptographic Workload Identity</h4>
+                        <p>Each service has a SPIFFE ID (e.g., <code class="spiffe-id">spiffe://demo.example.com/user/alice</code>)
+                        backed by X.509 certificates, not shared secrets.</p>
+                    </div>
+                    <div>
+                        <h4>2. Mutual TLS (mTLS) Everywhere</h4>
+                        <p>All service-to-service communication uses mutual authentication.
+                        Both client and server verify each other's identity.</p>
+                    </div>
+                    <div>
+                        <h4>3. Policy-Based Access Control</h4>
+                        <p>OPA evaluates Rego policies on every request. Access decisions are
+                        based on caller identity, resource requirements, and delegation context.</p>
+                    </div>
+                    <div>
+                        <h4>4. Permission Intersection</h4>
+                        <p>When a user delegates to an agent, effective permissions =
+                        User permissions &#8745; Agent capabilities. Agents act as <strong>capability limiters</strong>.</p>
+                    </div>
+                    <div>
+                        <h4>5. Agents Cannot Act Autonomously</h4>
+                        <p>AI agents MUST have a delegation context from a user.
+                        Without user authorization, agents are denied access to all protected resources.</p>
+                    </div>
+                    <div>
+                        <h4>6. Short-Lived Credentials</h4>
+                        <p>SVIDs have 1-hour TTLs and are automatically rotated.
+                        This limits the impact of credential compromise.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

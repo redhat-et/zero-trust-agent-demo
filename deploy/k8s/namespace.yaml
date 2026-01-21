@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: spiffe-demo
+  labels:
+    app.kubernetes.io/name: spiffe-demo
+    app.kubernetes.io/part-of: spiffe-spire-demo

@@ -1,0 +1,197 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opa-policies
+  namespace: spiffe-demo
+data:
+  user_permissions.rego: |
+    package demo.users
+
+    import future.keywords.in
+    import future.keywords.if
+
+    user_departments := {
+        "alice": ["engineering", "finance"],
+        "bob": ["finance", "admin"],
+        "carol": ["hr"]
+    }
+
+    has_department(user_name, department) if {
+        department_list := user_departments[user_name]
+        department in department_list
+    }
+
+    get_departments(user_name) := departments if {
+        departments := user_departments[user_name]
+    }
+
+    get_departments(user_name) := [] if {
+        not user_departments[user_name]
+    }
+
+  agent_permissions.rego: |
+    package demo.agents
+
+    import future.keywords.in
+    import future.keywords.if
+
+    agent_capabilities := {
+        "gpt4": ["engineering", "finance"],
+        "claude": ["engineering", "finance", "admin", "hr"],
+        "summarizer": ["finance"]
+    }
+
+    has_capability(agent_name, department) if {
+        capability_list := agent_capabilities[agent_name]
+        department in capability_list
+    }
+
+    get_capabilities(agent_name) := capabilities if {
+        capabilities := agent_capabilities[agent_name]
+    }
+
+    get_capabilities(agent_name) := [] if {
+        not agent_capabilities[agent_name]
+    }
+
+  delegation.rego: |
+    package demo.authorization
+
+    import data.demo.users
+    import data.demo.agents
+    import future.keywords.in
+    import future.keywords.if
+
+    documents := {
+        "DOC-001": {"title": "Engineering Roadmap", "required_department": "engineering", "sensitivity": "medium"},
+        "DOC-002": {"title": "Q4 Financial Report", "required_department": "finance", "sensitivity": "high"},
+        "DOC-003": {"title": "Admin Policies", "required_department": "admin", "sensitivity": "critical"},
+        "DOC-004": {"title": "HR Guidelines", "required_department": "hr", "sensitivity": "medium"},
+        "DOC-005": {"title": "Budget Projections", "required_departments": ["finance", "engineering"], "sensitivity": "high"},
+        "DOC-006": {"title": "Compliance Audit", "required_departments": ["admin", "finance"], "sensitivity": "critical"},
+        "DOC-007": {"title": "All-Hands Summary", "required_department": "", "sensitivity": "public"}
+    }
+
+    parse_spiffe_id(spiffe_id) := result if {
+        parts := split(spiffe_id, "/")
+        count(parts) >= 2
+        result := {"type": parts[count(parts) - 2], "name": parts[count(parts) - 1]}
+    }
+
+    get_required_departments(doc_id) := deps if {
+        doc := documents[doc_id]
+        deps := doc.required_departments
+    } else := [dep] if {
+        doc := documents[doc_id]
+        dep := doc.required_department
+        dep != ""
+    } else := []
+
+    is_public_document(doc_id) if {
+        required := get_required_departments(doc_id)
+        count(required) == 0
+    }
+
+    has_any_required_department(permissions, doc_id) if {
+        is_public_document(doc_id)
+    }
+
+    has_any_required_department(permissions, doc_id) if {
+        required := get_required_departments(doc_id)
+        some dept in required
+        dept in permissions
+    }
+
+    default allow := false
+
+    allow if {
+        doc := documents[input.document_id]
+        doc.required_department == ""
+    }
+
+    allow if {
+        not input.delegation
+        caller := parse_spiffe_id(input.caller_spiffe_id)
+        caller.type == "user"
+        user_depts := users.get_departments(caller.name)
+        has_any_required_department(user_depts, input.document_id)
+    }
+
+    allow if {
+        input.delegation
+        user := parse_spiffe_id(input.delegation.user_spiffe_id)
+        agent := parse_spiffe_id(input.delegation.agent_spiffe_id)
+        user.type == "user"
+        agent.type == "agent"
+        user_depts := users.get_departments(user.name)
+        agent_caps := agents.get_capabilities(agent.name)
+        effective := {d | some d in user_depts; d in agent_caps}
+        has_any_required_department(effective, input.document_id)
+    }
+
+    deny_reason := "Agent requests require user delegation context" if {
+        not input.delegation
+        caller := parse_spiffe_id(input.caller_spiffe_id)
+        caller.type == "agent"
+    }
+
+    effective_permissions := result if {
+        input.delegation
+        user := parse_spiffe_id(input.delegation.user_spiffe_id)
+        agent := parse_spiffe_id(input.delegation.agent_spiffe_id)
+        user_depts := users.get_departments(user.name)
+        agent_caps := agents.get_capabilities(agent.name)
+        result := [d | some d in user_depts; d in agent_caps]
+    }
+
+    decision := {"allow": allow, "reason": reason, "details": details}
+
+    reason := "Public document accessible to all" if {
+        allow
+        is_public_document(input.document_id)
+    }
+
+    reason := "User has required department access" if {
+        allow
+        not input.delegation
+        caller := parse_spiffe_id(input.caller_spiffe_id)
+        caller.type == "user"
+        not is_public_document(input.document_id)
+    }
+
+    reason := "Both user and agent have required access (delegation)" if {
+        allow
+        input.delegation
+        not is_public_document(input.document_id)
+    }
+
+    reason := deny_reason if {
+        not allow
+        deny_reason
+    }
+
+    reason := "Insufficient permissions" if {
+        not allow
+        not deny_reason
+    }
+
+    details := {
+        "document_id": input.document_id,
+        "required_departments": get_required_departments(input.document_id),
+        "caller_type": parse_spiffe_id(input.caller_spiffe_id).type,
+        "caller_name": parse_spiffe_id(input.caller_spiffe_id).name
+    } if {
+        not input.delegation
+    }
+
+    details := {
+        "document_id": input.document_id,
+        "required_departments": get_required_departments(input.document_id),
+        "user": parse_spiffe_id(input.delegation.user_spiffe_id).name,
+        "agent": parse_spiffe_id(input.delegation.agent_spiffe_id).name,
+        "user_departments": users.get_departments(parse_spiffe_id(input.delegation.user_spiffe_id).name),
+        "agent_capabilities": agents.get_capabilities(parse_spiffe_id(input.delegation.agent_spiffe_id).name),
+        "effective_permissions": effective_permissions
+    } if {
+        input.delegation
+    }
