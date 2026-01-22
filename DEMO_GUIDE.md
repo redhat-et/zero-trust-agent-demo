@@ -34,35 +34,68 @@ Effective Permissions = User Permissions ∩ Agent Capabilities
 
 ## Running the Demo
 
-### Option A: Build and Run Locally
+### Option A: Quick Start (No Clone Required)
+
+The fastest way to try the demo. No need to clone the repository.
+
+**Prerequisites:** [Kind](https://kind.sigs.k8s.io/) and [kubectl](https://kubernetes.io/docs/tasks/tools/)
 
 ```bash
-# Build everything
-make build
+# 1. Create Kind cluster
+curl -sL https://raw.githubusercontent.com/hardwaylabs/spiffe-spire-demo/main/deploy/kind/cluster.yaml | kind create cluster --config /dev/stdin
 
-# Start all services
-./scripts/run-local.sh
-```
+# 2. Deploy the application
+kubectl apply -f https://raw.githubusercontent.com/hardwaylabs/spiffe-spire-demo/main/deploy/k8s/namespace.yaml
+kubectl apply -f https://raw.githubusercontent.com/hardwaylabs/spiffe-spire-demo/main/deploy/k8s/opa-policies-configmap.yaml
+kubectl apply -f https://raw.githubusercontent.com/hardwaylabs/spiffe-spire-demo/main/deploy/k8s/deployments.yaml
 
-### Option B: Deploy with Pre-built Images
+# 3. Wait for pods to be ready
+kubectl -n spiffe-demo wait --for=condition=ready pod --all --timeout=120s
 
-No local builds required! Images are automatically built and pushed to GitHub Container Registry.
-
-```bash
-# Quick deploy to Kind
-./scripts/setup-kind.sh
-kubectl apply -f deploy/k8s/
-./scripts/port-forward.sh
-
-# Open the dashboard
+# 4. Open dashboard
 open http://localhost:8080
 ```
 
-### Open Dashboard
+### Option B: Clone and Deploy (No Build Required)
 
-Navigate to: **http://localhost:8080**
+Clone the repo to explore the code, but use pre-built images from GitHub Container Registry.
 
-### Watch Logs (Optional)
+```bash
+# Clone the repository
+git clone https://github.com/hardwaylabs/spiffe-spire-demo.git
+cd spiffe-spire-demo
+
+# Create Kind cluster and deploy
+./scripts/setup-kind.sh
+kubectl apply -f deploy/k8s/
+
+# Wait for pods and open dashboard
+kubectl -n spiffe-demo wait --for=condition=ready pod --all --timeout=120s
+open http://localhost:8080
+```
+
+### Option C: Development Mode (Build from Source)
+
+For contributors who want to modify the code and build locally.
+
+```bash
+# Clone the repository
+git clone https://github.com/hardwaylabs/spiffe-spire-demo.git
+cd spiffe-spire-demo
+
+# Build all services
+make build
+
+# Run locally (without Kubernetes)
+./scripts/run-local.sh
+
+# Open dashboard
+open http://localhost:8080
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
+
+### Watch Logs (Option C only)
 
 In a separate terminal:
 
