@@ -34,7 +34,7 @@ Effective Permissions = User Permissions ∩ Agent Capabilities
 
 ## Running the Demo
 
-### Start Services
+### Option A: Build and Run Locally
 
 ```bash
 # Build everything
@@ -42,6 +42,20 @@ make build
 
 # Start all services
 ./scripts/run-local.sh
+```
+
+### Option B: Deploy with Pre-built Images
+
+No local builds required! Images are automatically built and pushed to GitHub Container Registry.
+
+```bash
+# Quick deploy to Kind
+./scripts/setup-kind.sh
+kubectl apply -f deploy/k8s/
+./scripts/port-forward.sh
+
+# Open the dashboard
+open http://localhost:8080
 ```
 
 ### Open Dashboard
