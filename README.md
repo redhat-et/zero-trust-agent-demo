@@ -31,33 +31,35 @@ This demo showcases a document management system where:
 
 ## Quick Start
 
-### Local Development
+### Option A: Zero-Clone (Fastest)
 
-```bash
-# Build all services
-make build
-
-# Run all services locally
-make run-local
-
-# Open dashboard
-open http://localhost:8080
-```
-
-### Kubernetes (Kind)
+No need to clone the repository. Just need [Kind](https://kind.sigs.k8s.io/) and [kubectl](https://kubernetes.io/docs/tasks/tools/).
 
 ```bash
 # Create Kind cluster
-make setup-kind
+curl -sL https://raw.githubusercontent.com/hardwaylabs/spiffe-spire-demo/main/deploy/kind/cluster.yaml | kind create cluster --config /dev/stdin
 
-# Build and load Docker images
-make docker-build
-make docker-load
+# Deploy the application
+kubectl apply -f https://raw.githubusercontent.com/hardwaylabs/spiffe-spire-demo/main/deploy/k8s/namespace.yaml
+kubectl apply -f https://raw.githubusercontent.com/hardwaylabs/spiffe-spire-demo/main/deploy/k8s/opa-policies-configmap.yaml
+kubectl apply -f https://raw.githubusercontent.com/hardwaylabs/spiffe-spire-demo/main/deploy/k8s/deployments.yaml
 
-# Deploy to cluster
-make deploy-k8s
+# Wait for pods and open dashboard
+kubectl -n spiffe-demo wait --for=condition=ready pod --all --timeout=120s
+open http://localhost:8080
+```
 
-# Access dashboard
+### Option B: Clone and Deploy
+
+Clone the repo to explore the code, using pre-built images from GitHub Container Registry.
+
+```bash
+git clone https://github.com/hardwaylabs/spiffe-spire-demo.git
+cd spiffe-spire-demo
+
+./scripts/setup-kind.sh
+kubectl apply -f deploy/k8s/
+kubectl -n spiffe-demo wait --for=condition=ready pod --all --timeout=120s
 open http://localhost:8080
 ```
 
@@ -93,7 +95,39 @@ open http://localhost:8080
 5. **Agents Cannot Act Autonomously**: Agents MUST have user delegation context
 6. **Short-Lived Credentials**: SVIDs have 1-hour TTLs and auto-rotate
 
-## Project Structure
+## Development
+
+Want to modify the code? See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+### Build from Source
+
+```bash
+git clone https://github.com/hardwaylabs/spiffe-spire-demo.git
+cd spiffe-spire-demo
+
+# Build all services
+make build
+
+# Run locally (without Kubernetes)
+./scripts/run-local.sh
+
+# Open dashboard
+open http://localhost:8080
+```
+
+### Make Commands
+
+```bash
+make build          # Build all services
+make run-local      # Run services locally
+make test           # Run tests
+make test-policies  # Run OPA policy tests
+make setup-kind     # Create Kind cluster
+make deploy-k8s     # Deploy to Kubernetes
+make help           # Show all commands
+```
+
+### Project Structure
 
 ```
 spiffe-spire-demo/
@@ -113,28 +147,17 @@ spiffe-spire-demo/
 └── Makefile              # Build and run commands
 ```
 
-## Make Commands
-
-```bash
-make build          # Build all services
-make run-local      # Run services locally
-make test           # Run tests
-make test-policies  # Run OPA policy tests
-make setup-kind     # Create Kind cluster
-make deploy-k8s     # Deploy to Kubernetes
-make help           # Show all commands
-```
-
 ## Technology Stack
 
-- **Language**: Go 1.21+
+- **Language**: Go 1.25
 - **CLI/Config**: Cobra + Viper
 - **Logging**: `log/slog` with colored output
 - **Policy Engine**: Open Policy Agent (OPA) with Rego
 - **Identity**: SPIFFE/SPIRE (mock mode for local dev)
 - **Deployment**: Kind (Kubernetes in Docker)
+- **CI/CD**: GitHub Actions with multi-arch builds (amd64/arm64)
 - **Styling**: Red Hat Design System
 
 ## License
 
-MIT
+[MIT](LICENSE)
