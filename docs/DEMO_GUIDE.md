@@ -154,12 +154,12 @@ cd spiffe-spire-demo
 # Deploy the demo application (applies SCC after namespace is created)
 ./scripts/deploy-openshift.sh
 
-# Port-forward to access dashboard
-oc -n spiffe-demo port-forward svc/web-dashboard 8080:8080 &
-open http://localhost:8080
+# Get the dashboard URL (Route is created automatically)
+oc get route web-dashboard -n spiffe-demo -o jsonpath='https://{.spec.host}{"\n"}'
 ```
 
 **OpenShift-specific features:**
+- Creates an HTTPS Route for the web dashboard (edge TLS termination)
 - Grants `privileged` SCC to SPIRE agent and CSI driver
 - Grants `anyuid` SCC to SPIRE server
 - Sets SELinux `spc_t` context on workloads to allow CSI socket access
