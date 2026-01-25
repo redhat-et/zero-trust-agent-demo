@@ -12,7 +12,7 @@ This demo showcases a document management system where:
 
 ## Architecture
 
-```
+```text
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
 │  Web Dashboard  │────▶│  User Service   │────▶│  Agent Service  │
 │     :8080       │     │     :8082       │     │     :8083       │
@@ -42,7 +42,7 @@ cd spiffe-spire-demo
 ./scripts/setup-kind.sh
 kubectl apply -k deploy/k8s/overlays/mock
 kubectl -n spiffe-demo wait --for=condition=ready pod --all --timeout=120s
-open http://localhost:30080
+open http://localhost:8080
 ```
 
 ### Option B: Real SPIRE Integration
@@ -58,7 +58,7 @@ cd spiffe-spire-demo
 kubectl apply -k deploy/k8s/overlays/ghcr
 kubectl apply -f deploy/spire/clusterspiffeids.yaml
 kubectl -n spiffe-demo wait --for=condition=ready pod --all --timeout=120s
-open http://localhost:30080
+open http://localhost:8080
 ```
 
 See [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) for all deployment options including local development.
@@ -66,18 +66,20 @@ See [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) for all deployment options includin
 ## Demo Scenarios
 
 ### Users
-| User  | Departments          | SPIFFE ID |
-|-------|---------------------|-----------|
+
+| User  | Departments          | SPIFFE ID                              |
+| ----- | -------------------- | -------------------------------------- |
 | Alice | Engineering, Finance | `spiffe://demo.example.com/user/alice` |
-| Bob   | Finance, Admin       | `spiffe://demo.example.com/user/bob` |
+| Bob   | Finance, Admin       | `spiffe://demo.example.com/user/bob`   |
 | Carol | HR                   | `spiffe://demo.example.com/user/carol` |
 
 ### Agents
-| Agent      | Capabilities                    | SPIFFE ID |
-|------------|--------------------------------|-----------|
-| GPT-4      | Engineering, Finance           | `spiffe://demo.example.com/agent/gpt4` |
-| Claude     | All departments                | `spiffe://demo.example.com/agent/claude` |
-| Summarizer | Finance only                   | `spiffe://demo.example.com/agent/summarizer` |
+
+| Agent      | Capabilities         | SPIFFE ID                                    |
+| ---------- | -------------------- | -------------------------------------------- |
+| GPT-4      | Engineering, Finance | `spiffe://demo.example.com/agent/gpt4`       |
+| Claude     | All departments      | `spiffe://demo.example.com/agent/claude`     |
+| Summarizer | Finance only         | `spiffe://demo.example.com/agent/summarizer` |
 
 ### Key Scenarios
 
@@ -97,14 +99,14 @@ See [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) for all deployment options includin
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [Demo Guide](docs/DEMO_GUIDE.md) | Step-by-step instructions for running the demo |
-| [Learning Guide](docs/LEARNING_GUIDE.md) | Deep dive into Zero Trust, SPIFFE/SPIRE, mTLS, and OPA |
-| [API Testing](docs/API_TESTING.md) | API endpoints and curl commands for testing |
-| [Phase 2 Integration](docs/PHASE2_SPIRE_INTEGRATION.md) | Technical details of SPIRE integration |
-| [Phase 3 Plan](docs/PHASE3_PRODUCTION_READINESS.md) | Production readiness and observability roadmap |
-| [Contributing](CONTRIBUTING.md) | Guidelines for contributors |
+| Document                                                | Description                                            |
+| ------------------------------------------------------- | ------------------------------------------------------ |
+| [Demo Guide](docs/DEMO_GUIDE.md)                        | Step-by-step instructions for running the demo         |
+| [Learning Guide](docs/LEARNING_GUIDE.md)                | Deep dive into Zero Trust, SPIFFE/SPIRE, mTLS, and OPA |
+| [API Testing](docs/API_TESTING.md)                      | API endpoints and curl commands for testing            |
+| [Phase 2 Integration](docs/PHASE2_SPIRE_INTEGRATION.md) | Technical details of SPIRE integration                 |
+| [Phase 3 Plan](docs/PHASE3_PRODUCTION_READINESS.md)     | Production readiness and observability roadmap         |
+| [Contributing](CONTRIBUTING.md)                         | Guidelines for contributors                            |
 
 ## Development
 
@@ -140,7 +142,7 @@ make help           # Show all commands
 
 ### Project Structure
 
-```
+```text
 spiffe-spire-demo/
 ├── pkg/                    # Shared packages
 │   ├── config/            # Viper configuration
