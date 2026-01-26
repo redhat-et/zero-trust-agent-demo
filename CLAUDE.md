@@ -60,7 +60,8 @@ spiffe-spire-demo/
 ├── pkg/                    # Shared packages
 │   ├── config/            # Viper configuration
 │   ├── logger/            # Colored slog wrapper
-│   └── spiffe/            # SPIFFE workload client (mock)
+│   ├── metrics/           # Prometheus metrics
+│   └── spiffe/            # SPIFFE workload client
 ├── web-dashboard/         # Dashboard service
 │   ├── cmd/               # Cobra commands
 │   └── internal/assets/   # Static files & templates
@@ -79,6 +80,13 @@ spiffe-spire-demo/
 ├── deploy/                # Deployment configs
 │   ├── k8s/              # Kubernetes manifests
 │   └── kind/             # Kind cluster config
+├── docs/                  # Documentation
+│   ├── adr/              # Architecture Decision Records
+│   ├── deployment/       # Platform-specific guides
+│   ├── dev/              # Development process docs
+│   ├── ARCHITECTURE.md   # System design
+│   ├── SECURITY.md       # Security documentation
+│   └── OPERATIONS.md     # Operations runbook
 ├── scripts/               # Helper scripts
 └── tmp/logs/             # Runtime logs (gitignored)
 ```

@@ -577,9 +577,11 @@ spiffe:
 
 ---
 
-### Group F: Documentation & Operational Guides
+### Group F: Documentation & Operational Guides ✅
 
-#### Task F1: Operational Runbook
+#### Task F1: Operational Runbook ✅
+
+**Status**: Completed
 
 **File**: `docs/OPERATIONS.md`
 
@@ -591,9 +593,9 @@ spiffe:
 5. SPIRE server maintenance
 6. Disaster recovery
 
-**Estimated effort**: 4-5 hours
+#### Task F2: Security Documentation ✅
 
-#### Task F2: Security Documentation
+**Status**: Completed
 
 **File**: `docs/SECURITY.md`
 
@@ -605,20 +607,18 @@ spiffe:
 5. Secret management
 6. Incident response
 
-**Estimated effort**: 3-4 hours
+#### Task F3: Architecture Decision Records ✅
 
-#### Task F3: Architecture Decision Records
+**Status**: Completed
 
 **Directory**: `docs/adr/`
 
-**ADRs to create**:
-- ADR-001: Use SPIFFE/SPIRE for workload identity
-- ADR-002: Permission intersection for AI agent delegation
-- ADR-003: OPA for policy evaluation
-- ADR-004: Kustomize for deployment variants
-- ADR-005: Separate health ports for mTLS services
-
-**Estimated effort**: 3-4 hours
+**ADRs created**:
+- ADR-0001: Use SPIFFE/SPIRE for workload identity
+- ADR-0002: Permission intersection for AI agent delegation
+- ADR-0003: OPA for policy evaluation
+- ADR-0004: Kustomize for deployment variants
+- ADR-0005: Separate health ports for mTLS services
 
 ---
 
@@ -650,7 +650,7 @@ spiffe:
 | B3 | 5-6h | OpenTelemetry tracing |
 | B4 | 3-4h | Grafana dashboard |
 | E3 | 3-4h | SPIFFE ID authorization |
-| F1-F3 | 10-13h | Documentation |
+| ~~F1-F3~~ | ~~10-13h~~ | ~~Documentation~~ ✅ Completed |
 
 ---
 
@@ -666,13 +666,15 @@ spiffe:
 
 ## Success Criteria
 
-- [ ] Images automatically built and pushed on merge to main
-- [ ] All services expose `/metrics` endpoint
+- [x] Images automatically built and pushed on merge to main
+- [x] All services expose `/metrics` endpoint
 - [ ] Health endpoints report SVID expiration
 - [ ] Certificate rotation verified over 2+ hour period
 - [ ] Network policies restrict pod communication
 - [ ] No privilege escalation in pods
-- [ ] Operational runbook complete
+- [x] Operational runbook complete
+- [x] Security documentation complete
+- [x] Architecture Decision Records complete
 
 ---
 

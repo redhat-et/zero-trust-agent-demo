@@ -99,14 +99,40 @@ See [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) for all deployment options includin
 
 ## Documentation
 
-| Document                                                | Description                                            |
-| ------------------------------------------------------- | ------------------------------------------------------ |
-| [Demo Guide](docs/DEMO_GUIDE.md)                        | Step-by-step instructions for running the demo         |
-| [Learning Guide](docs/LEARNING_GUIDE.md)                | Deep dive into Zero Trust, SPIFFE/SPIRE, mTLS, and OPA |
-| [API Testing](docs/API_TESTING.md)                      | API endpoints and curl commands for testing            |
-| [Phase 2 Integration](docs/PHASE2_SPIRE_INTEGRATION.md) | Technical details of SPIRE integration                 |
-| [Phase 3 Plan](docs/PHASE3_PRODUCTION_READINESS.md)     | Production readiness and observability roadmap         |
-| [Contributing](CONTRIBUTING.md)                         | Guidelines for contributors                            |
+See [docs/README.md](docs/README.md) for the full documentation index.
+
+### User Documentation
+
+| Document                                 | Description                                            |
+| ---------------------------------------- | ------------------------------------------------------ |
+| [Demo Guide](docs/DEMO_GUIDE.md)         | Step-by-step instructions for running the demo         |
+| [Learning Guide](docs/LEARNING_GUIDE.md) | Deep dive into Zero Trust, SPIFFE/SPIRE, mTLS, and OPA |
+| [API Testing](docs/API_TESTING.md)       | API endpoints and curl commands for testing            |
+| [Architecture](docs/ARCHITECTURE.md)     | System design and component overview                   |
+
+### Security & Operations
+
+| Document                           | Description                                      |
+| ---------------------------------- | ------------------------------------------------ |
+| [Security](docs/SECURITY.md)       | Threat model, trust boundaries, incident response |
+| [Operations](docs/OPERATIONS.md)   | Deployment, monitoring, troubleshooting runbook  |
+
+### Architecture Decision Records
+
+| ADR | Title |
+| --- | ----- |
+| [ADR-0001](docs/adr/0001-spiffe-spire-workload-identity.md) | SPIFFE/SPIRE for Workload Identity |
+| [ADR-0002](docs/adr/0002-permission-intersection-delegation.md) | Permission Intersection for AI Agent Delegation |
+| [ADR-0003](docs/adr/0003-opa-policy-evaluation.md) | OPA for Policy Evaluation |
+| [ADR-0004](docs/adr/0004-kustomize-deployment-variants.md) | Kustomize for Deployment Variants |
+| [ADR-0005](docs/adr/0005-separate-health-ports-mtls.md) | Separate Health Ports for mTLS Services |
+
+### Additional Resources
+
+| Document | Description |
+| -------- | ----------- |
+| [Contributing](CONTRIBUTING.md) | Guidelines for contributors |
+| [OpenShift vs Kubernetes](docs/deployment/OPENSHIFT_VS_KUBERNETES.md) | Platform comparison |
 
 ## Development
 
@@ -147,6 +173,7 @@ spiffe-spire-demo/
 ├── pkg/                    # Shared packages
 │   ├── config/            # Viper configuration
 │   ├── logger/            # slog-based colored logger
+│   ├── metrics/           # Prometheus metrics
 │   └── spiffe/            # SPIFFE workload client
 ├── opa-service/           # Policy evaluation service
 ├── document-service/      # Protected resource server
@@ -157,12 +184,15 @@ spiffe-spire-demo/
 │   ├── kind/             # Kind cluster config
 │   ├── k8s/              # Kustomize base and overlays
 │   │   ├── base/         # Shared K8s resources
-│   │   └── overlays/     # mock, local, ghcr variants
+│   │   └── overlays/     # mock, local, ghcr, openshift
 │   └── spire/            # SPIRE Helm values and registrations
 ├── docs/                  # Documentation
-│   ├── DEMO_GUIDE.md     # Running the demo
-│   ├── LEARNING_GUIDE.md # Zero Trust & SPIFFE deep dive
-│   └── API_TESTING.md    # API endpoints reference
+│   ├── adr/              # Architecture Decision Records
+│   ├── deployment/       # Platform-specific guides
+│   ├── dev/              # Development process docs
+│   ├── ARCHITECTURE.md   # System design
+│   ├── SECURITY.md       # Security documentation
+│   └── OPERATIONS.md     # Operations runbook
 ├── scripts/              # Deployment scripts
 └── Makefile              # Build and run commands
 ```
