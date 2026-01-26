@@ -36,8 +36,8 @@ This demo showcases a document management system where:
 No SPIRE required. Uses mocked identities to demonstrate the concepts.
 
 ```bash
-git clone https://github.com/hardwaylabs/spiffe-spire-demo.git
-cd spiffe-spire-demo
+git clone https://github.com/redhat-et/zero-trust-agent-demo.git
+cd zero-trust-agent-demo
 
 ./scripts/setup-kind.sh
 kubectl apply -k deploy/k8s/overlays/mock
@@ -50,8 +50,8 @@ open http://localhost:8080
 Full SPIFFE/SPIRE integration with real X.509 SVIDs and mTLS.
 
 ```bash
-git clone https://github.com/hardwaylabs/spiffe-spire-demo.git
-cd spiffe-spire-demo
+git clone https://github.com/redhat-et/zero-trust-agent-demo.git
+cd zero-trust-agent-demo
 
 ./scripts/setup-kind.sh
 ./scripts/setup-spire.sh
@@ -112,27 +112,27 @@ See [docs/README.md](docs/README.md) for the full documentation index.
 
 ### Security & Operations
 
-| Document                           | Description                                      |
-| ---------------------------------- | ------------------------------------------------ |
-| [Security](docs/SECURITY.md)       | Threat model, trust boundaries, incident response |
-| [Operations](docs/OPERATIONS.md)   | Deployment, monitoring, troubleshooting runbook  |
+| Document                         | Description                                       |
+| -------------------------------- | ------------------------------------------------- |
+| [Security](docs/SECURITY.md)     | Threat model, trust boundaries, incident response |
+| [Operations](docs/OPERATIONS.md) | Deployment, monitoring, troubleshooting runbook   |
 
 ### Architecture Decision Records
 
-| ADR | Title |
-| --- | ----- |
-| [ADR-0001](docs/adr/0001-spiffe-spire-workload-identity.md) | SPIFFE/SPIRE for Workload Identity |
+| ADR                                                             | Title                                           |
+| --------------------------------------------------------------- | ----------------------------------------------- |
+| [ADR-0001](docs/adr/0001-spiffe-spire-workload-identity.md)     | SPIFFE/SPIRE for Workload Identity              |
 | [ADR-0002](docs/adr/0002-permission-intersection-delegation.md) | Permission Intersection for AI Agent Delegation |
-| [ADR-0003](docs/adr/0003-opa-policy-evaluation.md) | OPA for Policy Evaluation |
-| [ADR-0004](docs/adr/0004-kustomize-deployment-variants.md) | Kustomize for Deployment Variants |
-| [ADR-0005](docs/adr/0005-separate-health-ports-mtls.md) | Separate Health Ports for mTLS Services |
+| [ADR-0003](docs/adr/0003-opa-policy-evaluation.md)              | OPA for Policy Evaluation                       |
+| [ADR-0004](docs/adr/0004-kustomize-deployment-variants.md)      | Kustomize for Deployment Variants               |
+| [ADR-0005](docs/adr/0005-separate-health-ports-mtls.md)         | Separate Health Ports for mTLS Services         |
 
 ### Additional Resources
 
-| Document | Description |
-| -------- | ----------- |
-| [Contributing](CONTRIBUTING.md) | Guidelines for contributors |
-| [OpenShift vs Kubernetes](docs/deployment/OPENSHIFT_VS_KUBERNETES.md) | Platform comparison |
+| Document                                                              | Description                 |
+| --------------------------------------------------------------------- | --------------------------- |
+| [Contributing](CONTRIBUTING.md)                                       | Guidelines for contributors |
+| [OpenShift vs Kubernetes](docs/deployment/OPENSHIFT_VS_KUBERNETES.md) | Platform comparison         |
 
 ## Development
 
@@ -141,8 +141,8 @@ Want to modify the code? See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 ### Build from Source
 
 ```bash
-git clone https://github.com/hardwaylabs/spiffe-spire-demo.git
-cd spiffe-spire-demo
+git clone https://github.com/redhat-et/zero-trust-agent-demo.git
+cd zero-trust-agent-demo
 
 # Build all services
 make build
@@ -169,7 +169,7 @@ make help           # Show all commands
 ### Project Structure
 
 ```text
-spiffe-spire-demo/
+zero-trust-agent-demo/
 ├── pkg/                    # Shared packages
 │   ├── config/            # Viper configuration
 │   ├── logger/            # slog-based colored logger
@@ -210,4 +210,4 @@ spiffe-spire-demo/
 
 ## License
 
-[MIT](LICENSE)
+[Apache License 2.0](LICENSE)

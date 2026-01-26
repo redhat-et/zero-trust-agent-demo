@@ -505,7 +505,7 @@ allow if {
 
 1. **Create the service** with SPIFFE client:
    ```go
-   import "github.com/hardwaylabs/spiffe-spire-demo/pkg/spiffe"
+   import "github.com/redhat-et/zero-trust-agent-demo/pkg/spiffe"
 
    client := spiffe.NewWorkloadClient(cfg.SPIFFE, logger)
    identity, err := client.FetchIdentity(ctx)

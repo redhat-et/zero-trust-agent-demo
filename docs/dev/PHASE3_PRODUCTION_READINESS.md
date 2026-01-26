@@ -51,7 +51,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: ghcr.io/hardwaylabs/spiffe-spire-demo
+  IMAGE_PREFIX: ghcr.io/redhat-et/zero-trust-agent-demo
 
 jobs:
   build:
@@ -361,9 +361,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 **Objective**: Separate logic for readiness (can serve traffic) vs liveness (should restart).
 
-| Probe | Checks | Failure Action |
-|-------|--------|----------------|
-| Liveness | Process running, not deadlocked | Restart pod |
+| Probe     | Checks                             | Failure Action      |
+| --------- | ---------------------------------- | ------------------- |
+| Liveness  | Process running, not deadlocked    | Restart pod         |
 | Readiness | SVID valid, dependencies reachable | Remove from service |
 
 **Implementation**:
@@ -626,41 +626,41 @@ spiffe:
 
 ### P0 - Must Have (Before Production)
 
-| Task | Effort | Description |
-|------|--------|-------------|
-| A1 | 2-3h | GitHub Actions CI/CD |
-| C1 | 2-3h | SVID-aware health endpoints |
-| D1 | 2-3h | Verify rotation works |
-| E1 | 3-4h | Network policies |
+| Task | Effort | Description                 |
+| ---- | ------ | --------------------------- |
+| A1   | 2-3h   | GitHub Actions CI/CD        |
+| C1   | 2-3h   | SVID-aware health endpoints |
+| D1   | 2-3h   | Verify rotation works       |
+| E1   | 3-4h   | Network policies            |
 
 ### P1 - Should Have
 
-| Task | Effort | Description |
-|------|--------|-------------|
-| A2 | 1h | Multi-arch builds |
-| A3 | 3-4h | Integration tests in CI |
-| B1 | 4-5h | Prometheus metrics |
-| B2 | 2-3h | Structured JSON logging |
-| E2 | 2-3h | Pod security standards |
+| Task | Effort | Description             |
+| ---- | ------ | ----------------------- |
+| A2   | 1h     | Multi-arch builds       |
+| A3   | 3-4h   | Integration tests in CI |
+| B1   | 4-5h   | Prometheus metrics      |
+| B2   | 2-3h   | Structured JSON logging |
+| E2   | 2-3h   | Pod security standards  |
 
 ### P2 - Nice to Have
 
-| Task | Effort | Description |
-|------|--------|-------------|
-| B3 | 5-6h | OpenTelemetry tracing |
-| B4 | 3-4h | Grafana dashboard |
-| E3 | 3-4h | SPIFFE ID authorization |
+| Task      | Effort     | Description                   |
+| --------- | ---------- | ----------------------------- |
+| B3        | 5-6h       | OpenTelemetry tracing         |
+| B4        | 3-4h       | Grafana dashboard             |
+| E3        | 3-4h       | SPIFFE ID authorization       |
 | ~~F1-F3~~ | ~~10-13h~~ | ~~Documentation~~ ✅ Completed |
 
 ---
 
 ## Timeline Estimate
 
-| Priority | Total Effort | Scope |
-|----------|--------------|-------|
-| P0 | 10-13 hours | Minimum for production |
-| P0 + P1 | 23-31 hours | Recommended |
-| All | 46-60 hours | Complete Phase 3 |
+| Priority | Total Effort | Scope                  |
+| -------- | ------------ | ---------------------- |
+| P0       | 10-13 hours  | Minimum for production |
+| P0 + P1  | 23-31 hours  | Recommended            |
+| All      | 46-60 hours  | Complete Phase 3       |
 
 ---
 

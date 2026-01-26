@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hardwaylabs/spiffe-spire-demo/pkg/logger"
+	"github.com/redhat-et/zero-trust-agent-demo/pkg/logger"
 	"github.com/spiffe/go-spiffe/v2/spiffetls/tlsconfig"
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
 )
@@ -160,8 +160,8 @@ func (c *WorkloadClient) CreateMTLSClient(timeout time.Duration) *http.Client {
 
 	// Configure mTLS: present our SVID, verify peer's SVID
 	tlsConfig := tlsconfig.MTLSClientConfig(
-		source, // Our identity (X509Source implements X509SVIDSource)
-		source, // Trust bundle for verifying peers (X509Source implements X509BundleSource)
+		source,                   // Our identity (X509Source implements X509SVIDSource)
+		source,                   // Trust bundle for verifying peers (X509Source implements X509BundleSource)
 		tlsconfig.AuthorizeAny(), // Accept any SPIFFE ID in our trust domain
 	)
 
@@ -190,8 +190,8 @@ func (c *WorkloadClient) CreateMTLSServerConfig() *tls.Config {
 
 	// Configure mTLS server: present our SVID, verify client's SVID
 	return tlsconfig.MTLSServerConfig(
-		source, // Our identity
-		source, // Trust bundle for verifying clients
+		source,                   // Our identity
+		source,                   // Trust bundle for verifying clients
 		tlsconfig.AuthorizeAny(), // Accept any SPIFFE ID in our trust domain
 	)
 }

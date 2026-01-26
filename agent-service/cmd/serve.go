@@ -15,11 +15,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
 
-	"github.com/hardwaylabs/spiffe-spire-demo/agent-service/internal/store"
-	"github.com/hardwaylabs/spiffe-spire-demo/pkg/config"
-	"github.com/hardwaylabs/spiffe-spire-demo/pkg/logger"
-	"github.com/hardwaylabs/spiffe-spire-demo/pkg/metrics"
-	"github.com/hardwaylabs/spiffe-spire-demo/pkg/spiffe"
+	"github.com/redhat-et/zero-trust-agent-demo/agent-service/internal/store"
+	"github.com/redhat-et/zero-trust-agent-demo/pkg/config"
+	"github.com/redhat-et/zero-trust-agent-demo/pkg/logger"
+	"github.com/redhat-et/zero-trust-agent-demo/pkg/metrics"
+	"github.com/redhat-et/zero-trust-agent-demo/pkg/spiffe"
 )
 
 var serveCmd = &cobra.Command{
@@ -299,11 +299,11 @@ func (s *AgentService) handleDelegatedAccess(w http.ResponseWriter, r *http.Requ
 
 // AccessResult represents the result of a document access attempt
 type AccessResult struct {
-	Granted  bool        `json:"granted"`
-	Reason   string      `json:"reason"`
-	Document any `json:"document,omitempty"`
-	Agent    string      `json:"agent,omitempty"`
-	User     string      `json:"user,omitempty"`
+	Granted  bool   `json:"granted"`
+	Reason   string `json:"reason"`
+	Document any    `json:"document,omitempty"`
+	Agent    string `json:"agent,omitempty"`
+	User     string `json:"user,omitempty"`
 }
 
 func (s *AgentService) accessDocumentDelegated(ctx context.Context, agent *store.Agent, userSPIFFEID, documentID string) (*AccessResult, error) {

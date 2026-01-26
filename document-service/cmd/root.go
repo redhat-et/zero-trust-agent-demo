@@ -6,7 +6,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/hardwaylabs/spiffe-spire-demo/pkg/config"
+	"github.com/redhat-et/zero-trust-agent-demo/pkg/config"
 )
 
 var (

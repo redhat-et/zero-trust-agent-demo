@@ -15,11 +15,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
 
-	"github.com/hardwaylabs/spiffe-spire-demo/document-service/internal/store"
-	"github.com/hardwaylabs/spiffe-spire-demo/pkg/config"
-	"github.com/hardwaylabs/spiffe-spire-demo/pkg/logger"
-	"github.com/hardwaylabs/spiffe-spire-demo/pkg/metrics"
-	"github.com/hardwaylabs/spiffe-spire-demo/pkg/spiffe"
+	"github.com/redhat-et/zero-trust-agent-demo/document-service/internal/store"
+	"github.com/redhat-et/zero-trust-agent-demo/pkg/config"
+	"github.com/redhat-et/zero-trust-agent-demo/pkg/logger"
+	"github.com/redhat-et/zero-trust-agent-demo/pkg/metrics"
+	"github.com/redhat-et/zero-trust-agent-demo/pkg/spiffe"
 )
 
 var serveCmd = &cobra.Command{
@@ -63,8 +63,8 @@ type OPAInput struct {
 // OPAResponse represents the response from OPA
 type OPAResponse struct {
 	Result struct {
-		Allow   bool                   `json:"allow"`
-		Reason  string                 `json:"reason"`
+		Allow   bool           `json:"allow"`
+		Reason  string         `json:"reason"`
 		Details map[string]any `json:"details,omitempty"`
 	} `json:"result"`
 }

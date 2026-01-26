@@ -1,14 +1,14 @@
 # Contributing
 
-Thanks for your interest in contributing to the SPIFFE/SPIRE Zero Trust Demo!
+Thanks for your interest in contributing to the Zero Trust Agent Demo!
 
 ## Getting Started
 
 1. Fork the repository
 2. Clone your fork:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/spiffe-spire-demo.git
-   cd spiffe-spire-demo
+   git clone https://github.com/YOUR_USERNAME/zero-trust-agent-demo.git
+   cd zero-trust-agent-demo
    ```
 3. Build and run locally:
    ```bash
@@ -21,7 +21,7 @@ Thanks for your interest in contributing to the SPIFFE/SPIRE Zero Trust Demo!
 ### Project Structure
 
 ```text
-spiffe-spire-demo/
+zero-trust-agent-demo/
 ├── pkg/                    # Shared packages
 ├── web-dashboard/          # Dashboard service (:8080)
 ├── user-service/           # User management (:8082)

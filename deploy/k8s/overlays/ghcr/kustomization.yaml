@@ -10,19 +10,19 @@ resources:
 # Use ghcr.io images (pre-built in CI)
 images:
   - name: opa-service
-    newName: ghcr.io/hardwaylabs/spiffe-spire-demo/opa-service
+    newName: ghcr.io/redhat-et/zero-trust-agent-demo/opa-service
     newTag: latest
   - name: document-service
-    newName: ghcr.io/hardwaylabs/spiffe-spire-demo/document-service
+    newName: ghcr.io/redhat-et/zero-trust-agent-demo/document-service
     newTag: latest
   - name: user-service
-    newName: ghcr.io/hardwaylabs/spiffe-spire-demo/user-service
+    newName: ghcr.io/redhat-et/zero-trust-agent-demo/user-service
     newTag: latest
   - name: agent-service
-    newName: ghcr.io/hardwaylabs/spiffe-spire-demo/agent-service
+    newName: ghcr.io/redhat-et/zero-trust-agent-demo/agent-service
     newTag: latest
   - name: web-dashboard
-    newName: ghcr.io/hardwaylabs/spiffe-spire-demo/web-dashboard
+    newName: ghcr.io/redhat-et/zero-trust-agent-demo/web-dashboard
     newTag: latest
 
 patches:

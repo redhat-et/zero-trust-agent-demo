@@ -1,6 +1,6 @@
 package main
 
-import "github.com/hardwaylabs/spiffe-spire-demo/opa-service/cmd"
+import "github.com/redhat-et/zero-trust-agent-demo/opa-service/cmd"
 
 func main() {
 	cmd.Execute()

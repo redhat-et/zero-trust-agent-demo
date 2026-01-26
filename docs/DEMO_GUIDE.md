@@ -38,12 +38,12 @@ We use [Kustomize](https://kustomize.io/) to manage different deployment modes. 
 
 ### Deployment Modes Overview
 
-| Mode          | Images      | SPIFFE     | Use Case                         |
-| ------------- | ----------- | ---------- | -------------------------------- |
-| **mock**      | ghcr.io     | Mocked     | Quick demo, no SPIRE required    |
-| **local**     | localhost/* | Real SPIRE | Local development with Kind      |
-| **ghcr**      | ghcr.io     | Real SPIRE | Production-like with SPIRE       |
-| **openshift** | ghcr.io     | Real SPIRE | OpenShift with SCC and SELinux   |
+| Mode          | Images      | SPIFFE     | Use Case                       |
+| ------------- | ----------- | ---------- | ------------------------------ |
+| **mock**      | ghcr.io     | Mocked     | Quick demo, no SPIRE required  |
+| **local**     | localhost/* | Real SPIRE | Local development with Kind    |
+| **ghcr**      | ghcr.io     | Real SPIRE | Production-like with SPIRE     |
+| **openshift** | ghcr.io     | Real SPIRE | OpenShift with SCC and SELinux |
 
 ### Option A: Mock Mode (Quickest Demo)
 
@@ -53,8 +53,8 @@ No SPIRE installation required. Uses mocked SPIFFE identities for demonstration.
 
 ```bash
 # Clone the repository
-git clone https://github.com/hardwaylabs/spiffe-spire-demo.git
-cd spiffe-spire-demo
+git clone https://github.com/redhat-et/zero-trust-agent-demo.git
+cd zero-trust-agent-demo
 
 # Create Kind cluster
 ./scripts/setup-kind.sh
@@ -77,8 +77,8 @@ Build from source and deploy with real SPIFFE/SPIRE integration.
 
 ```bash
 # Clone and build
-git clone https://github.com/hardwaylabs/spiffe-spire-demo.git
-cd spiffe-spire-demo
+git clone https://github.com/redhat-et/zero-trust-agent-demo.git
+cd zero-trust-agent-demo
 make build
 
 # Create Kind cluster with SPIRE
@@ -103,8 +103,8 @@ Uses pre-built images from GitHub Container Registry with real SPIRE.
 
 ```bash
 # Clone the repository
-git clone https://github.com/hardwaylabs/spiffe-spire-demo.git
-cd spiffe-spire-demo
+git clone https://github.com/redhat-et/zero-trust-agent-demo.git
+cd zero-trust-agent-demo
 
 # Create Kind cluster with SPIRE
 ./scripts/setup-kind.sh
@@ -124,8 +124,8 @@ Run services directly on your machine for rapid iteration.
 
 ```bash
 # Clone and build
-git clone https://github.com/hardwaylabs/spiffe-spire-demo.git
-cd spiffe-spire-demo
+git clone https://github.com/redhat-et/zero-trust-agent-demo.git
+cd zero-trust-agent-demo
 make build
 
 # Run locally (without Kubernetes)
@@ -145,8 +145,8 @@ Deploy to OpenShift with real SPIRE and proper Security Context Constraints.
 
 ```bash
 # Clone the repository
-git clone https://github.com/hardwaylabs/spiffe-spire-demo.git
-cd spiffe-spire-demo
+git clone https://github.com/redhat-et/zero-trust-agent-demo.git
+cd zero-trust-agent-demo
 
 # Setup SPIRE on OpenShift (handles SCC and SELinux)
 ./scripts/setup-spire-openshift.sh
@@ -296,13 +296,13 @@ When Bob delegates to Summarizer:
 
 All services expose Prometheus metrics on their health port:
 
-| Service          | Metrics URL                      |
-| ---------------- | -------------------------------- |
-| user-service     | `http://localhost:8182/metrics`  |
-| agent-service    | `http://localhost:8183/metrics`  |
-| document-service | `http://localhost:8184/metrics`  |
-| opa-service      | `http://localhost:8185/metrics`  |
-| web-dashboard    | `http://localhost:8080/metrics`  |
+| Service          | Metrics URL                     |
+| ---------------- | ------------------------------- |
+| user-service     | `http://localhost:8182/metrics` |
+| agent-service    | `http://localhost:8183/metrics` |
+| document-service | `http://localhost:8184/metrics` |
+| opa-service      | `http://localhost:8185/metrics` |
+| web-dashboard    | `http://localhost:8080/metrics` |
 
 **Available metrics:**
 - `spiffe_demo_authorization_decisions_total` - Allow/deny counts by service

@@ -1863,7 +1863,7 @@ decision_logs:
 ## Project Structure
 
 ```
-spiffe-spire-demo/
+zero-trust-agent-demo/
 ├── README.md                          # Quick start guide
 ├── DESIGN.md                          # This design document
 ├── go.mod                             # Go module definition
@@ -1986,7 +1986,7 @@ spiffe-spire-demo/
 **File**: `go.mod`
 
 ```go
-module github.com/hardwaylabs/spiffe-spire-demo
+module github.com/redhat-et/zero-trust-agent-demo
 
 go 1.21
 
@@ -2179,8 +2179,8 @@ The demo is designed to run on a local laptop using **Kind** (Kubernetes in Dock
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/hardwaylabs/spiffe-spire-demo.git
-cd spiffe-spire-demo
+git clone https://github.com/redhat-et/zero-trust-agent-demo.git
+cd zero-trust-agent-demo
 
 # 2. Deploy to Kind cluster
 ./scripts/deploy-local.sh
@@ -3205,11 +3205,11 @@ This design document serves as a complete blueprint for implementation. To build
 1. **Create Project Structure**
 
    ```bash
-   mkdir -p spiffe-spire-demo/{web-dashboard,user-service,agent-service,document-service,opa-service}
-   mkdir -p spiffe-spire-demo/deploy/kind
-   mkdir -p spiffe-spire-demo/scripts
-   cd spiffe-spire-demo
-   go mod init github.com/hardwaylabs/spiffe-spire-demo
+   mkdir -p zero-trust-agent-demo/{web-dashboard,user-service,agent-service,document-service,opa-service}
+   mkdir -p zero-trust-agent-demo/deploy/kind
+   mkdir -p zero-trust-agent-demo/scripts
+   cd zero-trust-agent-demo
+   go mod init github.com/redhat-et/zero-trust-agent-demo
    ```
 
 2. **Implement Core Components** (Priority Order)

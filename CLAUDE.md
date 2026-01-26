@@ -29,13 +29,13 @@ This ensures agents can never exceed the permissions of either the user OR the a
 
 ### Services
 
-| Service | Port | Description |
-|---------|------|-------------|
-| web-dashboard | 8080 | Interactive UI for demo |
-| user-service | 8082 | User management, direct access, delegation |
-| agent-service | 8083 | AI agent management, delegated access |
+| Service          | Port | Description                                |
+| ---------------- | ---- | ------------------------------------------ |
+| web-dashboard    | 8080 | Interactive UI for demo                    |
+| user-service     | 8082 | User management, direct access, delegation |
+| agent-service    | 8083 | AI agent management, delegated access      |
 | document-service | 8084 | Protected documents with OPA authorization |
-| opa-service | 8085 | Policy evaluation engine (Rego policies) |
+| opa-service      | 8085 | Policy evaluation engine (Rego policies)   |
 
 ## Quick Start
 
@@ -56,7 +56,7 @@ tail -f tmp/logs/*.log
 ## Project Structure
 
 ```
-spiffe-spire-demo/
+zero-trust-agent-demo/
 ├── pkg/                    # Shared packages
 │   ├── config/            # Viper configuration
 │   ├── logger/            # Colored slog wrapper

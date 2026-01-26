@@ -244,7 +244,7 @@ Browser → Dashboard → User-Service → Document-Service → OPA
 ### Key Changes Pattern (applied to each service)
 ```go
 // 1. Add import
-import "github.com/hardwaylabs/spiffe-spire-demo/pkg/spiffe"
+import "github.com/redhat-et/zero-trust-agent-demo/pkg/spiffe"
 
 // 2. Initialize workload client
 spiffeCfg := spiffe.Config{

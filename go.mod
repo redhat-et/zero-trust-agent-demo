@@ -1,4 +1,4 @@
-module github.com/hardwaylabs/spiffe-spire-demo
+module github.com/redhat-et/zero-trust-agent-demo
 
 go 1.24.6
 

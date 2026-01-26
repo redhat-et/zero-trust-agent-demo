@@ -4,4 +4,4 @@ metadata:
   name: spiffe-demo
   labels:
     app.kubernetes.io/name: spiffe-demo
-    app.kubernetes.io/part-of: spiffe-spire-demo
+    app.kubernetes.io/part-of: zero-trust-agent-demo

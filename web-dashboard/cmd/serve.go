@@ -17,10 +17,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
 
-	"github.com/hardwaylabs/spiffe-spire-demo/pkg/config"
-	"github.com/hardwaylabs/spiffe-spire-demo/pkg/logger"
-	"github.com/hardwaylabs/spiffe-spire-demo/pkg/spiffe"
-	"github.com/hardwaylabs/spiffe-spire-demo/web-dashboard/internal/assets"
+	"github.com/redhat-et/zero-trust-agent-demo/pkg/config"
+	"github.com/redhat-et/zero-trust-agent-demo/pkg/logger"
+	"github.com/redhat-et/zero-trust-agent-demo/pkg/spiffe"
+	"github.com/redhat-et/zero-trust-agent-demo/web-dashboard/internal/assets"
 )
 
 var serveCmd = &cobra.Command{
