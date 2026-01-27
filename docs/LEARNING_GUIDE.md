@@ -13,7 +13,9 @@ This guide provides a deep dive into the Zero Trust concepts and SPIFFE/SPIRE te
 7. [Policy-Based Access Control with OPA](#policy-based-access-control-with-opa)
 8. [Permission Intersection Pattern](#permission-intersection-pattern)
 9. [Code Implementation Guide](#code-implementation-guide)
-10. [Further Reading](#further-reading)
+10. [Extending the Demo: Adding Users and Agents](#extending-the-demo-adding-users-and-agents)
+11. [Further Reading](#further-reading)
+12. [Glossary](#glossary)
 
 ---
 
@@ -534,6 +536,207 @@ make test-policies
 ```
 
 **Test File**: `opa-service/policies/delegation_test.rego`
+
+---
+
+## Extending the Demo: Adding Users and Agents
+
+This section explains how to extend the demo by adding new users and agents. Understanding this process reveals important architectural distinctions between **identity** and **policy**.
+
+### Key Insight: Identity vs Policy
+
+Before diving into the steps, understand this crucial distinction:
+
+| Concept | Users | Agents |
+|---------|-------|--------|
+| **What it represents** | "Who is this person?" | "What should this workload be allowed to do?" |
+| **Source** | Identity Provider (LDAP, Keycloak) | Security Policy (OPA) |
+| **Managed by** | HR / IT Admin | Security Team |
+| **Example** | Alice is in engineering (fact about Alice) | Summarizer can only access finance (policy decision) |
+
+User **departments** are identity attributes (facts about who they are).
+Agent **capabilities** are policy decisions (what we allow them to do).
+
+### Understanding User "SPIFFE IDs"
+
+In this demo, you'll see user SPIFFE IDs like `spiffe://demo.example.com/user/alice`. But these are **not real SVIDs** issued by SPIRE.
+
+| Entity | Real SVID? | Source |
+|--------|------------|--------|
+| user-service (workload) | Yes | SPIRE issues X.509 certificate |
+| alice (human) | No | Constructed from username |
+
+Humans can't receive SVIDs because they're not processes running on machines. The "user SPIFFE ID" is a **naming convention** for representing users in policy decisions:
+
+```go
+// Constructed at runtime from JWT subject claim or selected username
+userSPIFFEID := fmt.Sprintf("spiffe://%s/user/%s", trustDomain, username)
+```
+
+### Adding a New User (Current Demo)
+
+To add a user named "David" with departments `["engineering", "hr"]`:
+
+#### Step 1: Update User Store
+
+**File**: `user-service/internal/store/users.go`
+
+```go
+s.users["david"] = &User{
+    ID:          "david",
+    Name:        "David",
+    Departments: []string{"engineering", "hr"},
+    SPIFFEID:    "spiffe://" + trustDomain + "/user/david",
+}
+```
+
+#### Step 2: Update OPA Policy
+
+**File**: `opa-service/policies/user_permissions.rego`
+
+```rego
+user_departments := {
+    "alice": ["engineering", "finance"],
+    "bob": ["finance", "admin"],
+    "carol": ["hr"],
+    "david": ["engineering", "hr"]  # Add David
+}
+```
+
+#### Step 3: Update Kubernetes ConfigMap
+
+**File**: `deploy/k8s/opa-policies-configmap.yaml`
+
+Update the embedded Rego policy to match.
+
+#### Step 4: Rebuild and Deploy
+
+```bash
+make build
+kubectl apply -k deploy/k8s/base
+kubectl rollout restart deployment/user-service -n spiffe-demo
+kubectl rollout restart deployment/opa-service -n spiffe-demo
+```
+
+### Adding a New Agent (Current Demo)
+
+To add an agent named "Reviewer" with capabilities `["engineering", "hr"]`:
+
+#### Step 1: Create Agent Workload (if it's a real service)
+
+```yaml
+# deploy/k8s/reviewer-agent.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reviewer-agent
+  namespace: spiffe-demo
+spec:
+  template:
+    metadata:
+      labels:
+        app: reviewer-agent  # Used for SPIFFE ID matching
+    spec:
+      containers:
+      - name: reviewer
+        image: your-registry/reviewer-agent:latest
+```
+
+#### Step 2: Register SPIFFE ID
+
+**File**: `deploy/spire/clusterspiffeids.yaml`
+
+```yaml
+---
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: spiffe-demo-reviewer-agent
+spec:
+  className: spire-system-spire
+  spiffeIDTemplate: "spiffe://demo.example.com/agent/reviewer"
+  podSelector:
+    matchLabels:
+      app: reviewer-agent
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: spiffe-demo
+```
+
+#### Step 3: Define Agent Capabilities (Policy)
+
+**File**: `opa-service/policies/agent_permissions.rego`
+
+```rego
+agent_capabilities := {
+    "gpt4": ["engineering", "finance"],
+    "claude": ["engineering", "finance", "admin", "hr"],
+    "summarizer": ["finance"],
+    "reviewer": ["engineering", "hr"]  # Add Reviewer
+}
+```
+
+#### Step 4: Update Agent Store (for UI listing)
+
+**File**: `agent-service/internal/store/agents.go`
+
+```go
+s.agents["reviewer"] = &Agent{
+    ID:           "reviewer",
+    Name:         "Reviewer Agent",
+    Capabilities: []string{"engineering", "hr"},
+    SPIFFEID:     "spiffe://" + trustDomain + "/agent/reviewer",
+    Description:  "Reviews engineering docs and HR policies",
+}
+```
+
+#### Step 5: Update ConfigMap and Deploy
+
+Same as user steps - update ConfigMap and redeploy.
+
+### Why the Duplication?
+
+You may have noticed that user/agent data exists in multiple places:
+- Go code (for service logic and UI)
+- Rego policies (for authorization)
+- Kubernetes ConfigMap (for deployment)
+
+**This duplication is a demo simplification**. In production:
+
+| Data | Demo Approach | Production Approach |
+|------|---------------|---------------------|
+| User departments | Hardcoded in Go + Rego | LDAP/Keycloak (single source) |
+| Agent capabilities | Hardcoded in Go + Rego | OPA policy (single source) |
+| Policies in K8s | ConfigMap (manual sync) | OPA Bundles (auto-sync) |
+
+### Production Architecture Preview
+
+With identity federation (Phase 4), the process simplifies dramatically:
+
+**Adding a User (Production)**:
+1. Add user to FreeIPA: `ipa user-add david`
+2. Assign to groups: `ipa group-add-member engineering --users=david`
+3. **Done** - no code changes needed
+
+**Adding an Agent (Production)**:
+1. Deploy agent workload with appropriate labels
+2. Add ClusterSPIFFEID registration
+3. Add capabilities to OPA policy
+4. **Done** - agent gets SVID automatically
+
+The key difference: **users come from identity infrastructure** (FreeIPA/Keycloak), while **agent capabilities remain in policy** (OPA) because they represent security decisions, not identity facts.
+
+### Summary: Who Changes What
+
+| Change | Files to Modify | Who Typically Does This |
+|--------|-----------------|-------------------------|
+| Add user (demo) | users.go, user_permissions.rego, ConfigMap | Developer |
+| Add user (production) | FreeIPA only | IT Admin / HR |
+| Add agent | agents.go, agent_permissions.rego, ClusterSPIFFEID, ConfigMap | Platform Team |
+| Change user departments | Same as add user | IT Admin |
+| Change agent capabilities | agent_permissions.rego, ConfigMap | Security Team |
+
+For detailed production architecture, see [Phase 4: Identity Federation](dev/PHASE4_IDENTITY_FEDERATION.md).
 
 ---
 
