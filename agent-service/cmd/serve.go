@@ -42,8 +42,9 @@ type Config struct {
 
 // DelegatedAccessRequest represents a request from a user to access a document via agent
 type DelegatedAccessRequest struct {
-	UserSPIFFEID string `json:"user_spiffe_id"`
-	DocumentID   string `json:"document_id"`
+	UserSPIFFEID    string   `json:"user_spiffe_id"`
+	DocumentID      string   `json:"document_id"`
+	UserDepartments []string `json:"user_departments,omitempty"` // From JWT claims (OIDC mode)
 }
 
 // AgentService handles agent operations
@@ -275,7 +276,7 @@ func (s *AgentService) handleDelegatedAccess(w http.ResponseWriter, r *http.Requ
 		"agent_spiffe_id", agent.SPIFFEID)
 
 	// Make delegated request to document service
-	result, err := s.accessDocumentDelegated(r.Context(), agent, req.UserSPIFFEID, req.DocumentID)
+	result, err := s.accessDocumentDelegated(r.Context(), agent, req.UserSPIFFEID, req.DocumentID, req.UserDepartments)
 	if err != nil {
 		s.log.Error("Delegated access failed", "error", err)
 		metrics.AuthorizationDecisions.WithLabelValues("agent-service", "error", "delegated").Inc()
@@ -306,13 +307,17 @@ type AccessResult struct {
 	User     string `json:"user,omitempty"`
 }
 
-func (s *AgentService) accessDocumentDelegated(ctx context.Context, agent *store.Agent, userSPIFFEID, documentID string) (*AccessResult, error) {
+func (s *AgentService) accessDocumentDelegated(ctx context.Context, agent *store.Agent, userSPIFFEID, documentID string, userDepartments []string) (*AccessResult, error) {
+	delegation := map[string]any{
+		"user_spiffe_id":  userSPIFFEID,
+		"agent_spiffe_id": agent.SPIFFEID,
+	}
+	if len(userDepartments) > 0 {
+		delegation["user_departments"] = userDepartments
+	}
 	reqBody := map[string]any{
 		"document_id": documentID,
-		"delegation": map[string]any{
-			"user_spiffe_id":  userSPIFFEID,
-			"agent_spiffe_id": agent.SPIFFEID,
-		},
+		"delegation":  delegation,
 	}
 
 	body, err := json.Marshal(reqBody)

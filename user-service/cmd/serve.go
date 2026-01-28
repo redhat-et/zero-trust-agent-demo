@@ -45,15 +45,17 @@ type Config struct {
 
 // DirectAccessRequest represents a request for direct document access
 type DirectAccessRequest struct {
-	UserID     string `json:"user_id"`
-	DocumentID string `json:"document_id"`
+	UserID          string   `json:"user_id"`
+	DocumentID      string   `json:"document_id"`
+	UserDepartments []string `json:"user_departments,omitempty"` // From JWT claims (OIDC mode)
 }
 
 // DelegateRequest represents a request to delegate to an agent
 type DelegateRequest struct {
-	UserID     string `json:"user_id"`
-	AgentID    string `json:"agent_id"`
-	DocumentID string `json:"document_id"`
+	UserID          string   `json:"user_id"`
+	AgentID         string   `json:"agent_id"`
+	DocumentID      string   `json:"document_id"`
+	UserDepartments []string `json:"user_departments,omitempty"` // From JWT claims (OIDC mode)
 }
 
 // UserService handles user operations
@@ -257,7 +259,7 @@ func (s *UserService) handleDirectAccess(w http.ResponseWriter, r *http.Request)
 	s.log.SVID(user.SPIFFEID, "Using user SVID for authentication")
 
 	// Make request to document service
-	result, err := s.accessDocument(r.Context(), user.SPIFFEID, req.DocumentID, nil)
+	result, err := s.accessDocument(r.Context(), user.SPIFFEID, req.DocumentID, req.UserDepartments, nil)
 	if err != nil {
 		s.log.Error("Document access failed", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -299,7 +301,7 @@ func (s *UserService) handleDelegate(w http.ResponseWriter, r *http.Request) {
 	s.log.SVID(user.SPIFFEID, "User SVID for delegation context")
 
 	// Forward delegation request to agent service
-	result, err := s.delegateToAgent(r.Context(), user, req.AgentID, req.DocumentID)
+	result, err := s.delegateToAgent(r.Context(), user, req.AgentID, req.DocumentID, req.UserDepartments)
 	if err != nil {
 		s.log.Error("Delegation failed", "error", err)
 		metrics.DelegationsTotal.WithLabelValues(req.UserID, req.AgentID, "error").Inc()
@@ -330,12 +332,17 @@ type AccessResult struct {
 	Agent    string `json:"agent,omitempty"`
 }
 
-func (s *UserService) accessDocument(ctx context.Context, spiffeID, documentID string, delegation *struct {
-	UserSPIFFEID  string `json:"user_spiffe_id"`
-	AgentSPIFFEID string `json:"agent_spiffe_id"`
+func (s *UserService) accessDocument(ctx context.Context, spiffeID, documentID string, userDepartments []string, delegation *struct {
+	UserSPIFFEID    string   `json:"user_spiffe_id"`
+	AgentSPIFFEID   string   `json:"agent_spiffe_id"`
+	UserDepartments []string `json:"user_departments,omitempty"`
 }) (*AccessResult, error) {
 	reqBody := map[string]any{
 		"document_id": documentID,
+	}
+	// Pass user departments from JWT claims if provided
+	if len(userDepartments) > 0 {
+		reqBody["user_departments"] = userDepartments
 	}
 	if delegation != nil {
 		reqBody["delegation"] = delegation
@@ -393,10 +400,13 @@ func (s *UserService) accessDocument(ctx context.Context, spiffeID, documentID s
 	}, nil
 }
 
-func (s *UserService) delegateToAgent(ctx context.Context, user *store.User, agentID, documentID string) (*AccessResult, error) {
+func (s *UserService) delegateToAgent(ctx context.Context, user *store.User, agentID, documentID string, userDepartments []string) (*AccessResult, error) {
 	reqBody := map[string]any{
 		"user_spiffe_id": user.SPIFFEID,
 		"document_id":    documentID,
+	}
+	if len(userDepartments) > 0 {
+		reqBody["user_departments"] = userDepartments
 	}
 
 	body, err := json.Marshal(reqBody)

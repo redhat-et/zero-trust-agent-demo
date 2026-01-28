@@ -417,6 +417,17 @@ func (d *Dashboard) handleDirectAccess(w http.ResponseWriter, r *http.Request) {
 	}
 	d.log.Info("Direct access params", "user", req.UserID, "document", req.DocumentID)
 
+	// Get user departments from session (JWT groups) if OIDC is enabled
+	var userDepartments []string
+	if d.oidcEnabled {
+		if cookie, err := r.Cookie("session_id"); err == nil {
+			if session := d.sessionStore.Get(cookie.Value); session != nil {
+				userDepartments = session.Groups
+				d.log.Info("Using JWT groups as user departments", "groups", userDepartments)
+			}
+		}
+	}
+
 	d.broadcastLog(LogEntry{
 		Timestamp: time.Now().Format(time.RFC3339),
 		Component: "DASHBOARD",
@@ -425,7 +436,15 @@ func (d *Dashboard) handleDirectAccess(w http.ResponseWriter, r *http.Request) {
 		Color:     "white",
 	})
 
-	body, _ := json.Marshal(req)
+	// Build request with user_departments if available
+	reqBody := map[string]any{
+		"user_id":     req.UserID,
+		"document_id": req.DocumentID,
+	}
+	if len(userDepartments) > 0 {
+		reqBody["user_departments"] = userDepartments
+	}
+	body, _ := json.Marshal(reqBody)
 	d.log.Info("Calling user service", "url", d.userServiceURL+"/access")
 	resp, err := d.httpClient.Post(d.userServiceURL+"/access", "application/json", bytes.NewReader(body))
 	if err != nil {
@@ -489,6 +508,17 @@ func (d *Dashboard) handleDelegatedAccess(w http.ResponseWriter, r *http.Request
 	}
 	d.log.Info("Delegated access params", "user", req.UserID, "agent", req.AgentID, "document", req.DocumentID)
 
+	// Get user departments from session (JWT groups) if OIDC is enabled
+	var userDepartments []string
+	if d.oidcEnabled {
+		if cookie, err := r.Cookie("session_id"); err == nil {
+			if session := d.sessionStore.Get(cookie.Value); session != nil {
+				userDepartments = session.Groups
+				d.log.Info("Using JWT groups as user departments", "groups", userDepartments)
+			}
+		}
+	}
+
 	var resp *http.Response
 	var err error
 
@@ -522,7 +552,16 @@ func (d *Dashboard) handleDelegatedAccess(w http.ResponseWriter, r *http.Request
 			Color:     "white",
 		})
 
-		body, _ := json.Marshal(req)
+		// Build request with user_departments if available
+		reqBody := map[string]any{
+			"user_id":     req.UserID,
+			"agent_id":    req.AgentID,
+			"document_id": req.DocumentID,
+		}
+		if len(userDepartments) > 0 {
+			reqBody["user_departments"] = userDepartments
+		}
+		body, _ := json.Marshal(reqBody)
 		d.log.Info("Calling user service for delegation", "url", d.userServiceURL+"/delegate")
 		resp, err = d.httpClient.Post(d.userServiceURL+"/delegate", "application/json", bytes.NewReader(body))
 	}
