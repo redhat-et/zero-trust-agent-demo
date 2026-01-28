@@ -687,6 +687,144 @@ spiffe:
 
 ---
 
+## Phase 3.5: S3 Document Storage
+
+### Overview
+
+Phase 3.5 adds persistent document storage using S3-compatible object storage (NooBaa via OpenShift OBC, MinIO for local development).
+
+**Status**: ✅ Completed
+
+**PRs**:
+
+- #1: S3 storage implementation with CRUD API
+- #2: SSL auto-detection for port 443
+- #3: InsecureTLS for internal *.svc services
+
+### Testing with MinIO (local development)
+
+```bash
+# Start MinIO and seed documents
+./scripts/test-s3-storage.sh
+
+# Or manually:
+docker run -d --name minio-test \
+  -p 9000:9000 -p 9001:9001 \
+  -e MINIO_ROOT_USER=minioadmin \
+  -e MINIO_ROOT_PASSWORD=minioadmin \
+  minio/minio server /data --console-address ":9001"
+
+# Set environment and run
+export SPIFFE_DEMO_STORAGE_ENABLED=true
+export BUCKET_HOST=localhost
+export BUCKET_PORT=9000
+export BUCKET_NAME=documents
+export AWS_ACCESS_KEY_ID=minioadmin
+export AWS_SECRET_ACCESS_KEY=minioadmin
+
+./bin/document-service seed
+./bin/document-service serve --mock-spiffe
+```
+
+### Testing on OpenShift with ODF/NooBaa
+
+#### Deploy with OBC storage
+
+```bash
+# Deploy with storage overlay
+oc apply -k deploy/k8s/overlays/openshift-storage
+
+# Wait for OBC to bind
+oc wait --for=condition=Bound obc/doc-storage-bucket -n spiffe-demo --timeout=120s
+
+# Verify ConfigMap and Secret created
+oc get configmap doc-storage-bucket -n spiffe-demo
+oc get secret doc-storage-bucket -n spiffe-demo
+```
+
+#### Check init container logs
+
+```bash
+# Verify documents were seeded
+oc logs deployment/document-service -n spiffe-demo -c seed-documents
+```
+
+#### Access S3 bucket directly
+
+```bash
+# Get bucket credentials from OBC
+export AWS_ACCESS_KEY_ID=$(oc get secret doc-storage-bucket -n spiffe-demo \
+  -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' | base64 -d)
+export AWS_SECRET_ACCESS_KEY=$(oc get secret doc-storage-bucket -n spiffe-demo \
+  -o jsonpath='{.data.AWS_SECRET_ACCESS_KEY}' | base64 -d)
+
+# Get bucket info
+export BUCKET_HOST=$(oc get configmap doc-storage-bucket -n spiffe-demo \
+  -o jsonpath='{.data.BUCKET_HOST}')
+export BUCKET_NAME=$(oc get configmap doc-storage-bucket -n spiffe-demo \
+  -o jsonpath='{.data.BUCKET_NAME}')
+
+# Port-forward to S3 endpoint
+oc port-forward svc/s3 9443:443 -n openshift-storage &
+
+# List documents in bucket
+aws --endpoint-url https://localhost:9443 --no-verify-ssl \
+  s3 ls s3://${BUCKET_NAME}/content/
+
+# Download a document
+aws --endpoint-url https://localhost:9443 --no-verify-ssl \
+  s3 cp s3://${BUCKET_NAME}/content/DOC-001.md /tmp/DOC-001.md
+
+# View document content
+cat /tmp/DOC-001.md
+
+# Modify and re-upload to verify changes appear in UI
+echo -e "\n\n---\n**Updated from S3 bucket at $(date)**" >> /tmp/DOC-001.md
+aws --endpoint-url https://localhost:9443 --no-verify-ssl \
+  s3 cp /tmp/DOC-001.md s3://${BUCKET_NAME}/content/DOC-001.md
+
+# Kill port-forward when done
+kill %1
+```
+
+#### View document manifest
+
+```bash
+# Download and view the metadata manifest
+aws --endpoint-url https://localhost:9443 --no-verify-ssl \
+  s3 cp s3://${BUCKET_NAME}/documents.json /tmp/documents.json
+cat /tmp/documents.json | jq .
+```
+
+### Troubleshooting S3 storage
+
+#### SSL/TLS errors
+
+If you see `HTTP/1.x transport connection broken` with TLS bytes:
+
+- Port 443 requires HTTPS - SSL is auto-detected
+- For `*.svc` hosts, InsecureTLS is auto-enabled
+
+#### Certificate verification errors
+
+If you see `x509: certificate signed by unknown authority`:
+
+- Internal services use self-signed certs
+- InsecureTLS should be auto-enabled for `*.svc` hosts
+- Check `BUCKET_INSECURE_TLS=true` if needed
+
+#### Connection refused
+
+```bash
+# Check S3 service is running
+oc get pods -n openshift-storage | grep noobaa
+
+# Check S3 endpoint
+oc get svc s3 -n openshift-storage
+```
+
+---
+
 ## References
 
 - [GitHub Actions](https://docs.github.com/en/actions)
