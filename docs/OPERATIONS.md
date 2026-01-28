@@ -5,11 +5,12 @@ This document provides operational guidance for deploying, monitoring, and troub
 ## Table of Contents
 
 1. [Deployment Procedures](#deployment-procedures)
-2. [Monitoring and Alerting](#monitoring-and-alerting)
-3. [Troubleshooting Guide](#troubleshooting-guide)
-4. [SVID Rotation Verification](#svid-rotation-verification)
-5. [SPIRE Server Maintenance](#spire-server-maintenance)
-6. [Backup and Recovery](#backup-and-recovery)
+2. [Document Storage Operations](#document-storage-operations)
+3. [Monitoring and Alerting](#monitoring-and-alerting)
+4. [Troubleshooting Guide](#troubleshooting-guide)
+5. [SVID Rotation Verification](#svid-rotation-verification)
+6. [SPIRE Server Maintenance](#spire-server-maintenance)
+7. [Backup and Recovery](#backup-and-recovery)
 
 ---
 
@@ -73,6 +74,221 @@ kubectl rollout undo deployment/document-service -n spiffe-demo
 # Rollback to specific revision
 kubectl rollout undo deployment/document-service -n spiffe-demo --to-revision=2
 ```
+
+---
+
+## Document Storage Operations
+
+### Storage backends
+
+The document-service supports two storage backends:
+
+| Backend | Use case | Configuration |
+|---------|----------|---------------|
+| Mock (in-memory) | Local development, testing | Default when `SPIFFE_DEMO_STORAGE_ENABLED=false` |
+| S3-compatible | Production, OpenShift | Requires S3 endpoint and credentials |
+
+### Local development with MinIO
+
+```bash
+# Start MinIO container
+docker run -d --name minio-test \
+  -p 9000:9000 -p 9001:9001 \
+  -e MINIO_ROOT_USER=minioadmin \
+  -e MINIO_ROOT_PASSWORD=minioadmin \
+  minio/minio server /data --console-address ":9001"
+
+# Create bucket
+export AWS_ACCESS_KEY_ID=minioadmin
+export AWS_SECRET_ACCESS_KEY=minioadmin
+aws --endpoint-url http://localhost:9000 --region us-east-1 s3 mb s3://documents
+
+# Set environment variables
+export SPIFFE_DEMO_STORAGE_ENABLED=true
+export BUCKET_HOST=localhost
+export BUCKET_PORT=9000
+export BUCKET_NAME=documents
+
+# Seed sample documents
+./bin/document-service seed
+
+# Start document service
+./bin/document-service serve --mock-spiffe
+```
+
+Alternatively, use the provided test script:
+
+```bash
+./scripts/test-s3-storage.sh
+```
+
+### MinIO console access
+
+- URL: http://localhost:9001
+- Username: `minioadmin`
+- Password: `minioadmin`
+
+### Document CRUD operations
+
+All CRUD operations require admin department membership. Only Bob has admin access in the demo.
+
+#### List documents
+
+```bash
+curl http://localhost:8084/documents
+```
+
+#### Create document (JSON)
+
+```bash
+curl -X POST http://localhost:8084/documents \
+  -H "Content-Type: application/json" \
+  -H "X-SPIFFE-ID: spiffe://demo.example.com/user/bob" \
+  -d '{
+    "id": "DOC-NEW",
+    "title": "New Document",
+    "required_departments": ["engineering"],
+    "sensitivity": "medium",
+    "content": "# New Document\n\nDocument content here."
+  }'
+```
+
+#### Create document (multipart file upload)
+
+```bash
+curl -X POST http://localhost:8084/documents \
+  -H "X-SPIFFE-ID: spiffe://demo.example.com/user/bob" \
+  -F "file=@./my-document.md" \
+  -F 'metadata={"id":"DOC-NEW","title":"New Document","required_departments":["engineering"],"sensitivity":"medium"};type=application/json'
+```
+
+#### Update document
+
+```bash
+curl -X PUT http://localhost:8084/documents/DOC-NEW \
+  -H "Content-Type: application/json" \
+  -H "X-SPIFFE-ID: spiffe://demo.example.com/user/bob" \
+  -d '{
+    "title": "Updated Title",
+    "required_departments": ["engineering", "finance"],
+    "sensitivity": "high",
+    "content": "# Updated Content"
+  }'
+```
+
+#### Delete document
+
+```bash
+curl -X DELETE http://localhost:8084/documents/DOC-NEW \
+  -H "X-SPIFFE-ID: spiffe://demo.example.com/user/bob"
+```
+
+#### Get raw document content
+
+```bash
+curl http://localhost:8084/documents/DOC-001/content \
+  -H "X-SPIFFE-ID: spiffe://demo.example.com/user/alice"
+```
+
+### Seeding documents
+
+The seed command populates the bucket with sample documents:
+
+```bash
+# Seed only if bucket is empty
+./bin/document-service seed --if-empty
+
+# Force seed (overwrites existing)
+./bin/document-service seed
+```
+
+In Kubernetes, an init container handles seeding automatically.
+
+### S3 bucket structure
+
+```text
+bucket/
+├── documents.json           # Metadata manifest
+└── content/
+    ├── DOC-001.md          # Document content files
+    ├── DOC-002.md
+    └── ...
+```
+
+### Troubleshooting storage issues
+
+#### Issue: Document service fails to start with S3
+
+**Symptoms:**
+
+- "failed to ping storage" error
+- Connection refused to S3 endpoint
+
+**Diagnosis:**
+
+```bash
+# Check S3 endpoint reachability
+curl http://${BUCKET_HOST}:${BUCKET_PORT}/minio/health/live
+
+# Verify credentials
+aws --endpoint-url http://${BUCKET_HOST}:${BUCKET_PORT} \
+  --region us-east-1 s3 ls s3://${BUCKET_NAME}/
+```
+
+**Resolution:**
+
+1. Verify BUCKET_HOST and BUCKET_PORT are correct
+2. Check AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are set
+3. Ensure bucket exists and is accessible
+
+#### Issue: CRUD operations return 403 Forbidden
+
+**Symptoms:**
+
+- Create/Update/Delete returns "Management access denied"
+
+**Diagnosis:**
+
+```bash
+# Test management authorization directly
+curl -X POST http://localhost:8085/v1/data/demo/authorization/management/decision \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": {
+      "caller_spiffe_id": "spiffe://demo.example.com/user/bob"
+    }
+  }'
+```
+
+**Resolution:**
+
+1. Verify caller has admin department membership
+2. Check OPA service has document_management.rego loaded
+3. Review user_permissions.rego for correct department assignments
+
+#### Issue: Documents not persisting after restart
+
+**Symptoms:**
+
+- Documents disappear after pod restart
+- Bucket appears empty
+
+**Diagnosis:**
+
+```bash
+# Check if S3 storage is enabled
+kubectl exec -n spiffe-demo deploy/document-service -- env | grep STORAGE
+
+# List bucket contents
+aws --endpoint-url http://${BUCKET_HOST}:${BUCKET_PORT} \
+  --region us-east-1 s3 ls s3://${BUCKET_NAME}/ --recursive
+```
+
+**Resolution:**
+
+1. Ensure SPIFFE_DEMO_STORAGE_ENABLED=true
+2. Verify init container ran successfully
+3. Check bucket permissions allow read/write
 
 ---
 

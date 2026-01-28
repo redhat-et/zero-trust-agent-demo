@@ -61,6 +61,29 @@ spec:
       labels:
         app: document-service
     spec:
+      initContainers:
+        - name: seed-documents
+          image: document-service
+          args:
+            - seed
+            - --if-empty
+          env:
+            - name: SPIFFE_DEMO_STORAGE_ENABLED
+              value: "true"
+          envFrom:
+            - configMapRef:
+                name: doc-storage-bucket
+                optional: true
+            - secretRef:
+                name: doc-storage-bucket
+                optional: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
       containers:
         - name: document-service
           image: document-service
@@ -82,6 +105,15 @@ spec:
               value: "opa-service"
             - name: SPIFFE_DEMO_OPA_PORT
               value: "8085"
+            - name: SPIFFE_DEMO_STORAGE_ENABLED
+              value: "true"
+          envFrom:
+            - configMapRef:
+                name: doc-storage-bucket
+                optional: true
+            - secretRef:
+                name: doc-storage-bucket
+                optional: true
 ---
 apiVersion: apps/v1
 kind: Deployment

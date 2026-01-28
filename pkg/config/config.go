@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -37,6 +39,16 @@ type OPAConfig struct {
 // Addr returns the OPA service address
 func (c OPAConfig) Addr() string {
 	return fmt.Sprintf("http://%s:%d", c.Host, c.Port)
+}
+
+// StorageConfig holds S3-compatible object storage configuration
+type StorageConfig struct {
+	Enabled    bool   `mapstructure:"enabled"`
+	BucketHost string `mapstructure:"bucket_host"`
+	BucketPort int    `mapstructure:"bucket_port"`
+	BucketName string `mapstructure:"bucket_name"`
+	UseSSL     bool   `mapstructure:"use_ssl"`
+	Region     string `mapstructure:"region"`
 }
 
 // CommonConfig holds configuration common to all services
@@ -110,6 +122,14 @@ func setDefaults(v *viper.Viper, serviceName string) {
 	// OPA defaults
 	v.SetDefault("opa.host", "localhost")
 	v.SetDefault("opa.port", 8085)
+
+	// Storage defaults (disabled by default for local development)
+	v.SetDefault("storage.enabled", false)
+	v.SetDefault("storage.bucket_host", "localhost")
+	v.SetDefault("storage.bucket_port", 9000)
+	v.SetDefault("storage.bucket_name", "documents")
+	v.SetDefault("storage.use_ssl", false)
+	v.SetDefault("storage.region", "us-east-1")
 }
 
 // Load reads the configuration from file and environment
@@ -154,5 +174,25 @@ func GetServiceEndpoints() map[string]string {
 		"document":    "http://localhost:8084",
 		"opa":         "http://localhost:8085",
 		"spire-agent": "unix:///run/spire/sockets/agent.sock",
+	}
+}
+
+// LoadStorageConfigFromEnv loads storage configuration from OBC-style environment variables.
+// This supplements the viper config by checking for BUCKET_HOST, BUCKET_PORT, BUCKET_NAME
+// which are set by OpenShift OBC ConfigMaps.
+func LoadStorageConfigFromEnv(cfg *StorageConfig) {
+	if host := os.Getenv("BUCKET_HOST"); host != "" {
+		cfg.BucketHost = host
+	}
+	if portStr := os.Getenv("BUCKET_PORT"); portStr != "" {
+		if port, err := strconv.Atoi(portStr); err == nil {
+			cfg.BucketPort = port
+		}
+	}
+	if name := os.Getenv("BUCKET_NAME"); name != "" {
+		cfg.BucketName = name
+	}
+	if region := os.Getenv("BUCKET_REGION"); region != "" {
+		cfg.Region = region
 	}
 }

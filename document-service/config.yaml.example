@@ -1,0 +1,35 @@
+# Document Service Configuration Example
+#
+# Copy this file to config.yaml and adjust as needed.
+# Environment variables override these values (prefix: SPIFFE_DEMO_)
+
+service:
+  host: "0.0.0.0"
+  port: 8084
+  health_port: 8184
+  mock_spiffe: true
+  log_level: "info"
+
+spiffe:
+  socket_path: "/run/spire/sockets/agent.sock"
+  trust_domain: "demo.example.com"
+
+opa:
+  host: "localhost"
+  port: 8085
+
+# S3-compatible storage configuration
+# When enabled, documents are stored in S3 instead of in-memory
+storage:
+  enabled: true
+  bucket_host: "localhost"
+  bucket_port: 9000
+  bucket_name: "documents"
+  use_ssl: false
+  region: "us-east-1"
+
+# AWS credentials are read from environment variables:
+#   AWS_ACCESS_KEY_ID
+#   AWS_SECRET_ACCESS_KEY
+#
+# For MinIO, use the root user credentials (default: minioadmin/minioadmin)

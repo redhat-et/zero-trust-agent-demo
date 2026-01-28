@@ -40,9 +40,16 @@ type Config struct {
 }
 
 type PolicyInput struct {
-	CallerSPIFFEID string      `json:"caller_spiffe_id"`
-	DocumentID     string      `json:"document_id"`
-	Delegation     *Delegation `json:"delegation,omitempty"`
+	CallerSPIFFEID   string           `json:"caller_spiffe_id"`
+	DocumentID       string           `json:"document_id"`
+	DocumentMetadata *DocumentMeta    `json:"document_metadata,omitempty"`
+	Delegation       *Delegation      `json:"delegation,omitempty"`
+}
+
+type DocumentMeta struct {
+	RequiredDepartment  string   `json:"required_department,omitempty"`
+	RequiredDepartments []string `json:"required_departments,omitempty"`
+	Sensitivity         string   `json:"sensitivity,omitempty"`
 }
 
 type Delegation struct {
@@ -57,10 +64,11 @@ type PolicyDecision struct {
 }
 
 type OPAService struct {
-	logger         *logger.Logger
-	query          rego.PreparedEvalQuery
-	decisionLog    *logger.Logger
-	workloadClient *spiffe.WorkloadClient
+	logger          *logger.Logger
+	query           rego.PreparedEvalQuery
+	managementQuery rego.PreparedEvalQuery
+	decisionLog     *logger.Logger
+	workloadClient  *spiffe.WorkloadClient
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
@@ -106,6 +114,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	mux.HandleFunc("/health", svc.handleHealth)
 	mux.HandleFunc("/v1/data/authz/allow", svc.handleAllow)
 	mux.HandleFunc("/v1/data/demo/authorization/decision", svc.handleDecision)
+	mux.HandleFunc("/v1/data/demo/authorization/management/decision", svc.handleManagementDecision)
 
 	// Wrap with SPIFFE identity middleware
 	handler := spiffe.IdentityMiddleware(cfg.Service.MockSPIFFE)(mux)
@@ -192,11 +201,17 @@ func newOPAService(log *logger.Logger, policyDir string, workloadClient *spiffe.
 		return nil, fmt.Errorf("failed to read delegation.rego: %w", err)
 	}
 
+	docManagement, err := os.ReadFile(filepath.Join(policyDir, "document_management.rego"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read document_management.rego: %w", err)
+	}
+
 	log.Info("Loading policy: user_permissions.rego")
 	log.Info("Loading policy: agent_permissions.rego")
 	log.Info("Loading policy: delegation.rego")
+	log.Info("Loading policy: document_management.rego")
 
-	// Prepare the query
+	// Prepare the authorization query
 	query, err := rego.New(
 		rego.Query("data.demo.authorization.decision"),
 		rego.Module("user_permissions.rego", string(userPerms)),
@@ -207,11 +222,22 @@ func newOPAService(log *logger.Logger, policyDir string, workloadClient *spiffe.
 		return nil, fmt.Errorf("failed to prepare OPA query: %w", err)
 	}
 
+	// Prepare the management authorization query
+	managementQuery, err := rego.New(
+		rego.Query("data.demo.authorization.management.decision"),
+		rego.Module("user_permissions.rego", string(userPerms)),
+		rego.Module("document_management.rego", string(docManagement)),
+	).PrepareForEval(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare OPA management query: %w", err)
+	}
+
 	return &OPAService{
-		logger:         log,
-		query:          query,
-		decisionLog:    logger.New(logger.ComponentOPADecision),
-		workloadClient: workloadClient,
+		logger:          log,
+		query:           query,
+		managementQuery: managementQuery,
+		decisionLog:     logger.New(logger.ComponentOPADecision),
+		workloadClient:  workloadClient,
 	}, nil
 }
 
@@ -294,6 +320,18 @@ func (s *OPAService) evaluate(ctx context.Context, input PolicyInput) (*PolicyDe
 		"caller_spiffe_id": input.CallerSPIFFEID,
 		"document_id":      input.DocumentID,
 	}
+	if input.DocumentMetadata != nil {
+		metaMap := map[string]any{
+			"sensitivity": input.DocumentMetadata.Sensitivity,
+		}
+		if input.DocumentMetadata.RequiredDepartment != "" {
+			metaMap["required_department"] = input.DocumentMetadata.RequiredDepartment
+		}
+		if len(input.DocumentMetadata.RequiredDepartments) > 0 {
+			metaMap["required_departments"] = input.DocumentMetadata.RequiredDepartments
+		}
+		inputMap["document_metadata"] = metaMap
+	}
 	if input.Delegation != nil {
 		inputMap["delegation"] = map[string]any{
 			"user_spiffe_id":  input.Delegation.UserSPIFFEID,
@@ -352,6 +390,97 @@ func (s *OPAService) evaluate(ctx context.Context, input PolicyInput) (*PolicyDe
 		callerType = "delegated"
 	}
 	metrics.AuthorizationDecisions.WithLabelValues("opa-service", decisionLabel, callerType).Inc()
+
+	return decision, nil
+}
+
+func (s *OPAService) handleManagementDecision(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Input PolicyInput `json:"input"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.logger.Error("Invalid request body", "error", err)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	queryLog := logger.New(logger.ComponentOPAQuery)
+	queryLog.Info("Evaluating management policy request",
+		"caller", req.Input.CallerSPIFFEID)
+
+	decision, err := s.evaluateManagement(r.Context(), req.Input)
+	if err != nil {
+		s.logger.Error("Management policy evaluation failed", "error", err)
+		http.Error(w, "Policy evaluation failed", http.StatusInternalServerError)
+		return
+	}
+
+	if decision.Allow {
+		s.decisionLog.Allow(decision.Reason)
+	} else {
+		s.decisionLog.Deny(decision.Reason)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"result": decision,
+	})
+}
+
+func (s *OPAService) evaluateManagement(ctx context.Context, input PolicyInput) (*PolicyDecision, error) {
+	start := time.Now()
+
+	// Convert input to map for OPA
+	inputMap := map[string]any{
+		"caller_spiffe_id": input.CallerSPIFFEID,
+	}
+
+	results, err := s.managementQuery.Eval(ctx, rego.EvalInput(inputMap))
+	if err != nil {
+		return nil, fmt.Errorf("management evaluation error: %w", err)
+	}
+
+	if len(results) == 0 || len(results[0].Expressions) == 0 {
+		return &PolicyDecision{
+			Allow:  false,
+			Reason: "No management policy decision available",
+		}, nil
+	}
+
+	// Extract decision from results
+	resultMap, ok := results[0].Expressions[0].Value.(map[string]any)
+	if !ok {
+		return &PolicyDecision{
+			Allow:  false,
+			Reason: "Invalid management policy result format",
+		}, nil
+	}
+
+	decision := &PolicyDecision{
+		Allow: false,
+	}
+
+	if allow, ok := resultMap["allow"].(bool); ok {
+		decision.Allow = allow
+	}
+	if reason, ok := resultMap["reason"].(string); ok {
+		decision.Reason = reason
+	}
+
+	// Record metrics
+	duration := time.Since(start).Seconds()
+	metrics.AuthorizationDuration.WithLabelValues("opa-service-mgmt").Observe(duration)
+
+	decisionLabel := "deny"
+	if decision.Allow {
+		decisionLabel = "allow"
+	}
+	metrics.AuthorizationDecisions.WithLabelValues("opa-service-mgmt", decisionLabel, "user").Inc()
 
 	return decision, nil
 }
