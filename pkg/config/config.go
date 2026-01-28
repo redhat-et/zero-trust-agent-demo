@@ -195,4 +195,12 @@ func LoadStorageConfigFromEnv(cfg *StorageConfig) {
 	if region := os.Getenv("BUCKET_REGION"); region != "" {
 		cfg.Region = region
 	}
+
+	// Auto-detect SSL based on port (443 = HTTPS, typical for NooBaa/ODF)
+	// Can be overridden by explicit BUCKET_SSL environment variable
+	if sslStr := os.Getenv("BUCKET_SSL"); sslStr != "" {
+		cfg.UseSSL = sslStr == "true" || sslStr == "1"
+	} else if cfg.BucketPort == 443 {
+		cfg.UseSSL = true
+	}
 }
