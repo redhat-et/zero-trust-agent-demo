@@ -19,6 +19,22 @@
             <span class="subtitle">Workload Identity & Policy-Based Access Control for AI Agents</span>
         </div>
         <div class="header-status">
+            {{if .OIDCEnabled}}
+            <div class="user-section" id="user-section">
+                {{if .Session}}
+                <div class="user-info">
+                    <span class="user-name">{{.Session.Name}}</span>
+                    <span class="user-groups">
+                        {{range .Session.Groups}}<span class="badge">{{.}}</span>{{end}}
+                    </span>
+                    <a href="/auth/logout" class="btn btn-secondary btn-small">Logout</a>
+                </div>
+                {{else}}
+                <a href="/auth/login" class="btn btn-primary btn-small">Login with Keycloak</a>
+                {{end}}
+            </div>
+            <div class="service-status-divider"></div>
+            {{end}}
             <div class="service-status" title="User Service">
                 <span id="status-user-service" class="status-dot unknown"></span>
                 <span>User</span>
@@ -49,9 +65,25 @@
                 <div class="card-body">
                     <div class="form-group">
                         <label class="form-label">Select User</label>
+                        {{if and .OIDCEnabled .Session}}
+                        <div class="logged-in-user">
+                            <input type="hidden" id="user-select" value="{{.Session.Username}}">
+                            <div class="user-display">
+                                <strong>{{.Session.Name}}</strong>
+                                <span class="user-groups-inline">
+                                    {{range .Session.Groups}}<span class="badge badge-small">{{.}}</span>{{end}}
+                                </span>
+                            </div>
+                        </div>
+                        {{else if .OIDCEnabled}}
+                        <div class="login-required">
+                            <a href="/auth/login" class="btn btn-primary">Login to continue</a>
+                        </div>
+                        {{else}}
                         <select id="user-select" class="form-select">
                             <option value="">Loading users...</option>
                         </select>
+                        {{end}}
                     </div>
 
                     <div class="form-group">

@@ -9,3 +9,4 @@ resources:
   - opa-policies-configmap.yaml
   - services.yaml
   - deployments.yaml
+  - keycloak.yaml

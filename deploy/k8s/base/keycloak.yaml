@@ -1,0 +1,323 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: keycloak-admin
+  namespace: spiffe-demo
+type: Opaque
+stringData:
+  password: admin123
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-realm
+  namespace: spiffe-demo
+data:
+  spiffe-demo-realm.json: |
+    {
+      "realm": "spiffe-demo",
+      "enabled": true,
+      "sslRequired": "none",
+      "registrationAllowed": false,
+      "loginWithEmailAllowed": true,
+      "duplicateEmailsAllowed": false,
+      "resetPasswordAllowed": false,
+      "editUsernameAllowed": false,
+      "bruteForceProtected": true,
+      "roles": {
+        "realm": [
+          { "name": "engineering", "description": "Engineering department" },
+          { "name": "finance", "description": "Finance department" },
+          { "name": "admin", "description": "Administration" },
+          { "name": "hr", "description": "Human Resources" }
+        ]
+      },
+      "groups": [
+        { "name": "engineering" },
+        { "name": "finance" },
+        { "name": "admin" },
+        { "name": "hr" }
+      ],
+      "users": [
+        {
+          "username": "alice",
+          "email": "alice@example.com",
+          "firstName": "Alice",
+          "lastName": "Smith",
+          "enabled": true,
+          "emailVerified": true,
+          "credentials": [{ "type": "password", "value": "alice123", "temporary": false }],
+          "groups": ["engineering", "finance"]
+        },
+        {
+          "username": "bob",
+          "email": "bob@example.com",
+          "firstName": "Bob",
+          "lastName": "Jones",
+          "enabled": true,
+          "emailVerified": true,
+          "credentials": [{ "type": "password", "value": "bob123", "temporary": false }],
+          "groups": ["finance", "admin"]
+        },
+        {
+          "username": "carol",
+          "email": "carol@example.com",
+          "firstName": "Carol",
+          "lastName": "Williams",
+          "enabled": true,
+          "emailVerified": true,
+          "credentials": [{ "type": "password", "value": "carol123", "temporary": false }],
+          "groups": ["hr"]
+        },
+        {
+          "username": "david",
+          "email": "david@example.com",
+          "firstName": "David",
+          "lastName": "Brown",
+          "enabled": true,
+          "emailVerified": true,
+          "credentials": [{ "type": "password", "value": "david123", "temporary": false }],
+          "groups": ["engineering", "hr"]
+        }
+      ],
+      "clients": [
+        {
+          "clientId": "spiffe-demo-dashboard",
+          "name": "SPIFFE Demo Dashboard",
+          "enabled": true,
+          "publicClient": true,
+          "standardFlowEnabled": true,
+          "directAccessGrantsEnabled": false,
+          "rootUrl": "http://localhost:8080",
+          "baseUrl": "/",
+          "redirectUris": [
+            "http://localhost:8080/*",
+            "http://127.0.0.1:8080/*",
+            "http://localhost:8081/*",
+            "http://127.0.0.1:8081/*"
+          ],
+          "webOrigins": ["+"],
+          "protocol": "openid-connect",
+          "defaultClientScopes": ["openid", "profile", "email", "groups"]
+        }
+      ],
+      "clientScopes": [
+        {
+          "name": "openid",
+          "description": "OpenID Connect scope",
+          "protocol": "openid-connect",
+          "attributes": {
+            "include.in.token.scope": "false",
+            "display.on.consent.screen": "true"
+          },
+          "protocolMappers": []
+        },
+        {
+          "name": "profile",
+          "description": "User profile",
+          "protocol": "openid-connect",
+          "attributes": {
+            "include.in.token.scope": "true",
+            "display.on.consent.screen": "true"
+          },
+          "protocolMappers": [
+            {
+              "name": "family name",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-usermodel-attribute-mapper",
+              "consentRequired": false,
+              "config": {
+                "user.attribute": "lastName",
+                "claim.name": "family_name",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "given name",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-usermodel-attribute-mapper",
+              "consentRequired": false,
+              "config": {
+                "user.attribute": "firstName",
+                "claim.name": "given_name",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "full name",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-full-name-mapper",
+              "consentRequired": false,
+              "config": {
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "username",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-usermodel-attribute-mapper",
+              "consentRequired": false,
+              "config": {
+                "user.attribute": "username",
+                "claim.name": "preferred_username",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            }
+          ]
+        },
+        {
+          "name": "email",
+          "description": "Email address",
+          "protocol": "openid-connect",
+          "attributes": {
+            "include.in.token.scope": "true",
+            "display.on.consent.screen": "true"
+          },
+          "protocolMappers": [
+            {
+              "name": "email",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-usermodel-attribute-mapper",
+              "consentRequired": false,
+              "config": {
+                "user.attribute": "email",
+                "claim.name": "email",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            },
+            {
+              "name": "email verified",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-usermodel-attribute-mapper",
+              "consentRequired": false,
+              "config": {
+                "user.attribute": "emailVerified",
+                "claim.name": "email_verified",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            }
+          ]
+        },
+        {
+          "name": "groups",
+          "description": "User group memberships",
+          "protocol": "openid-connect",
+          "attributes": {
+            "include.in.token.scope": "true",
+            "display.on.consent.screen": "true"
+          },
+          "protocolMappers": [
+            {
+              "name": "groups",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-group-membership-mapper",
+              "consentRequired": false,
+              "config": {
+                "full.path": "false",
+                "introspection.token.claim": "true",
+                "userinfo.token.claim": "true",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "claim.name": "groups"
+              }
+            }
+          ]
+        }
+      ],
+      "defaultDefaultClientScopes": ["openid", "profile", "email", "groups"]
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: spiffe-demo
+  labels:
+    app: keycloak
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keycloak
+  template:
+    metadata:
+      labels:
+        app: keycloak
+    spec:
+      containers:
+      - name: keycloak
+        image: quay.io/keycloak/keycloak:26.0
+        args:
+        - start-dev
+        - --import-realm
+        env:
+        - name: KC_BOOTSTRAP_ADMIN_USERNAME
+          value: admin
+        - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: keycloak-admin
+              key: password
+        - name: KC_PROXY_HEADERS
+          value: xforwarded
+        - name: KC_HTTP_ENABLED
+          value: "true"
+        - name: KC_HEALTH_ENABLED
+          value: "true"
+        ports:
+        - containerPort: 8080
+          name: http
+        volumeMounts:
+        - name: realm-config
+          mountPath: /opt/keycloak/data/import
+          readOnly: true
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 9000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 9000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+      volumes:
+      - name: realm-config
+        configMap:
+          name: keycloak-realm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: spiffe-demo
+  labels:
+    app: keycloak
+spec:
+  selector:
+    app: keycloak
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http

@@ -541,3 +541,72 @@ code, pre, .mono {
     max-height: 300px;
     overflow-y: auto;
 }
+
+/* User Info Section (OAuth) */
+.user-section {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.user-info {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.user-name {
+    font-weight: 500;
+    color: var(--rh-white);
+}
+
+.user-groups {
+    display: flex;
+    gap: 4px;
+}
+
+.user-groups-inline {
+    display: flex;
+    gap: 4px;
+    margin-left: var(--spacing-sm);
+}
+
+.badge {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 500;
+    border-radius: 10px;
+    background-color: var(--rh-blue);
+    color: var(--rh-white);
+}
+
+.badge-small {
+    padding: 1px 6px;
+    font-size: 10px;
+}
+
+.btn-small {
+    padding: 4px 12px;
+    font-size: 12px;
+}
+
+.logged-in-user {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: var(--rh-gray-lighter);
+    border-radius: var(--border-radius);
+    border: 1px solid var(--rh-gray-light);
+}
+
+.user-display {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.login-required {
+    padding: var(--spacing-md);
+    text-align: center;
+    background-color: var(--rh-gray-lighter);
+    border-radius: var(--border-radius);
+}
