@@ -55,12 +55,20 @@ kubectl apply -k deploy/k8s/base
 ### OpenShift Deploy
 
 ```bash
-# Apply OpenShift overlay
-kubectl apply -k deploy/k8s/overlays/openshift
+# Option 1: Without persistent storage (mock storage)
+oc apply -k deploy/k8s/overlays/openshift
 
-# Create route
-oc expose svc/web-dashboard -n spiffe-demo
+# Option 2: With ODF storage (requires OpenShift Data Foundation)
+oc apply -k deploy/k8s/overlays/openshift-storage
+
+# Wait for OBC to bind (if using storage overlay)
+oc wait --for=condition=Bound obc/doc-storage-bucket -n spiffe-demo --timeout=120s
+
+# Route is created automatically by the overlay
+oc get route -n spiffe-demo
 ```
+
+See [OpenShift deployment guide](deployment/openshift.md) for detailed instructions.
 
 ### Rollback Procedure
 
@@ -289,6 +297,95 @@ aws --endpoint-url http://${BUCKET_HOST}:${BUCKET_PORT} \
 1. Ensure SPIFFE_DEMO_STORAGE_ENABLED=true
 2. Verify init container ran successfully
 3. Check bucket permissions allow read/write
+
+### OpenShift OBC operations
+
+On OpenShift with ODF, storage is provisioned via ObjectBucketClaim.
+
+#### Verify OBC status
+
+```bash
+# Check OBC is bound
+oc get obc -n spiffe-demo
+# Expected: PHASE=Bound
+
+# View OBC details
+oc describe obc doc-storage-bucket -n spiffe-demo
+```
+
+#### Check provisioned resources
+
+```bash
+# ConfigMap with bucket endpoint info
+oc get configmap doc-storage-bucket -n spiffe-demo -o yaml
+
+# Secret with credentials
+oc get secret doc-storage-bucket -n spiffe-demo -o yaml
+```
+
+#### Access bucket directly
+
+```bash
+# Get bucket details from ConfigMap
+BUCKET_HOST=$(oc get configmap doc-storage-bucket -n spiffe-demo -o jsonpath='{.data.BUCKET_HOST}')
+BUCKET_PORT=$(oc get configmap doc-storage-bucket -n spiffe-demo -o jsonpath='{.data.BUCKET_PORT}')
+BUCKET_NAME=$(oc get configmap doc-storage-bucket -n spiffe-demo -o jsonpath='{.data.BUCKET_NAME}')
+
+# Get credentials from Secret
+AWS_ACCESS_KEY_ID=$(oc get secret doc-storage-bucket -n spiffe-demo -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' | base64 -d)
+AWS_SECRET_ACCESS_KEY=$(oc get secret doc-storage-bucket -n spiffe-demo -o jsonpath='{.data.AWS_SECRET_ACCESS_KEY}' | base64 -d)
+
+# List bucket contents (from a pod with aws cli)
+oc run --rm -it aws-cli --image=amazon/aws-cli --restart=Never -- \
+  --endpoint-url "http://${BUCKET_HOST}:${BUCKET_PORT}" \
+  s3 ls "s3://${BUCKET_NAME}/" --recursive
+```
+
+#### Issue: OBC not binding
+
+**Symptoms:**
+
+- OBC stuck in Pending phase
+- ConfigMap/Secret not created
+
+**Diagnosis:**
+
+```bash
+# Check OBC events
+oc describe obc doc-storage-bucket -n spiffe-demo
+
+# Check NooBaa operator
+oc get pods -n openshift-storage | grep noobaa
+oc logs deployment/noobaa-operator -n openshift-storage --tail=50
+```
+
+**Resolution:**
+
+1. Verify ODF is installed and healthy
+2. Check NooBaa storage class exists: `oc get sc | grep noobaa`
+3. Ensure NooBaa core and endpoint pods are running
+
+#### Issue: Document service waiting for storage
+
+**Symptoms:**
+
+- Document service pod stuck in Init phase
+- Init container logs show connection errors
+
+**Diagnosis:**
+
+```bash
+# Check pod status
+oc get pods -n spiffe-demo -l app=document-service
+
+# Check init container logs
+oc logs deployment/document-service -n spiffe-demo -c seed-documents
+```
+
+**Resolution:**
+
+1. Wait for OBC to bind: `oc wait --for=condition=Bound obc/doc-storage-bucket -n spiffe-demo`
+2. Restart deployment after OBC binds: `oc rollout restart deployment/document-service -n spiffe-demo`
 
 ---
 
