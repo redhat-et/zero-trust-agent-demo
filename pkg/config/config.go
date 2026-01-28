@@ -43,12 +43,13 @@ func (c OPAConfig) Addr() string {
 
 // StorageConfig holds S3-compatible object storage configuration
 type StorageConfig struct {
-	Enabled    bool   `mapstructure:"enabled"`
-	BucketHost string `mapstructure:"bucket_host"`
-	BucketPort int    `mapstructure:"bucket_port"`
-	BucketName string `mapstructure:"bucket_name"`
-	UseSSL     bool   `mapstructure:"use_ssl"`
-	Region     string `mapstructure:"region"`
+	Enabled     bool   `mapstructure:"enabled"`
+	BucketHost  string `mapstructure:"bucket_host"`
+	BucketPort  int    `mapstructure:"bucket_port"`
+	BucketName  string `mapstructure:"bucket_name"`
+	UseSSL      bool   `mapstructure:"use_ssl"`
+	InsecureTLS bool   `mapstructure:"insecure_tls"`
+	Region      string `mapstructure:"region"`
 }
 
 // CommonConfig holds configuration common to all services
@@ -129,6 +130,7 @@ func setDefaults(v *viper.Viper, serviceName string) {
 	v.SetDefault("storage.bucket_port", 9000)
 	v.SetDefault("storage.bucket_name", "documents")
 	v.SetDefault("storage.use_ssl", false)
+	v.SetDefault("storage.insecure_tls", false)
 	v.SetDefault("storage.region", "us-east-1")
 }
 
@@ -202,5 +204,14 @@ func LoadStorageConfigFromEnv(cfg *StorageConfig) {
 		cfg.UseSSL = sslStr == "true" || sslStr == "1"
 	} else if cfg.BucketPort == 443 {
 		cfg.UseSSL = true
+	}
+
+	// Handle insecure TLS (skip certificate verification)
+	// Auto-enable for internal OpenShift services (*.svc hostnames)
+	if insecureStr := os.Getenv("BUCKET_INSECURE_TLS"); insecureStr != "" {
+		cfg.InsecureTLS = insecureStr == "true" || insecureStr == "1"
+	} else if strings.HasSuffix(cfg.BucketHost, ".svc") {
+		// Internal Kubernetes services typically use self-signed certs
+		cfg.InsecureTLS = true
 	}
 }

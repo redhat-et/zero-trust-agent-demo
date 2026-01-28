@@ -246,6 +246,7 @@ func runSeed(cmd *cobra.Command, args []string) error {
 			BucketPort:      cfg.Storage.BucketPort,
 			BucketName:      cfg.Storage.BucketName,
 			UseSSL:          cfg.Storage.UseSSL,
+			InsecureTLS:     cfg.Storage.InsecureTLS,
 			Region:          cfg.Storage.Region,
 			AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
 			SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
