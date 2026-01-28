@@ -7,22 +7,22 @@ metadata:
 resources:
   - ../../base
 
-# Use ghcr.io images for mock mode (no local build required)
+# Use local images (loaded into Kind with `kind load docker-image`)
 images:
   - name: opa-service
-    newName: ghcr.io/redhat-et/zero-trust-agent-demo/opa-service
+    newName: localhost/spiffe-demo/opa-service
     newTag: latest
   - name: document-service
-    newName: ghcr.io/redhat-et/zero-trust-agent-demo/document-service
+    newName: localhost/spiffe-demo/document-service
     newTag: latest
   - name: user-service
-    newName: ghcr.io/redhat-et/zero-trust-agent-demo/user-service
+    newName: localhost/spiffe-demo/user-service
     newTag: latest
   - name: agent-service
-    newName: ghcr.io/redhat-et/zero-trust-agent-demo/agent-service
+    newName: localhost/spiffe-demo/agent-service
     newTag: latest
   - name: web-dashboard
-    newName: ghcr.io/redhat-et/zero-trust-agent-demo/web-dashboard
+    newName: localhost/spiffe-demo/web-dashboard
     newTag: latest
 
 patches:
@@ -33,7 +33,7 @@ patches:
     patch: |-
       - op: add
         path: /spec/template/spec/containers/0/imagePullPolicy
-        value: IfNotPresent
+        value: Never
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value:
@@ -60,9 +60,14 @@ patches:
       kind: Deployment
       name: document-service
     patch: |-
+      - op: remove
+        path: /spec/template/spec/initContainers
       - op: add
         path: /spec/template/spec/containers/0/imagePullPolicy
-        value: IfNotPresent
+        value: Never
+      - op: replace
+        path: /spec/template/spec/containers/0/env/3/value
+        value: "false"
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value:
@@ -91,7 +96,7 @@ patches:
     patch: |-
       - op: add
         path: /spec/template/spec/containers/0/imagePullPolicy
-        value: IfNotPresent
+        value: Never
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value:
@@ -130,7 +135,7 @@ patches:
     patch: |-
       - op: add
         path: /spec/template/spec/containers/0/imagePullPolicy
-        value: IfNotPresent
+        value: Never
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value:
@@ -164,7 +169,7 @@ patches:
     patch: |-
       - op: add
         path: /spec/template/spec/containers/0/imagePullPolicy
-        value: IfNotPresent
+        value: Never
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value:
@@ -185,6 +190,31 @@ patches:
         value:
           name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
           value: "http://document-service:8084"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_OIDC_ENABLED
+          value: "true"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_OIDC_ISSUER_URL
+          value: "http://keycloak:8080/realms/spiffe-demo"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_OIDC_CLIENT_ID
+          value: "spiffe-demo-dashboard"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_OIDC_REDIRECT_URL
+          value: "http://localhost:8080/auth/callback"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_OIDC_SKIP_EXPIRY_CHECK
+          value: "true"
       - op: add
         path: /spec/template/spec/containers/0/livenessProbe
         value:
