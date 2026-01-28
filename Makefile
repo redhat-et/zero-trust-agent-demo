@@ -5,6 +5,11 @@ BINARY_DIR := bin
 GO := go
 SERVICES := opa-service document-service user-service agent-service web-dashboard
 
+# Container registry settings
+REGISTRY ?= ghcr.io/redhat-et/zero-trust-agent-demo
+DEV_TAG ?= dev
+CONTAINER_ENGINE ?= podman
+
 # Default target
 all: build
 
@@ -102,6 +107,48 @@ docker-load:
 		kind load docker-image spiffe-demo/$$svc:latest --name spiffe-demo; \
 	done
 
+# Podman operations for development (cross-platform builds)
+# Build x86_64 images for OpenShift testing (from ARM Mac)
+podman-build-dev:
+	@echo "=== Building x86_64 images for development ==="
+	@for svc in $(SERVICES); do \
+		echo "Building $$svc for linux/amd64..."; \
+		$(CONTAINER_ENGINE) build --platform linux/amd64 \
+			-t $(REGISTRY)/$$svc:$(DEV_TAG) \
+			-f $$svc/Dockerfile .; \
+	done
+	@echo "Build complete! Images tagged with :$(DEV_TAG)"
+
+# Build and push specific services (faster iteration)
+podman-build-dev-%:
+	@echo "Building $* for linux/amd64..."
+	$(CONTAINER_ENGINE) build --platform linux/amd64 \
+		-t $(REGISTRY)/$*:$(DEV_TAG) \
+		-f $*/Dockerfile .
+
+# Push dev images to registry
+podman-push-dev:
+	@echo "=== Pushing dev images to $(REGISTRY) ==="
+	@for svc in $(SERVICES); do \
+		echo "Pushing $$svc:$(DEV_TAG)..."; \
+		$(CONTAINER_ENGINE) push $(REGISTRY)/$$svc:$(DEV_TAG); \
+	done
+	@echo "Push complete!"
+
+# Push specific service
+podman-push-dev-%:
+	@echo "Pushing $*:$(DEV_TAG)..."
+	$(CONTAINER_ENGINE) push $(REGISTRY)/$*:$(DEV_TAG)
+
+# Build and push in one step
+podman-dev: podman-build-dev podman-push-dev
+	@echo "=== Dev images built and pushed ==="
+
+# Build and push specific service
+podman-dev-%:
+	@$(MAKE) podman-build-dev-$*
+	@$(MAKE) podman-push-dev-$*
+
 # Development helpers
 fmt:
 	$(GO) fmt ./...
@@ -151,9 +198,21 @@ help:
 	@echo "  make port-forward   - Set up port forwards"
 	@echo "  make delete-kind    - Delete Kind cluster"
 	@echo ""
-	@echo "Docker:"
-	@echo "  make docker-build   - Build Docker images"
+	@echo "Docker/Podman:"
+	@echo "  make docker-build   - Build Docker images (local)"
 	@echo "  make docker-load    - Load images into Kind"
+	@echo ""
+	@echo "Podman (cross-platform for OpenShift):"
+	@echo "  make podman-dev               - Build and push all x86_64 images"
+	@echo "  make podman-dev-<svc>         - Build and push specific service"
+	@echo "  make podman-build-dev         - Build all x86_64 images"
+	@echo "  make podman-build-dev-<svc>   - Build specific service"
+	@echo "  make podman-push-dev          - Push all dev images"
+	@echo "  make podman-push-dev-<svc>    - Push specific service"
+	@echo ""
+	@echo "  Override variables:"
+	@echo "    DEV_TAG=mytag make podman-dev   (default: dev)"
+	@echo "    REGISTRY=myrepo make podman-dev"
 	@echo ""
 	@echo "Development:"
 	@echo "  make fmt            - Format code"
