@@ -1,0 +1,35 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: spiffe-demo-openshift-storage
+
+# Build on top of the openshift overlay and add OBC
+resources:
+  - ../openshift
+  - ../../base/storage
+
+patches:
+  # Make storage references required (not optional) for document-service
+  - target:
+      kind: Deployment
+      name: document-service
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom/0/configMapRef/optional
+        value: false
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom/1/secretRef/optional
+        value: false
+      - op: replace
+        path: /spec/template/spec/initContainers/0/envFrom/0/configMapRef/optional
+        value: false
+      - op: replace
+        path: /spec/template/spec/initContainers/0/envFrom/1/secretRef/optional
+        value: false
+      # Add SELinux context to init container for CSI driver access
+      - op: add
+        path: /spec/template/spec/initContainers/0/securityContext
+        value:
+          seLinuxOptions:
+            type: spc_t

@@ -7,8 +7,7 @@ data:
   user_permissions.rego: |
     package demo.users
 
-    import future.keywords.in
-    import future.keywords.if
+    import rego.v1
 
     user_departments := {
         "alice": ["engineering", "finance"],
@@ -32,8 +31,7 @@ data:
   agent_permissions.rego: |
     package demo.agents
 
-    import future.keywords.in
-    import future.keywords.if
+    import rego.v1
 
     agent_capabilities := {
         "gpt4": ["engineering", "finance"],
@@ -57,20 +55,18 @@ data:
   delegation.rego: |
     package demo.authorization
 
-    import data.demo.users
-    import data.demo.agents
-    import future.keywords.in
-    import future.keywords.if
+    import rego.v1
 
-    documents := {
-        "DOC-001": {"title": "Engineering Roadmap", "required_department": "engineering", "sensitivity": "medium"},
-        "DOC-002": {"title": "Q4 Financial Report", "required_department": "finance", "sensitivity": "high"},
-        "DOC-003": {"title": "Admin Policies", "required_department": "admin", "sensitivity": "critical"},
-        "DOC-004": {"title": "HR Guidelines", "required_department": "hr", "sensitivity": "medium"},
-        "DOC-005": {"title": "Budget Projections", "required_departments": ["finance", "engineering"], "sensitivity": "high"},
-        "DOC-006": {"title": "Compliance Audit", "required_departments": ["admin", "finance"], "sensitivity": "critical"},
-        "DOC-007": {"title": "All-Hands Summary", "required_department": "", "sensitivity": "public"}
-    }
+    import data.demo.agents
+    import data.demo.users
+
+    # Document metadata is now passed in input.document_metadata
+    # Expected structure:
+    # {
+    #   "required_department": "engineering",      # Single department OR
+    #   "required_departments": ["finance", "hr"], # Multiple departments
+    #   "sensitivity": "medium"
+    # }
 
     parse_spiffe_id(spiffe_id) := result if {
         parts := split(spiffe_id, "/")
@@ -78,45 +74,48 @@ data:
         result := {"type": parts[count(parts) - 2], "name": parts[count(parts) - 1]}
     }
 
-    get_required_departments(doc_id) := deps if {
-        doc := documents[doc_id]
-        deps := doc.required_departments
+    # Get required departments from document metadata (handles both single and multiple)
+    get_required_departments := deps if {
+        deps := input.document_metadata.required_departments
     } else := [dep] if {
-        doc := documents[doc_id]
-        dep := doc.required_department
+        dep := input.document_metadata.required_department
         dep != ""
     } else := []
 
-    is_public_document(doc_id) if {
-        required := get_required_departments(doc_id)
+    # Helper: Check if document is public (no required departments)
+    is_public_document if {
+        required := get_required_departments
         count(required) == 0
     }
 
-    has_any_required_department(permissions, doc_id) if {
-        is_public_document(doc_id)
+    # Check if a set of permissions satisfies document requirements
+    has_any_required_department(permissions) if {
+        is_public_document
     }
 
-    has_any_required_department(permissions, doc_id) if {
-        required := get_required_departments(doc_id)
+    has_any_required_department(permissions) if {
+        required := get_required_departments
         some dept in required
         dept in permissions
     }
 
     default allow := false
 
+    # Rule 1: Public documents are always accessible
     allow if {
-        doc := documents[input.document_id]
-        doc.required_department == ""
+        is_public_document
     }
 
+    # Rule 2: Direct user access (no agent delegation)
     allow if {
         not input.delegation
         caller := parse_spiffe_id(input.caller_spiffe_id)
         caller.type == "user"
         user_depts := users.get_departments(caller.name)
-        has_any_required_department(user_depts, input.document_id)
+        has_any_required_department(user_depts)
     }
 
+    # Rule 3: Delegated access (user delegates to agent)
     allow if {
         input.delegation
         user := parse_spiffe_id(input.delegation.user_spiffe_id)
@@ -126,7 +125,7 @@ data:
         user_depts := users.get_departments(user.name)
         agent_caps := agents.get_capabilities(agent.name)
         effective := {d | some d in user_depts; d in agent_caps}
-        has_any_required_department(effective, input.document_id)
+        has_any_required_department(effective)
     }
 
     deny_reason := "Agent requests require user delegation context" if {
@@ -148,7 +147,7 @@ data:
 
     reason := "Public document accessible to all" if {
         allow
-        is_public_document(input.document_id)
+        is_public_document
     }
 
     reason := "User has required department access" if {
@@ -156,13 +155,13 @@ data:
         not input.delegation
         caller := parse_spiffe_id(input.caller_spiffe_id)
         caller.type == "user"
-        not is_public_document(input.document_id)
+        not is_public_document
     }
 
     reason := "Both user and agent have required access (delegation)" if {
         allow
         input.delegation
-        not is_public_document(input.document_id)
+        not is_public_document
     }
 
     reason := deny_reason if {
@@ -177,7 +176,7 @@ data:
 
     details := {
         "document_id": input.document_id,
-        "required_departments": get_required_departments(input.document_id),
+        "required_departments": get_required_departments,
         "caller_type": parse_spiffe_id(input.caller_spiffe_id).type,
         "caller_name": parse_spiffe_id(input.caller_spiffe_id).name
     } if {
@@ -186,7 +185,7 @@ data:
 
     details := {
         "document_id": input.document_id,
-        "required_departments": get_required_departments(input.document_id),
+        "required_departments": get_required_departments,
         "user": parse_spiffe_id(input.delegation.user_spiffe_id).name,
         "agent": parse_spiffe_id(input.delegation.agent_spiffe_id).name,
         "user_departments": users.get_departments(parse_spiffe_id(input.delegation.user_spiffe_id).name),
@@ -194,4 +193,44 @@ data:
         "effective_permissions": effective_permissions
     } if {
         input.delegation
+    }
+
+  document_management.rego: |
+    package demo.authorization.management
+
+    import rego.v1
+
+    import data.demo.users
+
+    # Document management (CRUD) operations require admin department
+
+    parse_spiffe_id(spiffe_id) := result if {
+        parts := split(spiffe_id, "/")
+        count(parts) >= 2
+        result := {
+            "type": parts[count(parts) - 2],
+            "name": parts[count(parts) - 1]
+        }
+    }
+
+    default allow_manage := false
+
+    allow_manage if {
+        caller := parse_spiffe_id(input.caller_spiffe_id)
+        caller.type == "user"
+        user_depts := users.get_departments(caller.name)
+        "admin" in user_depts
+    }
+
+    reason := "User has admin department access" if {
+        allow_manage
+    }
+
+    reason := "Management operations require admin department" if {
+        not allow_manage
+    }
+
+    decision := {
+        "allow": allow_manage,
+        "reason": reason
     }

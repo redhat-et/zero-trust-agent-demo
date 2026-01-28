@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"os/signal"
@@ -15,11 +18,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
 
-	"github.com/redhat-et/zero-trust-agent-demo/document-service/internal/store"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/config"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/logger"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/metrics"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/spiffe"
+	"github.com/redhat-et/zero-trust-agent-demo/pkg/storage"
 )
 
 var serveCmd = &cobra.Command{
@@ -33,8 +36,10 @@ func init() {
 	rootCmd.AddCommand(serveCmd)
 }
 
+// Config holds the document service configuration
 type Config struct {
 	config.CommonConfig `mapstructure:",squash"`
+	Storage             config.StorageConfig `mapstructure:"storage"`
 }
 
 // Delegation represents delegation context from an agent request
@@ -54,10 +59,19 @@ type OPARequest struct {
 	Input OPAInput `json:"input"`
 }
 
+// OPAInput represents the input to OPA for authorization
 type OPAInput struct {
-	CallerSPIFFEID string      `json:"caller_spiffe_id"`
-	DocumentID     string      `json:"document_id"`
-	Delegation     *Delegation `json:"delegation,omitempty"`
+	CallerSPIFFEID   string              `json:"caller_spiffe_id"`
+	DocumentID       string              `json:"document_id"`
+	DocumentMetadata *OPADocumentMeta    `json:"document_metadata,omitempty"`
+	Delegation       *Delegation         `json:"delegation,omitempty"`
+}
+
+// OPADocumentMeta represents document metadata for OPA
+type OPADocumentMeta struct {
+	RequiredDepartment  string   `json:"required_department,omitempty"`
+	RequiredDepartments []string `json:"required_departments,omitempty"`
+	Sensitivity         string   `json:"sensitivity,omitempty"`
 }
 
 // OPAResponse represents the response from OPA
@@ -69,11 +83,22 @@ type OPAResponse struct {
 	} `json:"result"`
 }
 
+// CreateDocumentRequest represents a request to create a document (JSON mode)
+type CreateDocumentRequest struct {
+	ID                  string   `json:"id"`
+	Title               string   `json:"title"`
+	RequiredDepartment  string   `json:"required_department,omitempty"`
+	RequiredDepartments []string `json:"required_departments,omitempty"`
+	Sensitivity         string   `json:"sensitivity"`
+	Content             string   `json:"content,omitempty"`
+}
+
 // DocumentService handles document access with authorization
 type DocumentService struct {
-	store          *store.DocumentStore
+	storage        storage.DocumentStorage
 	opaClient      *http.Client
 	opaURL         string
+	opaManageURL   string
 	log            *logger.Logger
 	workloadClient *spiffe.WorkloadClient
 	mockMode       bool
@@ -94,6 +119,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if err := config.Load(v, &cfg); err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
+
+	// Load OBC-style environment variables for storage
+	config.LoadStorageConfigFromEnv(&cfg.Storage)
 
 	log := logger.New(logger.ComponentDocService)
 
@@ -117,6 +145,40 @@ func runServe(cmd *cobra.Command, args []string) error {
 		workloadClient.SetMockIdentity("spiffe://" + cfg.SPIFFE.TrustDomain + "/service/document-service")
 	}
 
+	// Initialize storage backend
+	var store storage.DocumentStorage
+	if cfg.Storage.Enabled {
+		log.Info("Initializing S3 storage",
+			"host", cfg.Storage.BucketHost,
+			"port", cfg.Storage.BucketPort,
+			"bucket", cfg.Storage.BucketName)
+
+		s3Cfg := storage.S3Config{
+			BucketHost:      cfg.Storage.BucketHost,
+			BucketPort:      cfg.Storage.BucketPort,
+			BucketName:      cfg.Storage.BucketName,
+			UseSSL:          cfg.Storage.UseSSL,
+			Region:          cfg.Storage.Region,
+			AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
+			SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+		}
+
+		s3Store, err := storage.NewS3Storage(ctx, s3Cfg)
+		if err != nil {
+			return fmt.Errorf("failed to initialize S3 storage: %w", err)
+		}
+
+		// Verify connectivity
+		if err := s3Store.Ping(ctx); err != nil {
+			return fmt.Errorf("failed to connect to S3 storage: %w", err)
+		}
+		log.Info("S3 storage connected successfully")
+		store = s3Store
+	} else {
+		log.Info("Using mock storage with sample documents")
+		store = storage.NewMockStorage()
+	}
+
 	// Create mTLS HTTP client for OPA requests
 	opaClient := workloadClient.CreateMTLSClient(5 * time.Second)
 
@@ -127,9 +189,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 
 	svc := &DocumentService{
-		store:          store.NewDocumentStore(),
+		storage:        store,
 		opaClient:      opaClient,
 		opaURL:         fmt.Sprintf("%s://%s:%d/v1/data/demo/authorization/decision", opaScheme, cfg.OPA.Host, cfg.OPA.Port),
+		opaManageURL:   fmt.Sprintf("%s://%s:%d/v1/data/demo/authorization/management/decision", opaScheme, cfg.OPA.Host, cfg.OPA.Port),
 		log:            log,
 		workloadClient: workloadClient,
 		mockMode:       cfg.Service.MockSPIFFE,
@@ -137,8 +200,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", svc.handleHealth)
-	mux.HandleFunc("/documents", svc.handleListDocuments)
-	mux.HandleFunc("/documents/", svc.handleDocument)
+	mux.HandleFunc("/documents", svc.handleDocuments)
+	mux.HandleFunc("/documents/", svc.handleDocumentByID)
 	mux.HandleFunc("/access", svc.handleAccess)
 
 	// Wrap with SPIFFE identity middleware
@@ -168,10 +231,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 		close(done)
 	}()
 
+	// Get document count
+	docs, _ := store.ListMetadata(ctx)
+	docCount := len(docs)
+
 	log.Section("STARTING DOCUMENT SERVICE")
 	log.Info("Document Service starting", "addr", cfg.Service.Addr())
 	log.Info("Health server starting", "addr", cfg.Service.HealthAddr())
-	log.Info("Loaded documents", "count", len(svc.store.List()))
+	log.Info("Loaded documents", "count", docCount)
+	log.Info("Storage backend", "type", storageType(cfg.Storage.Enabled))
 	log.Info("OPA endpoint", "url", svc.opaURL)
 	log.Info("mTLS mode", "enabled", !cfg.Service.MockSPIFFE)
 
@@ -208,50 +276,432 @@ func runServe(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func storageType(enabled bool) string {
+	if enabled {
+		return "s3"
+	}
+	return "mock"
+}
+
 func (s *DocumentService) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
 }
 
-func (s *DocumentService) handleListDocuments(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+// handleDocuments handles GET (list) and POST (create) for /documents
+func (s *DocumentService) handleDocuments(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.handleListDocuments(w, r)
+	case http.MethodPost:
+		s.handleCreateDocument(w, r)
+	default:
+		jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleDocumentByID handles requests to /documents/{id} and /documents/{id}/content
+func (s *DocumentService) handleDocumentByID(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/documents/")
+	if path == "" {
+		jsonError(w, "Document ID required", http.StatusBadRequest)
 		return
 	}
 
-	docs := s.store.List()
+	// Check if this is a content request
+	if strings.HasSuffix(path, "/content") {
+		docID := strings.TrimSuffix(path, "/content")
+		s.handleDocumentContent(w, r, docID)
+		return
+	}
+
+	// Handle document metadata operations
+	switch r.Method {
+	case http.MethodGet:
+		s.handleGetDocument(w, r, path)
+	case http.MethodPut:
+		s.handleUpdateDocument(w, r, path)
+	case http.MethodDelete:
+		s.handleDeleteDocument(w, r, path)
+	default:
+		jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *DocumentService) handleListDocuments(w http.ResponseWriter, r *http.Request) {
+	docs, err := s.storage.ListMetadata(r.Context())
+	if err != nil {
+		s.log.Error("Failed to list documents", "error", err)
+		jsonError(w, "Failed to list documents", http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(docs)
 }
 
-func (s *DocumentService) handleDocument(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+func (s *DocumentService) handleGetDocument(w http.ResponseWriter, r *http.Request, docID string) {
+	meta, err := s.storage.GetMetadata(r.Context(), docID)
+	if err != nil {
+		var notFound *storage.ErrNotFound
+		if errors.As(err, &notFound) {
+			jsonError(w, "Document not found", http.StatusNotFound)
+			return
+		}
+		s.log.Error("Failed to get document", "error", err)
+		jsonError(w, "Failed to get document", http.StatusInternalServerError)
 		return
 	}
 
-	// Extract document ID from path /documents/{id}
-	path := strings.TrimPrefix(r.URL.Path, "/documents/")
-	if path == "" {
-		http.Error(w, "Document ID required", http.StatusBadRequest)
-		return
-	}
-
-	doc, ok := s.store.Get(path)
-	if !ok {
-		http.Error(w, "Document not found", http.StatusNotFound)
-		return
-	}
-
-	// Return document metadata (without content - use /access for content)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
-		"id":                   doc.ID,
-		"title":                doc.Title,
-		"sensitivity":          doc.Sensitivity,
-		"required_department":  doc.RequiredDepartment,
-		"required_departments": doc.RequiredDepartments,
-	})
+	json.NewEncoder(w).Encode(meta)
+}
+
+func (s *DocumentService) handleDocumentContent(w http.ResponseWriter, r *http.Request, docID string) {
+	if r.Method != http.MethodGet {
+		jsonError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get caller SPIFFE ID
+	callerSPIFFEID := r.Header.Get("X-SPIFFE-ID")
+	if callerSPIFFEID == "" {
+		callerSPIFFEID = spiffe.GetSPIFFEIDFromRequest(r)
+	}
+	if callerSPIFFEID == "" {
+		jsonError(w, "SPIFFE ID required", http.StatusUnauthorized)
+		return
+	}
+
+	// Get document metadata for authorization
+	meta, err := s.storage.GetMetadata(r.Context(), docID)
+	if err != nil {
+		var notFound *storage.ErrNotFound
+		if errors.As(err, &notFound) {
+			jsonError(w, "Document not found", http.StatusNotFound)
+			return
+		}
+		s.log.Error("Failed to get document metadata", "error", err)
+		jsonError(w, "Failed to get document", http.StatusInternalServerError)
+		return
+	}
+
+	// Check authorization
+	allowed, reason, err := s.checkAuthorization(r.Context(), callerSPIFFEID, docID, meta, nil)
+	if err != nil {
+		s.log.Error("Authorization check failed", "error", err)
+		jsonError(w, "Authorization failed", http.StatusInternalServerError)
+		return
+	}
+
+	if !allowed {
+		s.log.Deny(reason)
+		metrics.AuthorizationDecisions.WithLabelValues("document-service", "deny", "user").Inc()
+		jsonError(w, "Access denied: "+reason, http.StatusForbidden)
+		return
+	}
+
+	s.log.Allow(reason)
+	metrics.AuthorizationDecisions.WithLabelValues("document-service", "allow", "user").Inc()
+
+	// Get content
+	content, err := s.storage.GetContent(r.Context(), docID)
+	if err != nil {
+		var notFound *storage.ErrNotFound
+		if errors.As(err, &notFound) {
+			jsonError(w, "Document content not found", http.StatusNotFound)
+			return
+		}
+		s.log.Error("Failed to get document content", "error", err)
+		jsonError(w, "Failed to get content", http.StatusInternalServerError)
+		return
+	}
+	defer content.Close()
+
+	w.Header().Set("Content-Type", "text/markdown")
+	io.Copy(w, content)
+}
+
+func (s *DocumentService) handleCreateDocument(w http.ResponseWriter, r *http.Request) {
+	callerSPIFFEID := r.Header.Get("X-SPIFFE-ID")
+	if callerSPIFFEID == "" {
+		callerSPIFFEID = spiffe.GetSPIFFEIDFromRequest(r)
+	}
+	if callerSPIFFEID == "" {
+		jsonError(w, "SPIFFE ID required", http.StatusUnauthorized)
+		return
+	}
+
+	// Check management authorization
+	allowed, reason, err := s.checkManagementAuthorization(r.Context(), callerSPIFFEID)
+	if err != nil {
+		s.log.Error("Management authorization check failed", "error", err)
+		jsonError(w, "Authorization failed", http.StatusInternalServerError)
+		return
+	}
+	if !allowed {
+		s.log.Deny(reason)
+		jsonError(w, "Access denied: "+reason, http.StatusForbidden)
+		return
+	}
+
+	// Parse request - support both JSON and multipart
+	contentType := r.Header.Get("Content-Type")
+	var meta *storage.DocumentMetadata
+	var content io.Reader
+
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		// Multipart form upload
+		var parsedMeta *storage.DocumentMetadata
+		var fileContent io.Reader
+		var parseErr error
+		parsedMeta, fileContent, parseErr = s.parseMultipartCreate(r)
+		if parseErr != nil {
+			jsonError(w, parseErr.Error(), http.StatusBadRequest)
+			return
+		}
+		meta = parsedMeta
+		content = fileContent
+	} else {
+		// JSON body
+		var req CreateDocumentRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			jsonError(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		if req.ID == "" || req.Title == "" {
+			jsonError(w, "ID and title are required", http.StatusBadRequest)
+			return
+		}
+		meta = &storage.DocumentMetadata{
+			ID:                  req.ID,
+			Title:               req.Title,
+			RequiredDepartment:  req.RequiredDepartment,
+			RequiredDepartments: req.RequiredDepartments,
+			Sensitivity:         req.Sensitivity,
+		}
+		if req.Content != "" {
+			content = strings.NewReader(req.Content)
+		}
+	}
+
+	// Check if document already exists
+	_, err = s.storage.GetMetadata(r.Context(), meta.ID)
+	if err == nil {
+		jsonError(w, "Document already exists", http.StatusConflict)
+		return
+	}
+	var notFound *storage.ErrNotFound
+	if !errors.As(err, &notFound) {
+		s.log.Error("Failed to check document existence", "error", err)
+		jsonError(w, "Failed to create document", http.StatusInternalServerError)
+		return
+	}
+
+	// Save metadata
+	if err := s.storage.PutMetadata(r.Context(), meta); err != nil {
+		s.log.Error("Failed to save document metadata", "error", err)
+		jsonError(w, "Failed to create document", http.StatusInternalServerError)
+		return
+	}
+
+	// Save content if provided
+	if content != nil {
+		if err := s.storage.PutContent(r.Context(), meta.ID, content); err != nil {
+			s.log.Error("Failed to save document content", "error", err)
+			// Try to clean up metadata
+			s.storage.DeleteMetadata(r.Context(), meta.ID)
+			jsonError(w, "Failed to save document content", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	s.log.Info("Document created", "id", meta.ID, "title", meta.Title)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(meta)
+}
+
+func (s *DocumentService) parseMultipartCreate(r *http.Request) (*storage.DocumentMetadata, io.Reader, error) {
+	// Parse multipart form (max 10MB)
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		return nil, nil, fmt.Errorf("failed to parse multipart form: %w", err)
+	}
+
+	// Get metadata from form
+	metadataStr := r.FormValue("metadata")
+	if metadataStr == "" {
+		return nil, nil, fmt.Errorf("metadata field is required")
+	}
+
+	var req CreateDocumentRequest
+	if err := json.Unmarshal([]byte(metadataStr), &req); err != nil {
+		return nil, nil, fmt.Errorf("invalid metadata JSON: %w", err)
+	}
+	if req.ID == "" || req.Title == "" {
+		return nil, nil, fmt.Errorf("id and title are required in metadata")
+	}
+
+	meta := &storage.DocumentMetadata{
+		ID:                  req.ID,
+		Title:               req.Title,
+		RequiredDepartment:  req.RequiredDepartment,
+		RequiredDepartments: req.RequiredDepartments,
+		Sensitivity:         req.Sensitivity,
+	}
+
+	// Get file from form
+	var content io.Reader
+	file, _, err := r.FormFile("file")
+	if err != nil && err != http.ErrMissingFile {
+		return nil, nil, fmt.Errorf("failed to get file: %w", err)
+	}
+	if file != nil {
+		// Read file into buffer since we need to return it
+		buf := new(bytes.Buffer)
+		if _, err := io.Copy(buf, file); err != nil {
+			file.Close()
+			return nil, nil, fmt.Errorf("failed to read file: %w", err)
+		}
+		file.Close()
+		content = buf
+	}
+
+	return meta, content, nil
+}
+
+func (s *DocumentService) handleUpdateDocument(w http.ResponseWriter, r *http.Request, docID string) {
+	callerSPIFFEID := r.Header.Get("X-SPIFFE-ID")
+	if callerSPIFFEID == "" {
+		callerSPIFFEID = spiffe.GetSPIFFEIDFromRequest(r)
+	}
+	if callerSPIFFEID == "" {
+		jsonError(w, "SPIFFE ID required", http.StatusUnauthorized)
+		return
+	}
+
+	// Check management authorization
+	allowed, reason, err := s.checkManagementAuthorization(r.Context(), callerSPIFFEID)
+	if err != nil {
+		s.log.Error("Management authorization check failed", "error", err)
+		jsonError(w, "Authorization failed", http.StatusInternalServerError)
+		return
+	}
+	if !allowed {
+		s.log.Deny(reason)
+		jsonError(w, "Access denied: "+reason, http.StatusForbidden)
+		return
+	}
+
+	// Check if document exists
+	_, err = s.storage.GetMetadata(r.Context(), docID)
+	if err != nil {
+		var notFound *storage.ErrNotFound
+		if errors.As(err, &notFound) {
+			jsonError(w, "Document not found", http.StatusNotFound)
+			return
+		}
+		s.log.Error("Failed to get document", "error", err)
+		jsonError(w, "Failed to update document", http.StatusInternalServerError)
+		return
+	}
+
+	// Parse request
+	contentType := r.Header.Get("Content-Type")
+	var meta *storage.DocumentMetadata
+	var content io.Reader
+
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		parsedMeta, fileContent, parseErr := s.parseMultipartCreate(r)
+		if parseErr != nil {
+			jsonError(w, parseErr.Error(), http.StatusBadRequest)
+			return
+		}
+		// Ensure ID matches path
+		parsedMeta.ID = docID
+		meta = parsedMeta
+		content = fileContent
+	} else {
+		var req CreateDocumentRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			jsonError(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		meta = &storage.DocumentMetadata{
+			ID:                  docID,
+			Title:               req.Title,
+			RequiredDepartment:  req.RequiredDepartment,
+			RequiredDepartments: req.RequiredDepartments,
+			Sensitivity:         req.Sensitivity,
+		}
+		if req.Content != "" {
+			content = strings.NewReader(req.Content)
+		}
+	}
+
+	// Update metadata
+	if err := s.storage.PutMetadata(r.Context(), meta); err != nil {
+		s.log.Error("Failed to update document metadata", "error", err)
+		jsonError(w, "Failed to update document", http.StatusInternalServerError)
+		return
+	}
+
+	// Update content if provided
+	if content != nil {
+		if err := s.storage.PutContent(r.Context(), docID, content); err != nil {
+			s.log.Error("Failed to update document content", "error", err)
+			jsonError(w, "Failed to update document content", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	s.log.Info("Document updated", "id", docID)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(meta)
+}
+
+func (s *DocumentService) handleDeleteDocument(w http.ResponseWriter, r *http.Request, docID string) {
+	callerSPIFFEID := r.Header.Get("X-SPIFFE-ID")
+	if callerSPIFFEID == "" {
+		callerSPIFFEID = spiffe.GetSPIFFEIDFromRequest(r)
+	}
+	if callerSPIFFEID == "" {
+		jsonError(w, "SPIFFE ID required", http.StatusUnauthorized)
+		return
+	}
+
+	// Check management authorization
+	allowed, reason, err := s.checkManagementAuthorization(r.Context(), callerSPIFFEID)
+	if err != nil {
+		s.log.Error("Management authorization check failed", "error", err)
+		jsonError(w, "Authorization failed", http.StatusInternalServerError)
+		return
+	}
+	if !allowed {
+		s.log.Deny(reason)
+		jsonError(w, "Access denied: "+reason, http.StatusForbidden)
+		return
+	}
+
+	// Delete content (ignore not found)
+	_ = s.storage.DeleteContent(r.Context(), docID)
+
+	// Delete metadata
+	if err := s.storage.DeleteMetadata(r.Context(), docID); err != nil {
+		var notFound *storage.ErrNotFound
+		if errors.As(err, &notFound) {
+			jsonError(w, "Document not found", http.StatusNotFound)
+			return
+		}
+		s.log.Error("Failed to delete document", "error", err)
+		jsonError(w, "Failed to delete document", http.StatusInternalServerError)
+		return
+	}
+
+	s.log.Info("Document deleted", "id", docID)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *DocumentService) handleAccess(w http.ResponseWriter, r *http.Request) {
@@ -267,12 +717,8 @@ func (s *DocumentService) handleAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// In this demo, the X-SPIFFE-ID header carries the "subject" identity
-	// (which user is requesting access), while mTLS authenticates the calling service.
-	// We use the header for authorization decisions.
 	callerSPIFFEID := r.Header.Get("X-SPIFFE-ID")
 	if callerSPIFFEID == "" {
-		// Fall back to mTLS certificate if no header (e.g., direct calls)
 		callerSPIFFEID = spiffe.GetSPIFFEIDFromRequest(r)
 	}
 	if callerSPIFFEID == "" {
@@ -287,16 +733,22 @@ func (s *DocumentService) handleAccess(w http.ResponseWriter, r *http.Request) {
 		"caller", callerSPIFFEID,
 		"has_delegation", req.Delegation != nil)
 
-	// Check if document exists
-	doc, ok := s.store.Get(req.DocumentID)
-	if !ok {
-		s.log.Error("Document not found", "document_id", req.DocumentID)
-		jsonError(w, "Document not found", http.StatusNotFound)
+	// Get document metadata
+	meta, err := s.storage.GetMetadata(r.Context(), req.DocumentID)
+	if err != nil {
+		var notFound *storage.ErrNotFound
+		if errors.As(err, &notFound) {
+			s.log.Error("Document not found", "document_id", req.DocumentID)
+			jsonError(w, "Document not found", http.StatusNotFound)
+			return
+		}
+		s.log.Error("Failed to get document", "error", err)
+		jsonError(w, "Failed to get document", http.StatusInternalServerError)
 		return
 	}
 
 	// Query OPA for authorization
-	allowed, reason, err := s.checkAuthorization(r.Context(), callerSPIFFEID, req.DocumentID, req.Delegation)
+	allowed, reason, err := s.checkAuthorization(r.Context(), callerSPIFFEID, req.DocumentID, meta, req.Delegation)
 	if err != nil {
 		s.log.Error("Authorization check failed", "error", err)
 		jsonError(w, "Authorization failed", http.StatusInternalServerError)
@@ -323,11 +775,47 @@ func (s *DocumentService) handleAccess(w http.ResponseWriter, r *http.Request) {
 
 	s.log.Allow(reason)
 	metrics.AuthorizationDecisions.WithLabelValues("document-service", "allow", callerType).Inc()
-	s.log.Document(doc.ID, "Returning document content")
+	s.log.Document(meta.ID, "Returning document content")
+
+	// Get content
+	content, err := s.storage.GetContent(r.Context(), req.DocumentID)
+	if err != nil {
+		var notFound *storage.ErrNotFound
+		if errors.As(err, &notFound) {
+			// Document exists but no content - return metadata only
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"document": meta,
+				"access": map[string]any{
+					"granted": true,
+					"reason":  reason,
+				},
+			})
+			return
+		}
+		s.log.Error("Failed to get document content", "error", err)
+		jsonError(w, "Failed to get content", http.StatusInternalServerError)
+		return
+	}
+	defer content.Close()
+
+	contentBytes, err := io.ReadAll(content)
+	if err != nil {
+		s.log.Error("Failed to read document content", "error", err)
+		jsonError(w, "Failed to read content", http.StatusInternalServerError)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"document": doc,
+		"document": map[string]any{
+			"id":                   meta.ID,
+			"title":                meta.Title,
+			"sensitivity":          meta.Sensitivity,
+			"required_department":  meta.RequiredDepartment,
+			"required_departments": meta.RequiredDepartments,
+			"content":              string(contentBytes),
+		},
 		"access": map[string]any{
 			"granted": true,
 			"reason":  reason,
@@ -335,14 +823,22 @@ func (s *DocumentService) handleAccess(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *DocumentService) checkAuthorization(ctx context.Context, callerSPIFFEID, documentID string, delegation *Delegation) (bool, string, error) {
+func (s *DocumentService) checkAuthorization(ctx context.Context, callerSPIFFEID, documentID string, meta *storage.DocumentMetadata, delegation *Delegation) (bool, string, error) {
 	queryLog := logger.New(logger.ComponentOPAQuery)
+
+	// Build document metadata for OPA
+	opaMeta := &OPADocumentMeta{
+		RequiredDepartment:  meta.RequiredDepartment,
+		RequiredDepartments: meta.RequiredDepartments,
+		Sensitivity:         meta.Sensitivity,
+	}
 
 	opaReq := OPARequest{
 		Input: OPAInput{
-			CallerSPIFFEID: callerSPIFFEID,
-			DocumentID:     documentID,
-			Delegation:     delegation,
+			CallerSPIFFEID:   callerSPIFFEID,
+			DocumentID:       documentID,
+			DocumentMetadata: opaMeta,
+			Delegation:       delegation,
 		},
 	}
 
@@ -389,3 +885,52 @@ func (s *DocumentService) checkAuthorization(ctx context.Context, callerSPIFFEID
 
 	return opaResp.Result.Allow, opaResp.Result.Reason, nil
 }
+
+func (s *DocumentService) checkManagementAuthorization(ctx context.Context, callerSPIFFEID string) (bool, string, error) {
+	queryLog := logger.New(logger.ComponentOPAQuery)
+
+	opaReq := OPARequest{
+		Input: OPAInput{
+			CallerSPIFFEID: callerSPIFFEID,
+		},
+	}
+
+	queryLog.Info("Querying OPA for management authorization",
+		"caller", callerSPIFFEID)
+
+	reqBody, err := json.Marshal(opaReq)
+	if err != nil {
+		return false, "", fmt.Errorf("failed to marshal OPA request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.opaManageURL, bytes.NewReader(reqBody))
+	if err != nil {
+		return false, "", fmt.Errorf("failed to create OPA request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.opaClient.Do(req)
+	if err != nil {
+		return false, "", fmt.Errorf("OPA request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return false, "", fmt.Errorf("OPA returned status %d", resp.StatusCode)
+	}
+
+	var opaResp OPAResponse
+	if err := json.NewDecoder(resp.Body).Decode(&opaResp); err != nil {
+		return false, "", fmt.Errorf("failed to decode OPA response: %w", err)
+	}
+
+	evalLog := logger.New(logger.ComponentOPAEval)
+	evalLog.Info("Management policy evaluation complete",
+		"allow", opaResp.Result.Allow,
+		"reason", opaResp.Result.Reason)
+
+	return opaResp.Result.Allow, opaResp.Result.Reason, nil
+}
+
+// Ensure multipart.File interface is satisfied
+var _ io.Reader = (multipart.File)(nil)

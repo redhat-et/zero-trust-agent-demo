@@ -1,0 +1,8 @@
+apiVersion: objectbucket.io/v1alpha1
+kind: ObjectBucketClaim
+metadata:
+  name: doc-storage-bucket
+  namespace: spiffe-demo  # Change this to your project name
+spec:
+  generateBucketName: doc-storage
+  storageClassName: openshift-storage.noobaa.io

@@ -5,44 +5,13 @@ import rego.v1
 import data.demo.agents
 import data.demo.users
 
-# Document metadata - 7 sample documents
-documents := {
-    "DOC-001": {
-        "title": "Engineering Roadmap",
-        "required_department": "engineering",
-        "sensitivity": "medium"
-    },
-    "DOC-002": {
-        "title": "Q4 Financial Report",
-        "required_department": "finance",
-        "sensitivity": "high"
-    },
-    "DOC-003": {
-        "title": "Admin Policies",
-        "required_department": "admin",
-        "sensitivity": "critical"
-    },
-    "DOC-004": {
-        "title": "HR Guidelines",
-        "required_department": "hr",
-        "sensitivity": "medium"
-    },
-    "DOC-005": {
-        "title": "Budget Projections",
-        "required_departments": ["finance", "engineering"],
-        "sensitivity": "high"
-    },
-    "DOC-006": {
-        "title": "Compliance Audit",
-        "required_departments": ["admin", "finance"],
-        "sensitivity": "critical"
-    },
-    "DOC-007": {
-        "title": "All-Hands Summary",
-        "required_department": "",  # No requirement - public
-        "sensitivity": "public"
-    }
-}
+# Document metadata is now passed in input.document_metadata
+# Expected structure:
+# {
+#   "required_department": "engineering",      # Single department OR
+#   "required_departments": ["finance", "hr"], # Multiple departments
+#   "sensitivity": "medium"
+# }
 
 # Parse SPIFFE ID to extract type and name
 # Example: spiffe://demo.example.com/user/alice -> {type: "user", name: "alice"}
@@ -55,29 +24,27 @@ parse_spiffe_id(spiffe_id) := result if {
     }
 }
 
-# Get required departments for a document (handles both single and multiple)
-get_required_departments(doc_id) := deps if {
-    doc := documents[doc_id]
-    deps := doc.required_departments
+# Get required departments from document metadata (handles both single and multiple)
+get_required_departments := deps if {
+    deps := input.document_metadata.required_departments
 } else := [dep] if {
-    doc := documents[doc_id]
-    dep := doc.required_department
+    dep := input.document_metadata.required_department
     dep != ""
 } else := []
 
 # Helper: Check if document is public (no required departments)
-is_public_document(doc_id) if {
-    required := get_required_departments(doc_id)
+is_public_document if {
+    required := get_required_departments
     count(required) == 0
 }
 
 # Check if a set of permissions satisfies document requirements
-has_any_required_department(permissions, doc_id) if {
-    is_public_document(doc_id)
+has_any_required_department(permissions) if {
+    is_public_document
 }
 
-has_any_required_department(permissions, doc_id) if {
-    required := get_required_departments(doc_id)
+has_any_required_department(permissions) if {
+    required := get_required_departments
     some dept in required
     dept in permissions
 }
@@ -88,8 +55,7 @@ default allow := false
 
 # Rule 1: Public documents are always accessible
 allow if {
-    doc := documents[input.document_id]
-    doc.required_department == ""
+    is_public_document
 }
 
 # Rule 2: Direct user access (no agent delegation)
@@ -105,7 +71,7 @@ allow if {
     user_depts := users.get_departments(caller.name)
 
     # Check if user has any required department
-    has_any_required_department(user_depts, input.document_id)
+    has_any_required_department(user_depts)
 }
 
 # Rule 3: Delegated access (user delegates to agent)
@@ -128,7 +94,7 @@ allow if {
     effective := {d | some d in user_depts; d in agent_caps}
 
     # Check if effective permissions satisfy document requirements
-    has_any_required_department(effective, input.document_id)
+    has_any_required_department(effective)
 }
 
 # Explicit deny reason for agents without delegation
@@ -160,7 +126,7 @@ decision := {
 # Reason for public access
 reason := "Public document accessible to all" if {
     allow
-    is_public_document(input.document_id)
+    is_public_document
 }
 
 # Reason for direct user access (but not for public documents)
@@ -169,14 +135,14 @@ reason := "User has required department access" if {
     not input.delegation
     caller := parse_spiffe_id(input.caller_spiffe_id)
     caller.type == "user"
-    not is_public_document(input.document_id)
+    not is_public_document
 }
 
 # Reason for delegated access (but not for public documents)
 reason := "Both user and agent have required access (delegation)" if {
     allow
     input.delegation
-    not is_public_document(input.document_id)
+    not is_public_document
 }
 
 # Reason for denial
@@ -193,7 +159,7 @@ reason := "Insufficient permissions" if {
 # Details for non-delegated requests
 details := {
     "document_id": input.document_id,
-    "required_departments": get_required_departments(input.document_id),
+    "required_departments": get_required_departments,
     "caller_type": parse_spiffe_id(input.caller_spiffe_id).type,
     "caller_name": parse_spiffe_id(input.caller_spiffe_id).name
 } if {
@@ -203,7 +169,7 @@ details := {
 # Details for delegated requests
 details := {
     "document_id": input.document_id,
-    "required_departments": get_required_departments(input.document_id),
+    "required_departments": get_required_departments,
     "user": parse_spiffe_id(input.delegation.user_spiffe_id).name,
     "agent": parse_spiffe_id(input.delegation.agent_spiffe_id).name,
     "user_departments": users.get_departments(parse_spiffe_id(input.delegation.user_spiffe_id).name),
