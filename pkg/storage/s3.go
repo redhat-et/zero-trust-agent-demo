@@ -3,10 +3,12 @@ package storage
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -29,6 +31,7 @@ type S3Config struct {
 	BucketPort      int
 	BucketName      string
 	UseSSL          bool
+	InsecureTLS     bool
 	Region          string
 	AccessKeyID     string
 	SecretAccessKey string
@@ -56,14 +59,29 @@ func NewS3Storage(ctx context.Context, cfg S3Config) (*S3Storage, error) {
 		region = "us-east-1"
 	}
 
-	awsCfg, err := config.LoadDefaultConfig(ctx,
+	// Build config options
+	configOpts := []func(*config.LoadOptions) error{
 		config.WithRegion(region),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
 			cfg.AccessKeyID,
 			cfg.SecretAccessKey,
 			"",
 		)),
-	)
+	}
+
+	// Add custom HTTP client for insecure TLS if needed
+	if cfg.InsecureTLS {
+		httpClient := &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true, //nolint:gosec // Intentional for internal services
+				},
+			},
+		}
+		configOpts = append(configOpts, config.WithHTTPClient(httpClient))
+	}
+
+	awsCfg, err := config.LoadDefaultConfig(ctx, configOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load AWS config: %w", err)
 	}
