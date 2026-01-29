@@ -571,19 +571,16 @@ code, pre, .mono {
     margin-left: var(--spacing-sm);
 }
 
-.badge {
-    display: inline-block;
-    padding: 2px 8px;
-    font-size: 11px;
-    font-weight: 500;
-    border-radius: 10px;
-    background-color: var(--rh-blue);
-    color: var(--rh-white);
-}
-
 .badge-small {
     padding: 1px 6px;
     font-size: 10px;
+}
+
+/* User group badges in header - use blue for departments */
+.user-groups .badge,
+.user-groups-inline .badge {
+    background-color: var(--rh-blue);
+    color: var(--rh-white);
 }
 
 .btn-small {
