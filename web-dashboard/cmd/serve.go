@@ -17,6 +17,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
 
+	"github.com/redhat-et/zero-trust-agent-demo/pkg/auth"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/config"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/logger"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/spiffe"
@@ -35,16 +36,27 @@ func init() {
 	serveCmd.Flags().String("user-service-url", "http://localhost:8082", "User service URL")
 	serveCmd.Flags().String("agent-service-url", "http://localhost:8083", "Agent service URL")
 	serveCmd.Flags().String("document-service-url", "http://localhost:8084", "Document service URL")
+	serveCmd.Flags().Bool("oidc-enabled", false, "Enable OIDC authentication")
+	serveCmd.Flags().String("oidc-issuer-url", "http://localhost:8180/realms/spiffe-demo", "OIDC issuer URL")
+	serveCmd.Flags().String("oidc-client-id", "spiffe-demo-dashboard", "OIDC client ID")
+	serveCmd.Flags().String("oidc-redirect-url", "http://localhost:8080/auth/callback", "OIDC redirect URL")
+	serveCmd.Flags().Bool("oidc-skip-expiry-check", false, "Skip token expiry check (for dev with clock skew)")
 	v.BindPFlag("user_service_url", serveCmd.Flags().Lookup("user-service-url"))
 	v.BindPFlag("agent_service_url", serveCmd.Flags().Lookup("agent-service-url"))
 	v.BindPFlag("document_service_url", serveCmd.Flags().Lookup("document-service-url"))
+	v.BindPFlag("oidc.enabled", serveCmd.Flags().Lookup("oidc-enabled"))
+	v.BindPFlag("oidc.issuer_url", serveCmd.Flags().Lookup("oidc-issuer-url"))
+	v.BindPFlag("oidc.client_id", serveCmd.Flags().Lookup("oidc-client-id"))
+	v.BindPFlag("oidc.redirect_url", serveCmd.Flags().Lookup("oidc-redirect-url"))
+	v.BindPFlag("oidc.skip_expiry_check", serveCmd.Flags().Lookup("oidc-skip-expiry-check"))
 }
 
 type Config struct {
 	config.CommonConfig `mapstructure:",squash"`
-	UserServiceURL      string `mapstructure:"user_service_url"`
-	AgentServiceURL     string `mapstructure:"agent_service_url"`
-	DocumentServiceURL  string `mapstructure:"document_service_url"`
+	UserServiceURL      string          `mapstructure:"user_service_url"`
+	AgentServiceURL     string          `mapstructure:"agent_service_url"`
+	DocumentServiceURL  string          `mapstructure:"document_service_url"`
+	OIDC                auth.OIDCConfig `mapstructure:"oidc"`
 }
 
 // Dashboard handles the web dashboard
@@ -58,6 +70,10 @@ type Dashboard struct {
 	sseClients         map[chan string]bool
 	sseMutex           sync.Mutex
 	workloadClient     *spiffe.WorkloadClient
+	oidcEnabled        bool
+	oidcProvider       *auth.OIDCProvider
+	sessionStore       *auth.SessionStore
+	stateStore         *auth.StateStore
 }
 
 // LogEntry represents a log entry for SSE
@@ -126,6 +142,20 @@ func runServe(cmd *cobra.Command, args []string) error {
 		log:                log,
 		sseClients:         make(map[chan string]bool),
 		workloadClient:     workloadClient,
+		oidcEnabled:        cfg.OIDC.Enabled,
+	}
+
+	// Initialize OIDC if enabled
+	if cfg.OIDC.Enabled {
+		log.Info("OIDC authentication enabled", "issuer", cfg.OIDC.IssuerURL)
+		oidcProvider, err := auth.NewOIDCProvider(ctx, cfg.OIDC)
+		if err != nil {
+			return fmt.Errorf("failed to initialize OIDC provider: %w", err)
+		}
+		dashboard.oidcProvider = oidcProvider
+		dashboard.sessionStore = auth.NewSessionStore(8 * time.Hour)
+		dashboard.stateStore = auth.NewStateStore()
+		log.Info("OIDC provider initialized", "client_id", cfg.OIDC.ClientID)
 	}
 
 	mux := http.NewServeMux()
@@ -145,6 +175,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 	mux.HandleFunc("/api/access-direct", dashboard.handleDirectAccess)
 	mux.HandleFunc("/api/access-delegated", dashboard.handleDelegatedAccess)
 	mux.HandleFunc("/api/status", dashboard.handleStatus)
+	mux.HandleFunc("/api/session", dashboard.handleGetSession)
+
+	// Auth routes (only if OIDC is enabled)
+	if cfg.OIDC.Enabled {
+		mux.HandleFunc("/auth/login", dashboard.handleLogin)
+		mux.HandleFunc("/auth/callback", dashboard.handleCallback)
+		mux.HandleFunc("/auth/logout", dashboard.handleLogout)
+	}
 
 	server := &http.Server{
 		Addr:         cfg.Service.Addr(),
@@ -204,7 +242,17 @@ func (d *Dashboard) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := map[string]any{
-		"Title": "SPIFFE/SPIRE Zero Trust Demo",
+		"Title":       "SPIFFE/SPIRE Zero Trust Demo",
+		"OIDCEnabled": d.oidcEnabled,
+	}
+
+	// Check for session if OIDC is enabled
+	if d.oidcEnabled {
+		if cookie, err := r.Cookie("session_id"); err == nil {
+			if session := d.sessionStore.Get(cookie.Value); session != nil {
+				data["Session"] = session
+			}
+		}
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -369,6 +417,17 @@ func (d *Dashboard) handleDirectAccess(w http.ResponseWriter, r *http.Request) {
 	}
 	d.log.Info("Direct access params", "user", req.UserID, "document", req.DocumentID)
 
+	// Get user departments from session (JWT groups) if OIDC is enabled
+	var userDepartments []string
+	if d.oidcEnabled {
+		if cookie, err := r.Cookie("session_id"); err == nil {
+			if session := d.sessionStore.Get(cookie.Value); session != nil {
+				userDepartments = session.Groups
+				d.log.Info("Using JWT groups as user departments", "groups", userDepartments)
+			}
+		}
+	}
+
 	d.broadcastLog(LogEntry{
 		Timestamp: time.Now().Format(time.RFC3339),
 		Component: "DASHBOARD",
@@ -377,7 +436,15 @@ func (d *Dashboard) handleDirectAccess(w http.ResponseWriter, r *http.Request) {
 		Color:     "white",
 	})
 
-	body, _ := json.Marshal(req)
+	// Build request with user_departments if available
+	reqBody := map[string]any{
+		"user_id":     req.UserID,
+		"document_id": req.DocumentID,
+	}
+	if len(userDepartments) > 0 {
+		reqBody["user_departments"] = userDepartments
+	}
+	body, _ := json.Marshal(reqBody)
 	d.log.Info("Calling user service", "url", d.userServiceURL+"/access")
 	resp, err := d.httpClient.Post(d.userServiceURL+"/access", "application/json", bytes.NewReader(body))
 	if err != nil {
@@ -441,6 +508,17 @@ func (d *Dashboard) handleDelegatedAccess(w http.ResponseWriter, r *http.Request
 	}
 	d.log.Info("Delegated access params", "user", req.UserID, "agent", req.AgentID, "document", req.DocumentID)
 
+	// Get user departments from session (JWT groups) if OIDC is enabled
+	var userDepartments []string
+	if d.oidcEnabled {
+		if cookie, err := r.Cookie("session_id"); err == nil {
+			if session := d.sessionStore.Get(cookie.Value); session != nil {
+				userDepartments = session.Groups
+				d.log.Info("Using JWT groups as user departments", "groups", userDepartments)
+			}
+		}
+	}
+
 	var resp *http.Response
 	var err error
 
@@ -474,7 +552,16 @@ func (d *Dashboard) handleDelegatedAccess(w http.ResponseWriter, r *http.Request
 			Color:     "white",
 		})
 
-		body, _ := json.Marshal(req)
+		// Build request with user_departments if available
+		reqBody := map[string]any{
+			"user_id":     req.UserID,
+			"agent_id":    req.AgentID,
+			"document_id": req.DocumentID,
+		}
+		if len(userDepartments) > 0 {
+			reqBody["user_departments"] = userDepartments
+		}
+		body, _ := json.Marshal(reqBody)
 		d.log.Info("Calling user service for delegation", "url", d.userServiceURL+"/delegate")
 		resp, err = d.httpClient.Post(d.userServiceURL+"/delegate", "application/json", bytes.NewReader(body))
 	}
@@ -556,4 +643,229 @@ func (d *Dashboard) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(status)
+}
+
+func (d *Dashboard) handleGetSession(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	// If OIDC is not enabled, return empty session
+	if !d.oidcEnabled {
+		json.NewEncoder(w).Encode(map[string]any{
+			"authenticated": false,
+			"oidc_enabled":  false,
+		})
+		return
+	}
+
+	// Check for session cookie
+	cookie, err := r.Cookie("session_id")
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]any{
+			"authenticated": false,
+			"oidc_enabled":  true,
+		})
+		return
+	}
+
+	session := d.sessionStore.Get(cookie.Value)
+	if session == nil {
+		json.NewEncoder(w).Encode(map[string]any{
+			"authenticated": false,
+			"oidc_enabled":  true,
+		})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]any{
+		"authenticated": true,
+		"oidc_enabled":  true,
+		"user": map[string]any{
+			"username": session.Username,
+			"name":     session.Name,
+			"email":    session.Email,
+			"groups":   session.Groups,
+		},
+	})
+}
+
+func (d *Dashboard) handleLogin(w http.ResponseWriter, r *http.Request) {
+	d.log.Info("Login request", "remote", r.RemoteAddr)
+
+	if !d.oidcEnabled || d.oidcProvider == nil {
+		http.Error(w, "OIDC not enabled", http.StatusNotFound)
+		return
+	}
+
+	// Generate state for CSRF protection
+	state := d.stateStore.GenerateState()
+
+	// Store state in cookie for validation
+	http.SetCookie(w, &http.Cookie{
+		Name:     "oauth_state",
+		Value:    state,
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   600,
+		Path:     "/",
+	})
+
+	// Redirect to Keycloak
+	url := d.oidcProvider.AuthCodeURL(state)
+	d.log.Info("Redirecting to OIDC provider", "url", url)
+	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
+}
+
+func (d *Dashboard) handleCallback(w http.ResponseWriter, r *http.Request) {
+	d.log.Info("OAuth callback", "remote", r.RemoteAddr)
+
+	if !d.oidcEnabled || d.oidcProvider == nil {
+		http.Error(w, "OIDC not enabled", http.StatusNotFound)
+		return
+	}
+
+	// Verify state
+	stateCookie, err := r.Cookie("oauth_state")
+	if err != nil {
+		d.log.Error("Missing state cookie", "error", err)
+		http.Error(w, "Missing state cookie", http.StatusBadRequest)
+		return
+	}
+
+	stateParam := r.URL.Query().Get("state")
+	if stateCookie.Value != stateParam || !d.stateStore.Validate(stateParam) {
+		d.log.Error("Invalid state", "cookie", stateCookie.Value, "param", stateParam)
+		http.Error(w, "Invalid state", http.StatusBadRequest)
+		return
+	}
+
+	// Check for error from provider
+	if errParam := r.URL.Query().Get("error"); errParam != "" {
+		errDesc := r.URL.Query().Get("error_description")
+		d.log.Error("OAuth error", "error", errParam, "description", errDesc)
+		http.Error(w, fmt.Sprintf("Authentication failed: %s", errDesc), http.StatusUnauthorized)
+		return
+	}
+
+	// Exchange code for token
+	code := r.URL.Query().Get("code")
+	token, err := d.oidcProvider.Exchange(r.Context(), code)
+	if err != nil {
+		d.log.Error("Token exchange failed", "error", err)
+		http.Error(w, "Authentication failed", http.StatusInternalServerError)
+		return
+	}
+
+	// Extract and verify ID token
+	rawIDToken, ok := token.Extra("id_token").(string)
+	if !ok {
+		d.log.Error("No ID token in response")
+		http.Error(w, "No ID token in response", http.StatusInternalServerError)
+		return
+	}
+
+	idToken, err := d.oidcProvider.Verify(r.Context(), rawIDToken)
+	if err != nil {
+		d.log.Error("Token verification failed", "error", err)
+		http.Error(w, "Token verification failed", http.StatusUnauthorized)
+		return
+	}
+
+	// Extract claims
+	claims, err := auth.ExtractClaims(idToken)
+	if err != nil {
+		d.log.Error("Failed to extract claims", "error", err)
+		http.Error(w, "Failed to extract claims", http.StatusInternalServerError)
+		return
+	}
+
+	d.log.Info("User authenticated",
+		"username", claims.PreferredUsername,
+		"name", claims.Name,
+		"groups", claims.Groups)
+
+	// Create session
+	session := d.sessionStore.Create(claims.PreferredUsername, claims.Name, claims.Email, claims.Groups)
+
+	// Set session cookie
+	// Use SameSiteLaxMode to allow the cookie on top-level navigations
+	// (like redirects from OAuth providers). StrictMode would block the
+	// cookie on the redirect from Keycloak, requiring a second click.
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session_id",
+		Value:    session.ID,
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteLaxMode,
+		Path:     "/",
+		MaxAge:   int(8 * time.Hour / time.Second),
+	})
+
+	// Clear state cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:   "oauth_state",
+		Value:  "",
+		MaxAge: -1,
+		Path:   "/",
+	})
+
+	d.broadcastLog(LogEntry{
+		Timestamp: time.Now().Format(time.RFC3339),
+		Component: "DASHBOARD",
+		Level:     "INFO",
+		Message:   fmt.Sprintf("User %s logged in (groups: %v)", claims.PreferredUsername, claims.Groups),
+		Color:     "green",
+	})
+
+	// Redirect to home
+	http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+}
+
+func (d *Dashboard) handleLogout(w http.ResponseWriter, r *http.Request) {
+	d.log.Info("Logout request", "remote", r.RemoteAddr)
+
+	// Get session for logging
+	var username string
+	if cookie, err := r.Cookie("session_id"); err == nil {
+		if session := d.sessionStore.Get(cookie.Value); session != nil {
+			username = session.Username
+			d.sessionStore.Delete(cookie.Value)
+		}
+	}
+
+	// Clear session cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session_id",
+		Value:    "",
+		HttpOnly: true,
+		MaxAge:   -1,
+		Path:     "/",
+	})
+
+	if username != "" {
+		d.log.Info("User logged out", "username", username)
+		d.broadcastLog(LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Component: "DASHBOARD",
+			Level:     "INFO",
+			Message:   fmt.Sprintf("User %s logged out", username),
+			Color:     "white",
+		})
+
+		// Redirect to Keycloak logout to clear the IdP session
+		if d.oidcProvider != nil {
+			logoutURL := d.oidcProvider.LogoutURL()
+			d.log.Info("Redirecting to OIDC logout", "url", logoutURL)
+			http.Redirect(w, r, logoutURL, http.StatusTemporaryRedirect)
+			return
+		}
+	}
+
+	// Redirect to home
+	http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 }

@@ -1,0 +1,44 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: spiffe-demo-openshift-oidc
+
+# Build on top of the openshift overlay (adds Routes, SELinux contexts)
+#
+# IMPORTANT: Before deploying, generate files from templates:
+#   CLUSTER_DOMAIN=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}')
+#   cd deploy/k8s/overlays/openshift-oidc
+#   sed "s/CLUSTER_DOMAIN/$CLUSTER_DOMAIN/g" oidc-urls-configmap.yaml.template > oidc-urls-configmap.yaml
+#   sed "s/CLUSTER_DOMAIN/$CLUSTER_DOMAIN/g" keycloak-realm-patch.yaml.template > keycloak-realm-patch.yaml
+#
+resources:
+  - ../openshift
+  - keycloak-route.yaml
+  - oidc-urls-configmap.yaml       # Generated from .template - do not commit
+
+patchesStrategicMerge:
+  - keycloak-realm-patch.yaml      # Generated from .template - do not commit
+
+patches:
+  # Enable OIDC on web-dashboard with OpenShift Routes
+  - target:
+      kind: Deployment
+      name: web-dashboard
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_OIDC_ENABLED
+          value: "true"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_OIDC_CLIENT_ID
+          value: "spiffe-demo-dashboard"
+      - op: add
+        path: /spec/template/spec/containers/0/envFrom
+        value:
+          - configMapRef:
+              name: oidc-urls
+              optional: false

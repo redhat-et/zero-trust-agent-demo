@@ -39,10 +39,14 @@ class Dashboard {
             const response = await fetch('/api/users');
             if (response.ok) {
                 this.users = await response.json();
-                this.populateSelect('user-select', this.users, u => ({
-                    value: u.id,
-                    label: `${u.name} (${u.departments.join(', ')})`
-                }), false, true);  // addNone=false, addNoUser=true
+                // Only populate if user-select is a <select> element (not hidden input in OIDC mode)
+                const userSelect = document.getElementById('user-select');
+                if (userSelect && userSelect.tagName === 'SELECT') {
+                    this.populateSelect('user-select', this.users, u => ({
+                        value: u.id,
+                        label: `${u.name} (${u.departments.join(', ')})`
+                    }), false, true);  // addNone=false, addNoUser=true
+                }
                 this.log('success', `Loaded ${this.users.length} users`);
             }
         } catch (err) {
@@ -275,6 +279,8 @@ class Dashboard {
         const userId = userSelect?.value;
         const agentId = agentSelect?.value;
         const isNoUser = userId === '__no_user__';
+        // In OIDC mode, user-select is a hidden input with the logged-in user
+        const isOIDCMode = userSelect && userSelect.tagName === 'INPUT';
         const hasRealUser = userId && !isNoUser;
         const hasAgent = agentId && agentId !== '';
 
@@ -283,13 +289,19 @@ class Dashboard {
             directBtn.disabled = !hasRealUser || hasAgent;
         }
         if (delegateBtn) {
-            // Delegate/Agent access when agent is selected
-            delegateBtn.disabled = !hasAgent;
-            // Update button text based on user selection
-            if (isNoUser && hasAgent) {
-                delegateBtn.textContent = 'Agent Access (No User)';
-            } else {
+            // In OIDC mode, we always delegate with the logged-in user
+            if (isOIDCMode) {
+                delegateBtn.disabled = !hasAgent;
                 delegateBtn.textContent = 'Delegate to Agent';
+            } else {
+                // Delegate/Agent access when agent is selected
+                delegateBtn.disabled = !hasAgent;
+                // Update button text based on user selection
+                if (isNoUser && hasAgent) {
+                    delegateBtn.textContent = 'Agent Access (No User)';
+                } else {
+                    delegateBtn.textContent = 'Delegate to Agent';
+                }
             }
         }
     }

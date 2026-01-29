@@ -51,6 +51,10 @@ secrets/
 # Kind cluster data
 .kind/
 
+# Generated Kustomize files (from .template)
+deploy/k8s/overlays/openshift-oidc/oidc-urls-configmap.yaml
+deploy/k8s/overlays/openshift-oidc/keycloak-realm-patch.yaml
+
 # Debug files
 debug
 *.prof

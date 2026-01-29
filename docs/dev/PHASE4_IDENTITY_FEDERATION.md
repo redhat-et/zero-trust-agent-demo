@@ -1,35 +1,27 @@
-# Phase 4: Identity Federation with FreeIPA and Keycloak
+# Phase 4: Identity federation with Keycloak
 
-## Status: PLANNED
+## Status: PHASE 4a COMPLETE
 
 ## Overview
 
-Phase 4 introduces production-grade identity management by integrating:
-- **FreeIPA** as the central identity store (LDAP + Kerberos + DNS)
-- **Keycloak** as the OIDC Identity Provider for human authentication
-- **SPIRE** continues to handle workload identity (services and agents)
+Phase 4 introduces OAuth2/OIDC authentication using Keycloak, implemented in progressive stages:
+
+- **Phase 4a**: Keycloak with local users (realm JSON import)
+- **Phase 4b**: FreeIPA integration (LDAP federation)
+- **Phase 4c**: Agent OAuth via SPIFFE (when Keycloak support matures)
 
 This eliminates hardcoded users from the codebase and establishes proper separation between:
-- **Identity** (who you are) - managed in FreeIPA/Keycloak
+
+- **Identity** (who you are) - managed in Keycloak/FreeIPA
 - **Policy** (what you can do) - managed in OPA
 
-## Goals
+## Architecture evolution
 
-1. **Centralized User Management**: Users and their departments managed in FreeIPA
-2. **OAuth2/OIDC Authentication**: Users authenticate via Keycloak
-3. **JWT-Based Authorization**: User departments flow as JWT claims
-4. **Dynamic User Provisioning**: Adding users requires no code changes
-5. **Maintain Workload Identity**: SPIRE continues issuing SVIDs to services/agents
+### Current state (demo)
 
----
-
-## Architecture Overview
-
-### Current State (Demo)
-
-```
+```text
 ┌──────────────────────────────────────────────────────────────┐
-│                     HARDCODED DATA                           │
+│                     HARDCODED DATA                            │
 ├──────────────────────────────────────────────────────────────┤
 │  users.go              │  user_permissions.rego              │
 │  ──────────            │  ──────────────────────             │
@@ -45,111 +37,749 @@ This eliminates hardcoded users from the codebase and establishes proper separat
 └──────────────────────────────────────────────────────────────┘
 ```
 
-### Target State (Phase 4)
+### Phase 4a target (Keycloak local users)
 
+```text
+┌─────────────────────────────────────────────────────────────────────┐
+│                         IDENTITY LAYER                               │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │                      KEYCLOAK                                │    │
+│  │                                                              │    │
+│  │  Realm: spiffe-demo (imported from JSON)                    │    │
+│  │  ├─ Users: alice, bob, carol, david                         │    │
+│  │  ├─ Groups: engineering, finance, admin, hr                 │    │
+│  │  └─ Client: spiffe-demo-dashboard                           │    │
+│  │                                                              │    │
+│  │  Issues JWTs with group claims:                             │    │
+│  │  { sub: "alice", groups: ["engineering", "finance"] }       │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                      │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │                         SPIRE                                │    │
+│  │  Issues X.509 SVIDs to workloads (unchanged):               │    │
+│  │  - spiffe://demo.example.com/service/user-service           │    │
+│  │  - spiffe://demo.example.com/service/agent-service          │    │
+│  │  - spiffe://demo.example.com/agent/gpt4                     │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                          IDENTITY LAYER                                 │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  ┌─────────────────┐       sync        ┌─────────────────┐              │
-│  │    FreeIPA      │ ─────────────────▶│    Keycloak     │              │
-│  │  (LDAP + DNS)   │                   │  (OIDC IdP)     │              │
-│  ├─────────────────┤                   ├─────────────────┤              │
-│  │ Users:          │                   │ Issues JWTs:    │              │
-│  │  - alice        │                   │  {              │              │
-│  │  - bob          │                   │    sub: alice,  │              │
-│  │  - carol        │                   │    groups: [..] │              │
-│  │  - david (new!) │                   │  }              │              │
-│  │                 │                   │                 │              │
-│  │ Groups:         │                   │                 │              │
-│  │  - engineering  │                   │                 │              │
-│  │  - finance      │                   │                 │              │
-│  │  - admin        │                   │                 │              │
-│  │  - hr           │                   │                 │              │
-│  └─────────────────┘                   └─────────────────┘              │
-│                                                                         │
-│  ┌─────────────────────────────────────────────────────────────────┐    │
-│  │                         SPIRE                                   │    │
-│  │  Issues SVIDs to workloads:                                     │    │
-│  │  - spiffe://example.com/service/user-service                    │    │
-│  │  - spiffe://example.com/service/agent-service                   │    │
-│  │  - spiffe://example.com/agent/reviewer  (new agent workload!)   │    │
-│  └─────────────────────────────────────────────────────────────────┘    │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
 
-┌─────────────────────────────────────────────────────────────────────────┐
-│                          POLICY LAYER                                   │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  ┌─────────────────────────────────────────────────────────────────┐    │
-│  │                    OPA Policies (Rego)                          │    │
-│  │                                                                 │    │
-│  │  # User departments now come from JWT claims (input)            │    │
-│  │  user_depts := input.user_departments                           │    │
-│  │                                                                 │    │
-│  │  # Agent capabilities still defined in policy                   │    │
-│  │  agent_capabilities := {                                        │    │
-│  │      "gpt4": ["engineering", "finance"],                        │    │
-│  │      "reviewer": ["engineering", "hr"],  ← Policy decision      │    │
-│  │  }                                                              │    │
-│  │                                                                 │    │
-│  │  # Permission intersection logic unchanged                      │    │
-│  │  effective := user_depts ∩ agent_caps                           │    │
-│  └─────────────────────────────────────────────────────────────────┘    │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
+### Phase 4b target (FreeIPA integration)
+
+```text
+┌─────────────────────────────────────────────────────────────────────┐
+│                         IDENTITY LAYER                               │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  ┌─────────────────┐       LDAP sync     ┌─────────────────┐        │
+│  │    FreeIPA      │ ───────────────────▶│    Keycloak     │        │
+│  │  (LDAP + DNS)   │                     │  (OIDC IdP)     │        │
+│  ├─────────────────┤                     ├─────────────────┤        │
+│  │ Users:          │                     │ Federated users │        │
+│  │  - alice        │                     │ from LDAP       │        │
+│  │  - bob          │                     │                 │        │
+│  │  - carol        │                     │ Issues JWTs     │        │
+│  │  - david (new!) │                     │ with LDAP       │        │
+│  │                 │                     │ groups          │        │
+│  │ Groups:         │                     │                 │        │
+│  │  - engineering  │                     │                 │        │
+│  │  - finance      │                     │                 │        │
+│  └─────────────────┘                     └─────────────────┘        │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
 ```
+
+### Phase 4c target (agent OAuth via SPIFFE)
+
+```text
+┌─────────────────────────────────────────────────────────────────────┐
+│                         IDENTITY SOURCES                             │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  FreeIPA (Users)                    SPIRE (Workloads)               │
+│  ├─ alice [eng, fin]                ├─ service/user-service         │
+│  ├─ bob [fin, admin]                ├─ service/agent-service        │
+│  └─ carol [hr]                      ├─ agent/gpt4                   │
+│                                     └─ agent/claude                  │
+│         │                                    │                       │
+│         │ LDAP sync                          │ JWT SVID              │
+│         ▼                                    ▼                       │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │                      KEYCLOAK                                │    │
+│  │  ┌──────────────────┐    ┌───────────────────────────────┐  │    │
+│  │  │ LDAP Federation  │    │ SPIFFE Client Authenticator   │  │    │
+│  │  │ (humans)         │    │ (agents - preview feature)    │  │    │
+│  │  └────────┬─────────┘    └─────────────┬─────────────────┘  │    │
+│  │           │                            │                     │    │
+│  │           ▼                            ▼                     │    │
+│  │  ┌─────────────────────────────────────────────────────────┐│    │
+│  │  │           Unified OAuth Token Issuance                  ││    │
+│  │  │  - User tokens: { sub: "alice", groups: [...] }        ││    │
+│  │  │  - Agent tokens: { sub: "gpt4", capabilities: [...] }  ││    │
+│  │  └─────────────────────────────────────────────────────────┘│    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Key insight from Keycloak's new SPIFFE support**: Keycloak **consumes** JWT SVIDs
+from SPIRE (validates against SPIRE's JWKS endpoint), then issues OAuth tokens.
+SPIRE remains the identity source for workloads; Keycloak bridges SPIFFE → OAuth.
+
+References:
+
+- [Keycloak Federated Client Authentication](https://www.keycloak.org/2026/01/federated-client-authentication)
+- [Authenticating MCP OAuth Clients with SPIFFE](https://blog.christianposta.com/authenticating-mcp-oauth-clients-with-spiffe/)
 
 ---
 
-## Key Concepts
+## Phase 4a: Keycloak with local users
 
-### Identity vs Policy Separation
+### Goals
 
-| Aspect | Users | Agents |
-|--------|-------|--------|
-| **Identity Source** | FreeIPA/Keycloak | SPIRE |
-| **Attributes** | Groups (departments) - from LDAP | Capabilities - from OPA policy |
-| **Why?** | User groups are identity facts (HR manages) | Agent capabilities are security policy decisions |
-| **Adding new** | FreeIPA only (no code changes) | SPIRE registration + OPA policy |
+1. Deploy Keycloak in Kind cluster
+2. Import realm with demo users and groups via JSON
+3. Add OAuth2 login flow to dashboard
+4. Pass JWT claims through service chain to OPA
+5. Remove hardcoded user lookups from OPA policies
 
-### User SPIFFE IDs Are Logical
+### Task groups
 
-Users don't get real SVIDs from SPIRE. The "user SPIFFE ID" (e.g., `spiffe://example.com/user/alice`) is a **naming convention** constructed from the JWT subject claim:
+#### Group A: Keycloak deployment
 
-```go
-// In user-service, after validating JWT
-userSPIFFEID := fmt.Sprintf("spiffe://%s/user/%s", trustDomain, jwt.Subject)
-```
+##### Task A1: Create Keycloak realm JSON
 
-This provides a consistent naming format for OPA policy evaluation.
+**Objective**: Define realm configuration for reproducible setup.
 
-### JWT Claims Carry User Departments
+**File**: `deploy/keycloak/realm-spiffe-demo.json`
 
 ```json
 {
-  "iss": "https://keycloak.example.com/realms/demo",
-  "sub": "alice",
-  "groups": ["engineering", "finance"],
-  "exp": 1706000000
+  "realm": "spiffe-demo",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "roles": {
+    "realm": [
+      { "name": "engineering", "description": "Engineering department" },
+      { "name": "finance", "description": "Finance department" },
+      { "name": "admin", "description": "Administration" },
+      { "name": "hr", "description": "Human Resources" }
+    ]
+  },
+  "groups": [
+    { "name": "engineering", "realmRoles": ["engineering"] },
+    { "name": "finance", "realmRoles": ["finance"] },
+    { "name": "admin", "realmRoles": ["admin"] },
+    { "name": "hr", "realmRoles": ["hr"] }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "email": "alice@example.com",
+      "firstName": "Alice",
+      "lastName": "Smith",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "alice123", "temporary": false }],
+      "groups": ["engineering", "finance"]
+    },
+    {
+      "username": "bob",
+      "email": "bob@example.com",
+      "firstName": "Bob",
+      "lastName": "Jones",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "bob123", "temporary": false }],
+      "groups": ["finance", "admin"]
+    },
+    {
+      "username": "carol",
+      "email": "carol@example.com",
+      "firstName": "Carol",
+      "lastName": "Williams",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "carol123", "temporary": false }],
+      "groups": ["hr"]
+    },
+    {
+      "username": "david",
+      "email": "david@example.com",
+      "firstName": "David",
+      "lastName": "Brown",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "david123", "temporary": false }],
+      "groups": ["engineering", "hr"]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "spiffe-demo-dashboard",
+      "name": "SPIFFE Demo Dashboard",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "rootUrl": "http://localhost:8080",
+      "baseUrl": "/",
+      "redirectUris": [
+        "http://localhost:8080/*",
+        "http://dashboard.spiffe-demo.svc:8080/*"
+      ],
+      "webOrigins": ["+"],
+      "protocol": "openid-connect",
+      "defaultClientScopes": ["openid", "profile", "email", "groups"]
+    }
+  ],
+  "clientScopes": [
+    {
+      "name": "groups",
+      "description": "User group memberships",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "true"
+      },
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "full.path": "false",
+            "introspection.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "groups"
+          }
+        }
+      ]
+    }
+  ]
 }
 ```
 
-The `groups` claim (synced from FreeIPA) replaces the hardcoded `user_departments` map in Rego.
+##### Task A2: Keycloak Kubernetes deployment
+
+**Objective**: Deploy Keycloak with realm import.
+
+**File**: `deploy/k8s/base/keycloak.yaml`
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-realm
+  namespace: spiffe-demo
+data:
+  realm-spiffe-demo.json: |
+    # Contents from realm JSON file
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: spiffe-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keycloak
+  template:
+    metadata:
+      labels:
+        app: keycloak
+    spec:
+      containers:
+      - name: keycloak
+        image: quay.io/keycloak/keycloak:26.0
+        args:
+        - start-dev
+        - --import-realm
+        env:
+        - name: KC_BOOTSTRAP_ADMIN_USERNAME
+          value: admin
+        - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: keycloak-admin
+              key: password
+        - name: KC_PROXY_HEADERS
+          value: xforwarded
+        - name: KC_HTTP_ENABLED
+          value: "true"
+        ports:
+        - containerPort: 8080
+          name: http
+        volumeMounts:
+        - name: realm-config
+          mountPath: /opt/keycloak/data/import
+          readOnly: true
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+      volumes:
+      - name: realm-config
+        configMap:
+          name: keycloak-realm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: spiffe-demo
+spec:
+  selector:
+    app: keycloak
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: keycloak-admin
+  namespace: spiffe-demo
+type: Opaque
+stringData:
+  password: admin123  # Change in production
+```
+
+##### Task A3: Keycloak ingress/route
+
+**For Kind with ingress-nginx**:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: keycloak
+  namespace: spiffe-demo
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: keycloak.localhost
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: keycloak
+            port:
+              number: 8080
+```
 
 ---
 
-## Task Groups
+#### Group B: Dashboard OAuth integration
 
-### Group A: FreeIPA Deployment
+##### Task B1: Add OIDC configuration
 
-#### Task A1: Deploy FreeIPA Server
+**Objective**: Configure dashboard for Keycloak OIDC.
 
-**Objective**: Deploy FreeIPA as the central identity store.
+**New file**: `pkg/auth/oidc.go`
 
-**Option 1: Kubernetes Deployment (Development)**
+```go
+package auth
+
+import (
+    "context"
+    "fmt"
+
+    "github.com/coreos/go-oidc/v3/oidc"
+    "golang.org/x/oauth2"
+)
+
+type OIDCConfig struct {
+    IssuerURL    string `mapstructure:"issuer_url"`
+    ClientID     string `mapstructure:"client_id"`
+    ClientSecret string `mapstructure:"client_secret"`
+    RedirectURL  string `mapstructure:"redirect_url"`
+}
+
+type OIDCProvider struct {
+    provider     *oidc.Provider
+    oauth2Config *oauth2.Config
+    verifier     *oidc.IDTokenVerifier
+}
+
+func NewOIDCProvider(ctx context.Context, cfg OIDCConfig) (*OIDCProvider, error) {
+    provider, err := oidc.NewProvider(ctx, cfg.IssuerURL)
+    if err != nil {
+        return nil, fmt.Errorf("failed to create OIDC provider: %w", err)
+    }
+
+    oauth2Config := &oauth2.Config{
+        ClientID:     cfg.ClientID,
+        ClientSecret: cfg.ClientSecret,
+        RedirectURL:  cfg.RedirectURL,
+        Endpoint:     provider.Endpoint(),
+        Scopes:       []string{oidc.ScopeOpenID, "profile", "email", "groups"},
+    }
+
+    verifier := provider.Verifier(&oidc.Config{ClientID: cfg.ClientID})
+
+    return &OIDCProvider{
+        provider:     provider,
+        oauth2Config: oauth2Config,
+        verifier:     verifier,
+    }, nil
+}
+
+func (p *OIDCProvider) AuthCodeURL(state string) string {
+    return p.oauth2Config.AuthCodeURL(state)
+}
+
+func (p *OIDCProvider) Exchange(ctx context.Context, code string) (*oauth2.Token, error) {
+    return p.oauth2Config.Exchange(ctx, code)
+}
+
+func (p *OIDCProvider) Verify(ctx context.Context, rawIDToken string) (*oidc.IDToken, error) {
+    return p.verifier.Verify(ctx, rawIDToken)
+}
+
+type Claims struct {
+    Subject string   `json:"sub"`
+    Name    string   `json:"name"`
+    Email   string   `json:"email"`
+    Groups  []string `json:"groups"`
+}
+
+func (p *OIDCProvider) ExtractClaims(idToken *oidc.IDToken) (*Claims, error) {
+    var claims Claims
+    if err := idToken.Claims(&claims); err != nil {
+        return nil, fmt.Errorf("failed to extract claims: %w", err)
+    }
+    return &claims, nil
+}
+```
+
+##### Task B2: Add login/logout endpoints
+
+**Objective**: Handle OAuth2 authorization code flow.
+
+**Updates to**: `web-dashboard/cmd/serve.go`
+
+```go
+// GET /auth/login - Redirect to Keycloak
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+    state := generateSecureState()
+    s.stateStore.Set(state, time.Now().Add(10*time.Minute))
+
+    http.SetCookie(w, &http.Cookie{
+        Name:     "oauth_state",
+        Value:    state,
+        HttpOnly: true,
+        Secure:   r.TLS != nil,
+        SameSite: http.SameSiteLaxMode,
+        MaxAge:   600,
+    })
+
+    url := s.oidcProvider.AuthCodeURL(state)
+    http.Redirect(w, r, url, http.StatusTemporaryRedirect)
+}
+
+// GET /auth/callback - Handle Keycloak redirect
+func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
+    // Verify state
+    stateCookie, err := r.Cookie("oauth_state")
+    if err != nil || stateCookie.Value != r.URL.Query().Get("state") {
+        http.Error(w, "Invalid state", http.StatusBadRequest)
+        return
+    }
+
+    // Exchange code for token
+    code := r.URL.Query().Get("code")
+    token, err := s.oidcProvider.Exchange(r.Context(), code)
+    if err != nil {
+        s.log.Error("Token exchange failed", "error", err)
+        http.Error(w, "Authentication failed", http.StatusInternalServerError)
+        return
+    }
+
+    // Extract and verify ID token
+    rawIDToken, ok := token.Extra("id_token").(string)
+    if !ok {
+        http.Error(w, "No ID token in response", http.StatusInternalServerError)
+        return
+    }
+
+    idToken, err := s.oidcProvider.Verify(r.Context(), rawIDToken)
+    if err != nil {
+        http.Error(w, "Token verification failed", http.StatusUnauthorized)
+        return
+    }
+
+    // Extract claims
+    claims, err := s.oidcProvider.ExtractClaims(idToken)
+    if err != nil {
+        http.Error(w, "Failed to extract claims", http.StatusInternalServerError)
+        return
+    }
+
+    // Create session
+    session := s.sessionStore.Create(claims.Subject, claims.Name, claims.Groups)
+    http.SetCookie(w, &http.Cookie{
+        Name:     "session_id",
+        Value:    session.ID,
+        HttpOnly: true,
+        Secure:   r.TLS != nil,
+        SameSite: http.SameSiteStrictMode,
+        Path:     "/",
+    })
+
+    // Store access token for API calls
+    s.tokenStore.Set(session.ID, token)
+
+    http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+}
+
+// POST /auth/logout
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+    cookie, _ := r.Cookie("session_id")
+    if cookie != nil {
+        s.sessionStore.Delete(cookie.Value)
+        s.tokenStore.Delete(cookie.Value)
+    }
+
+    // Clear session cookie
+    http.SetCookie(w, &http.Cookie{
+        Name:     "session_id",
+        Value:    "",
+        HttpOnly: true,
+        MaxAge:   -1,
+        Path:     "/",
+    })
+
+    // Redirect to Keycloak logout (optional, for SSO logout)
+    // logoutURL := fmt.Sprintf("%s/protocol/openid-connect/logout?...", issuerURL)
+    http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+}
+```
+
+##### Task B3: Session management
+
+**New file**: `pkg/auth/session.go`
+
+```go
+package auth
+
+import (
+    "crypto/rand"
+    "encoding/hex"
+    "sync"
+    "time"
+)
+
+type Session struct {
+    ID         string
+    Username   string
+    Name       string
+    Groups     []string
+    CreatedAt  time.Time
+    ExpiresAt  time.Time
+}
+
+type SessionStore struct {
+    mu       sync.RWMutex
+    sessions map[string]*Session
+    ttl      time.Duration
+}
+
+func NewSessionStore(ttl time.Duration) *SessionStore {
+    store := &SessionStore{
+        sessions: make(map[string]*Session),
+        ttl:      ttl,
+    }
+    go store.cleanup()
+    return store
+}
+
+func (s *SessionStore) Create(username, name string, groups []string) *Session {
+    s.mu.Lock()
+    defer s.mu.Unlock()
+
+    id := generateSessionID()
+    session := &Session{
+        ID:        id,
+        Username:  username,
+        Name:      name,
+        Groups:    groups,
+        CreatedAt: time.Now(),
+        ExpiresAt: time.Now().Add(s.ttl),
+    }
+    s.sessions[id] = session
+    return session
+}
+
+func (s *SessionStore) Get(id string) *Session {
+    s.mu.RLock()
+    defer s.mu.RUnlock()
+
+    session, ok := s.sessions[id]
+    if !ok || time.Now().After(session.ExpiresAt) {
+        return nil
+    }
+    return session
+}
+
+func (s *SessionStore) Delete(id string) {
+    s.mu.Lock()
+    defer s.mu.Unlock()
+    delete(s.sessions, id)
+}
+
+func (s *SessionStore) cleanup() {
+    ticker := time.NewTicker(time.Minute)
+    for range ticker.C {
+        s.mu.Lock()
+        for id, session := range s.sessions {
+            if time.Now().After(session.ExpiresAt) {
+                delete(s.sessions, id)
+            }
+        }
+        s.mu.Unlock()
+    }
+}
+
+func generateSessionID() string {
+    b := make([]byte, 32)
+    rand.Read(b)
+    return hex.EncodeToString(b)
+}
+```
+
+##### Task B4: Update dashboard UI
+
+**Objective**: Replace user dropdown with login button.
+
+**Template changes**: Show login button or user info based on session.
+
+```html
+{{if .Session}}
+  <div class="user-info">
+    <span class="user-name">{{.Session.Name}}</span>
+    <span class="user-groups">
+      {{range .Session.Groups}}
+        <span class="badge">{{.}}</span>
+      {{end}}
+    </span>
+    <form action="/auth/logout" method="POST" class="inline">
+      <button type="submit" class="btn-logout">Logout</button>
+    </form>
+  </div>
+{{else}}
+  <a href="/auth/login" class="btn-login">Login with Keycloak</a>
+{{end}}
+```
+
+---
+
+#### Group C: Service chain updates
+
+##### Task C1: Pass JWT claims to OPA
+
+**Objective**: User departments flow from JWT to OPA policy.
+
+**Update document-service request**:
+
+```go
+type AuthorizationRequest struct {
+    CallerSPIFFEID  string   `json:"caller_spiffe_id"`
+    DocumentID      string   `json:"document_id"`
+    UserDepartments []string `json:"user_departments,omitempty"`
+    Delegation      *struct {
+        UserSPIFFEID    string   `json:"user_spiffe_id"`
+        UserDepartments []string `json:"user_departments"`
+        AgentSPIFFEID   string   `json:"agent_spiffe_id"`
+    } `json:"delegation,omitempty"`
+}
+```
+
+##### Task C2: Update OPA policy
+
+**Objective**: Read user departments from input instead of hardcoded map.
+
+**File**: `opa-service/policies/delegation.rego`
+
+```rego
+package demo.authorization
+
+import rego.v1
+
+# Get user departments - prefer input, fall back to hardcoded for testing
+get_user_departments(user_name) := input.user_departments if {
+    input.user_departments
+}
+
+get_user_departments(user_name) := data.users.departments[user_name] if {
+    not input.user_departments
+    data.users.departments[user_name]
+}
+
+# For delegated access, prefer delegation.user_departments
+get_delegated_user_departments := input.delegation.user_departments if {
+    input.delegation.user_departments
+}
+
+get_delegated_user_departments := data.users.departments[user_name] if {
+    not input.delegation.user_departments
+    user_name := extract_name(input.delegation.user_spiffe_id)
+    data.users.departments[user_name]
+}
+```
+
+---
+
+### Phase 4a success criteria
+
+- [x] Keycloak deployed in Kind with realm imported
+- [x] Demo users (alice, bob, carol, david) can log in
+- [x] JWT contains groups claim matching user's groups
+- [x] Dashboard shows logged-in user with their departments
+- [x] Direct access works using JWT groups (not hardcoded)
+- [x] Delegated access works with JWT groups
+- [x] Logout clears session
+
+---
+
+## Phase 4b: FreeIPA integration
+
+### Goals
+
+1. Deploy FreeIPA as central identity store
+2. Configure Keycloak LDAP federation
+3. Users managed in FreeIPA, synced to Keycloak
+4. Adding users requires no code changes
+
+### Task groups
+
+#### Group A: FreeIPA deployment
+
+##### Task A1: Deploy FreeIPA server
+
+Kubernetes StatefulSet (development):
+
 ```yaml
 apiVersion: apps/v1
 kind: StatefulSet
@@ -168,17 +798,15 @@ spec:
         - name: IPA_SERVER_HOSTNAME
           value: ipa.demo.example.com
         - name: IPA_SERVER_INSTALL_OPTS
-          value: "--unattended --realm=DEMO.EXAMPLE.COM --ds-password=... --admin-password=..."
+          value: "--unattended --realm=DEMO.EXAMPLE.COM"
         ports:
         - containerPort: 443
         - containerPort: 389
         - containerPort: 636
-        volumeMounts:
-        - name: data
-          mountPath: /data
 ```
 
-**Option 2: OpenShift with IdM Operator (Production)**
+OpenShift IdM Operator (production):
+
 ```yaml
 apiVersion: idm.redhat.com/v1alpha1
 kind: IDM
@@ -186,21 +814,14 @@ metadata:
   name: demo-idm
 spec:
   realm: DEMO.EXAMPLE.COM
-  adminPassword:
-    secretRef: idm-admin-password
 ```
 
-**Estimated effort**: 4-6 hours
-
-#### Task A2: Create Users and Groups in FreeIPA
-
-**Objective**: Create the demo users and department groups.
+##### Task A2: Create users and groups
 
 **Script**: `scripts/setup-freeipa-users.sh`
+
 ```bash
 #!/bin/bash
-# Run inside FreeIPA container or with ipa CLI configured
-
 # Create groups (departments)
 ipa group-add engineering --desc="Engineering Department"
 ipa group-add finance --desc="Finance Department"
@@ -208,551 +829,327 @@ ipa group-add admin --desc="Administration"
 ipa group-add hr --desc="Human Resources"
 
 # Create users
-ipa user-add alice --first=Alice --last=Smith --email=alice@example.com
-ipa user-add bob --first=Bob --last=Jones --email=bob@example.com
-ipa user-add carol --first=Carol --last=Williams --email=carol@example.com
-ipa user-add david --first=David --last=Brown --email=david@example.com
+ipa user-add alice --first=Alice --last=Smith
+ipa user-add bob --first=Bob --last=Jones
+ipa user-add carol --first=Carol --last=Williams
+ipa user-add david --first=David --last=Brown
 
-# Assign users to groups
-ipa group-add-member engineering --users=alice
+# Assign to groups
+ipa group-add-member engineering --users=alice,david
 ipa group-add-member finance --users=alice,bob
 ipa group-add-member admin --users=bob
-ipa group-add-member hr --users=carol
-ipa group-add-member engineering --users=david
-ipa group-add-member hr --users=david
+ipa group-add-member hr --users=carol,david
 ```
 
-**Estimated effort**: 1-2 hours
+#### Group B: Keycloak LDAP federation
 
----
+##### Task B1: Configure LDAP user federation
 
-### Group B: Keycloak Deployment
+**Keycloak admin console steps**:
 
-#### Task B1: Deploy Keycloak
-
-**Objective**: Deploy Keycloak as the OIDC Identity Provider.
-
-**Option 1: Kubernetes with Operator**
-```yaml
-apiVersion: k8s.keycloak.org/v2alpha1
-kind: Keycloak
-metadata:
-  name: keycloak
-  namespace: identity
-spec:
-  instances: 1
-  hostname:
-    hostname: keycloak.demo.example.com
-  http:
-    tlsSecret: keycloak-tls
-```
-
-**Option 2: Red Hat SSO on OpenShift**
-```yaml
-apiVersion: keycloak.org/v1alpha1
-kind: Keycloak
-metadata:
-  name: sso
-  namespace: identity
-spec:
-  instances: 1
-  externalAccess:
-    enabled: true
-```
-
-**Estimated effort**: 3-4 hours
-
-#### Task B2: Configure LDAP Federation
-
-**Objective**: Connect Keycloak to FreeIPA for user synchronization.
-
-**Keycloak Admin Console Steps**:
-1. Go to User Federation → Add provider → ldap
-2. Configure connection:
+1. User Federation → Add provider → ldap
+2. Configure:
    - Vendor: Red Hat Directory Server
    - Connection URL: `ldaps://freeipa.identity.svc:636`
    - Users DN: `cn=users,cn=accounts,dc=demo,dc=example,dc=com`
-   - Bind DN: `uid=admin,cn=users,cn=accounts,dc=demo,dc=example,dc=com`
-   - Bind Credential: (from secret)
-3. Configure Sync Settings:
+   - Bind DN: `uid=admin,cn=users,cn=accounts,...`
+3. Sync Settings:
    - Import Users: ON
-   - Sync Registrations: ON
    - Periodic Full Sync: ON (every 1 hour)
-4. Map LDAP groups to Keycloak groups:
-   - Add mapper: group-ldap-mapper
-   - LDAP Groups DN: `cn=groups,cn=accounts,dc=demo,dc=example,dc=com`
-   - Group Name LDAP Attribute: cn
+4. Add group mapper:
+   - LDAP Groups DN: `cn=groups,cn=accounts,...`
 
-**Estimated effort**: 2-3 hours
+##### Task B2: Remove local users from realm
 
-#### Task B3: Configure OIDC Client for Dashboard
+Once LDAP federation works, remove the hardcoded users from `realm-spiffe-demo.json`
+and let Keycloak sync from FreeIPA.
 
-**Objective**: Register web-dashboard as an OIDC client.
+### Phase 4b success criteria
 
-**Keycloak Admin Console Steps**:
-1. Create Client:
-   - Client ID: `spiffe-demo-dashboard`
-   - Client Protocol: openid-connect
-   - Root URL: `https://dashboard.demo.example.com`
-2. Configure Client:
-   - Access Type: public (for SPA) or confidential (for server-side)
-   - Valid Redirect URIs: `https://dashboard.demo.example.com/*`
-   - Web Origins: `https://dashboard.demo.example.com`
-3. Configure Mappers:
-   - Add "groups" mapper to include groups in JWT
-   - Token Claim Name: `groups`
-   - Full group path: OFF
+- [ ] FreeIPA running with demo users and groups
+- [ ] Keycloak syncs users from FreeIPA
+- [ ] Login with FreeIPA credentials works
+- [ ] Adding user to FreeIPA appears in Keycloak after sync
+- [ ] Group membership changes reflect in JWT claims
 
-**Client Secret** (if confidential):
+---
+
+## Phase 4c: Agent OAuth via SPIFFE
+
+### Goals
+
+1. Enable SPIRE OIDC Discovery endpoint
+2. Add Keycloak SPIFFE client authenticator
+3. Agents authenticate using JWT SVIDs
+4. Agents receive OAuth tokens for API access
+
+### Prerequisites
+
+- Keycloak SPIFFE support exits preview (or accept preview status for demo)
+- SPIRE configured for JWT SVID issuance
+
+### Architecture
+
+```text
+Agent Workload
+    │
+    │ 1. Request JWT SVID
+    ▼
+SPIRE Agent ──────────────────┐
+    │                         │
+    │ 2. JWT SVID             │ 3. JWKS for validation
+    ▼                         ▼
+Agent ──────────────────▶ Keycloak
+    │   client_assertion      │
+    │   (JWT SVID)            │ 4. Validate against
+    │                         │    SPIRE OIDC endpoint
+    │◀────────────────────────┘
+    │   5. OAuth access token
+    ▼
+Protected Resource (with OAuth token)
+```
+
+### Task groups
+
+#### Group A: SPIRE OIDC configuration
+
+##### Task A1: Enable SPIRE OIDC Discovery
+
+**Update SPIRE server config**:
+
+```yaml
+server:
+  oidc_discovery:
+    enabled: true
+    domain: spire.demo.example.com
+    # Exposes /.well-known/openid-configuration and /keys
+```
+
+##### Task A2: Expose SPIRE OIDC endpoint
+
 ```yaml
 apiVersion: v1
-kind: Secret
+kind: Service
 metadata:
-  name: keycloak-client-secret
-  namespace: spiffe-demo
-data:
-  client-secret: <base64-encoded-secret>
+  name: spire-oidc
+  namespace: spire
+spec:
+  selector:
+    app: spire-server
+  ports:
+  - port: 443
+    targetPort: 8443
+    name: oidc
 ```
 
-**Estimated effort**: 2-3 hours
+#### Group B: Keycloak SPIFFE authenticator
 
----
+##### Task B1: Install SPIFFE client authenticator SPI
 
-### Group C: Dashboard OAuth Integration
+Based on Christian Posta's implementation, add the SPI JAR to Keycloak:
 
-#### Task C1: Add OAuth2 Login Flow
-
-**Objective**: Replace dropdown user selection with Keycloak login.
-
-**New Dependencies**:
-```go
-go get golang.org/x/oauth2
-go get github.com/coreos/go-oidc/v3
+```dockerfile
+FROM quay.io/keycloak/keycloak:26.0
+COPY spiffe-svid-authenticator.jar /opt/keycloak/providers/
 ```
 
-**OAuth Configuration**:
-```go
-// pkg/auth/oidc.go
-type OIDCConfig struct {
-    IssuerURL    string `mapstructure:"issuer_url"`
-    ClientID     string `mapstructure:"client_id"`
-    ClientSecret string `mapstructure:"client_secret"`
-    RedirectURL  string `mapstructure:"redirect_url"`
-}
+##### Task B2: Configure SPIFFE identity provider
 
-func NewOIDCProvider(cfg OIDCConfig) (*oidc.Provider, error) {
-    provider, err := oidc.NewProvider(context.Background(), cfg.IssuerURL)
-    if err != nil {
-        return nil, fmt.Errorf("failed to create OIDC provider: %w", err)
-    }
-    return provider, nil
-}
+In Keycloak admin:
 
-func NewOAuth2Config(cfg OIDCConfig, provider *oidc.Provider) *oauth2.Config {
-    return &oauth2.Config{
-        ClientID:     cfg.ClientID,
-        ClientSecret: cfg.ClientSecret,
-        RedirectURL:  cfg.RedirectURL,
-        Endpoint:     provider.Endpoint(),
-        Scopes:       []string{oidc.ScopeOpenID, "profile", "groups"},
-    }
-}
-```
+1. Authentication → Flows → Create new flow for SPIFFE
+2. Add "SPIFFE SVID Client Authenticator" execution
+3. Configure:
+   - SPIRE OIDC Issuer: `https://spire.demo.example.com`
+   - JWKS URL: `https://spire.demo.example.com/keys`
 
-**Estimated effort**: 6-8 hours
+##### Task B3: Create agent clients
 
-#### Task C2: Add Login/Logout Endpoints
+Register each agent as a Keycloak client:
 
-**Objective**: Handle OAuth2 authorization code flow.
-
-**New Endpoints**:
-```go
-// web-dashboard/cmd/serve.go
-
-// GET /auth/login - Redirect to Keycloak
-func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-    state := generateRandomState()
-    s.stateStore.Set(state, time.Now().Add(10*time.Minute))
-
-    url := s.oauth2Config.AuthCodeURL(state)
-    http.Redirect(w, r, url, http.StatusTemporaryRedirect)
-}
-
-// GET /auth/callback - Handle Keycloak redirect
-func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
-    state := r.URL.Query().Get("state")
-    if !s.stateStore.Validate(state) {
-        http.Error(w, "Invalid state", http.StatusBadRequest)
-        return
-    }
-
-    code := r.URL.Query().Get("code")
-    token, err := s.oauth2Config.Exchange(r.Context(), code)
-    if err != nil {
-        http.Error(w, "Token exchange failed", http.StatusInternalServerError)
-        return
-    }
-
-    // Extract ID token and verify
-    rawIDToken := token.Extra("id_token").(string)
-    idToken, err := s.verifier.Verify(r.Context(), rawIDToken)
-    if err != nil {
-        http.Error(w, "Token verification failed", http.StatusUnauthorized)
-        return
-    }
-
-    // Extract claims
-    var claims struct {
-        Subject string   `json:"sub"`
-        Name    string   `json:"name"`
-        Groups  []string `json:"groups"`
-    }
-    idToken.Claims(&claims)
-
-    // Create session
-    session := s.sessionStore.Create(claims.Subject, claims.Name, claims.Groups, token)
-    http.SetCookie(w, &http.Cookie{
-        Name:     "session",
-        Value:    session.ID,
-        HttpOnly: true,
-        Secure:   true,
-        SameSite: http.SameSiteStrictMode,
-    })
-
-    http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
-}
-
-// POST /auth/logout - Clear session
-func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-    cookie, _ := r.Cookie("session")
-    if cookie != nil {
-        s.sessionStore.Delete(cookie.Value)
-    }
-
-    // Redirect to Keycloak logout
-    logoutURL := fmt.Sprintf("%s/protocol/openid-connect/logout?redirect_uri=%s",
-        s.oidcConfig.IssuerURL, url.QueryEscape(s.oidcConfig.RedirectURL))
-    http.Redirect(w, r, logoutURL, http.StatusTemporaryRedirect)
-}
-```
-
-**Estimated effort**: 4-5 hours
-
-#### Task C3: Update Dashboard UI
-
-**Objective**: Replace user dropdown with login button and user info display.
-
-**Template Changes** (`internal/assets/templates/index.html`):
-```html
-<!-- Before: Dropdown -->
-<select id="user-select">
-  <option value="alice">Alice</option>
-  <option value="bob">Bob</option>
-</select>
-
-<!-- After: Login button or user info -->
-{{if .User}}
-  <div class="user-info">
-    <span>Logged in as: {{.User.Name}}</span>
-    <span class="departments">{{range .User.Departments}}{{.}} {{end}}</span>
-    <form action="/auth/logout" method="POST">
-      <button type="submit">Logout</button>
-    </form>
-  </div>
-{{else}}
-  <a href="/auth/login" class="login-button">Login with Keycloak</a>
-{{end}}
-```
-
-**Estimated effort**: 3-4 hours
-
----
-
-### Group D: Service Updates
-
-#### Task D1: Propagate JWT Claims Through Service Chain
-
-**Objective**: Pass user identity from dashboard through to OPA.
-
-**Flow**:
-```
-Dashboard (has JWT)
-    → User Service (validates JWT, extracts claims)
-        → Document Service (receives user info in request)
-            → OPA (evaluates with user departments from request)
-```
-
-**User Service Changes**:
-```go
-// Validate JWT and extract claims
-func (s *Server) handleAccess(w http.ResponseWriter, r *http.Request) {
-    // Get JWT from Authorization header
-    authHeader := r.Header.Get("Authorization")
-    token := strings.TrimPrefix(authHeader, "Bearer ")
-
-    // Verify token
-    idToken, err := s.verifier.Verify(r.Context(), token)
-    if err != nil {
-        http.Error(w, "Invalid token", http.StatusUnauthorized)
-        return
-    }
-
-    // Extract claims
-    var claims struct {
-        Subject string   `json:"sub"`
-        Groups  []string `json:"groups"`
-    }
-    idToken.Claims(&claims)
-
-    // Construct user SPIFFE ID (logical, not a real SVID)
-    userSPIFFEID := fmt.Sprintf("spiffe://%s/user/%s", s.trustDomain, claims.Subject)
-
-    // Call document service with user info
-    req := DocumentAccessRequest{
-        CallerSPIFFEID:  userSPIFFEID,
-        UserDepartments: claims.Groups,  // NEW: departments from JWT
-        DocumentID:      r.FormValue("document_id"),
-    }
-    // ...
-}
-```
-
-**Estimated effort**: 4-5 hours
-
-#### Task D2: Update OPA Policy to Use JWT Claims
-
-**Objective**: Read user departments from input instead of hardcoded map.
-
-**Policy Changes** (`opa-service/policies/delegation.rego`):
-```rego
-# Before: Hardcoded lookup
-user_depts := users.get_departments(caller.name)
-
-# After: From JWT claims in input
-user_depts := input.user_departments
-```
-
-**Updated Input Schema**:
 ```json
 {
-  "input": {
-    "caller_spiffe_id": "spiffe://demo.example.com/user/alice",
-    "user_departments": ["engineering", "finance"],
-    "document_id": "DOC-001",
-    "delegation": {
-      "user_spiffe_id": "spiffe://demo.example.com/user/alice",
-      "user_departments": ["engineering", "finance"],
-      "agent_spiffe_id": "spiffe://demo.example.com/agent/gpt4"
-    }
+  "clientId": "spiffe://demo.example.com/agent/gpt4",
+  "enabled": true,
+  "clientAuthenticatorType": "spiffe-svid-jwt",
+  "serviceAccountsEnabled": true,
+  "attributes": {
+    "spiffe.trust_domain": "demo.example.com"
   }
 }
 ```
 
-**Backward Compatibility**: Keep `user_permissions.rego` for fallback/testing:
-```rego
-# Use JWT claims if provided, otherwise fall back to hardcoded (for testing)
-get_user_departments(user_name) := input.user_departments if {
-    input.user_departments
-}
+#### Group C: Agent code updates
 
-get_user_departments(user_name) := user_departments[user_name] if {
-    not input.user_departments
-    user_departments[user_name]
-}
-```
+##### Task C1: Add OAuth token acquisition
 
-**Estimated effort**: 3-4 hours
-
-#### Task D3: Remove Hardcoded Users from Go Code
-
-**Objective**: Clean up user-service to not load sample users.
-
-**Changes**:
-- Remove `loadSampleUsers()` from `user-service/internal/store/users.go`
-- Replace in-memory store with Keycloak/LDAP client (optional, can just use JWT)
-- Update `/users` endpoint to list users from Keycloak Admin API (optional)
-
-**Estimated effort**: 2-3 hours
-
----
-
-### Group E: Testing and Validation
-
-#### Task E1: End-to-End OAuth Flow Test
-
-**Objective**: Verify complete login → access → logout flow.
-
-**Test Script**: `scripts/test-oauth-flow.sh`
-```bash
-#!/bin/bash
-
-echo "=== Testing OAuth2/OIDC Flow ==="
-
-# 1. Start browser login (manual step)
-echo "1. Open https://dashboard.demo.example.com in browser"
-echo "2. Click 'Login with Keycloak'"
-echo "3. Enter credentials: alice / <password>"
-
-# 2. Verify session created
-echo "4. Check that user info shows: Alice [engineering, finance]"
-
-# 3. Test document access
-echo "5. Select DOC-001 (Engineering Roadmap)"
-echo "6. Click 'Direct Access' - should succeed"
-
-# 4. Test delegation
-echo "7. Select GPT-4 agent"
-echo "8. Select DOC-001"
-echo "9. Click 'Delegated Access' - should succeed"
-
-# 5. Test denied access
-echo "10. Select DOC-003 (Admin Policies)"
-echo "11. Click 'Direct Access' - should fail (Alice not in admin)"
-```
-
-**Estimated effort**: 2-3 hours
-
-#### Task E2: JWT Claim Verification Tests
-
-**Objective**: Unit tests for JWT validation and claim extraction.
-
-**Test File**: `pkg/auth/oidc_test.go`
 ```go
-func TestExtractClaims(t *testing.T) {
-    // Create mock JWT
-    claims := jwt.MapClaims{
-        "sub":    "alice",
-        "groups": []string{"engineering", "finance"},
-        "exp":    time.Now().Add(time.Hour).Unix(),
+func (a *Agent) GetOAuthToken(ctx context.Context) (*oauth2.Token, error) {
+    // Get JWT SVID from SPIRE
+    jwtSVID, err := a.spiffeClient.FetchJWTSVID(ctx, []string{"keycloak"})
+    if err != nil {
+        return nil, fmt.Errorf("failed to get JWT SVID: %w", err)
     }
-    token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-    tokenString, _ := token.SignedString([]byte("test-secret"))
 
-    // Extract and verify
-    extracted, err := ExtractClaims(tokenString, testVerifier)
-    require.NoError(t, err)
-    assert.Equal(t, "alice", extracted.Subject)
-    assert.ElementsMatch(t, []string{"engineering", "finance"}, extracted.Groups)
+    // Exchange for OAuth token
+    data := url.Values{
+        "grant_type":            {"client_credentials"},
+        "client_assertion_type": {"urn:ietf:params:oauth:client-assertion-type:spiffe-svid-jwt"},
+        "client_assertion":      {jwtSVID.Marshal()},
+    }
+
+    resp, err := http.PostForm(a.keycloakTokenURL, data)
+    // ... parse OAuth token from response
 }
 ```
 
-**Estimated effort**: 3-4 hours
+### Phase 4c success criteria
+
+- [ ] SPIRE OIDC endpoint accessible
+- [ ] Keycloak validates JWT SVIDs against SPIRE
+- [ ] Agents can exchange SVIDs for OAuth tokens
+- [ ] OAuth tokens contain agent capabilities
+- [ ] APIs accept OAuth tokens from agents
 
 ---
 
-## Implementation Priority
+## Implementation priority
 
-### P0 - Foundation (Must Complete First)
+### Phase 4a (start here)
 
-| Task | Effort | Description |
-|------|--------|-------------|
-| A1 | 4-6h | Deploy FreeIPA |
-| A2 | 1-2h | Create users and groups |
-| B1 | 3-4h | Deploy Keycloak |
-| B2 | 2-3h | Configure LDAP federation |
+| Task | Description                          |
+| ---- | ------------------------------------ |
+| A1   | Create realm JSON with users/groups |
+| A2   | Deploy Keycloak in Kind              |
+| A3   | Add ingress for Keycloak             |
+| B1   | Add OIDC provider package            |
+| B2   | Add login/logout endpoints           |
+| B3   | Add session management               |
+| B4   | Update dashboard UI                  |
+| C1   | Pass JWT claims through services     |
+| C2   | Update OPA to use input claims       |
 
-### P1 - Core Integration
+### Phase 4b (after 4a works)
 
-| Task | Effort | Description |
-|------|--------|-------------|
-| B3 | 2-3h | Configure OIDC client |
-| C1 | 6-8h | Add OAuth2 login flow |
-| C2 | 4-5h | Login/logout endpoints |
-| D1 | 4-5h | Propagate JWT claims |
-| D2 | 3-4h | Update OPA policy |
+| Task | Description                          |
+| ---- | ------------------------------------ |
+| A1   | Deploy FreeIPA                       |
+| A2   | Create users/groups in FreeIPA       |
+| B1   | Configure Keycloak LDAP federation   |
+| B2   | Remove local users from realm        |
 
-### P2 - Polish and Cleanup
+### Phase 4c (optional, when SPIFFE support matures)
 
-| Task | Effort | Description |
-|------|--------|-------------|
-| C3 | 3-4h | Update dashboard UI |
-| D3 | 2-3h | Remove hardcoded users |
-| E1 | 2-3h | End-to-end testing |
-| E2 | 3-4h | JWT unit tests |
-
----
-
-## Timeline Estimate
-
-| Phase | Effort | Description |
-|-------|--------|-------------|
-| P0 | 10-15 hours | Identity infrastructure |
-| P1 | 20-25 hours | OAuth integration |
-| P2 | 10-14 hours | UI and cleanup |
-| **Total** | **40-54 hours** | Complete Phase 4 |
+| Task  | Description                                |
+| ----- | ------------------------------------------ |
+| A1-A2 | Enable SPIRE OIDC                          |
+| B1-B3 | Configure Keycloak SPIFFE authenticator    |
+| C1    | Update agents for OAuth token acquisition  |
 
 ---
 
-## Success Criteria
+## Development approach
 
-- [ ] FreeIPA running with demo users and groups
-- [ ] Keycloak federated with FreeIPA
-- [ ] Dashboard redirects to Keycloak for login
-- [ ] JWT contains user's groups from FreeIPA
-- [ ] User departments used from JWT claims (not hardcoded)
-- [ ] Agent capabilities still defined in OPA policy
-- [ ] Adding new user to FreeIPA works without code changes
-- [ ] Permission intersection works with dynamic user data
-- [ ] Logout clears session in both dashboard and Keycloak
+### Local development with Kind (host Keycloak)
+
+The recommended setup runs Keycloak on the host machine while services run in Kind.
+This allows the browser to access Keycloak at the same URL as the in-cluster services.
+
+**Prerequisites:**
+
+- Kind cluster with Podman backend
+- Add `127.0.0.1 host.containers.internal` to `/etc/hosts` on macOS
+
+#### Start Keycloak on host
+
+```bash
+podman run -d \
+  --name keycloak-local \
+  -p 8180:8080 \
+  -v $(pwd)/deploy/keycloak:/opt/keycloak/data/import:Z \
+  -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
+  -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
+  -e KC_HOSTNAME_STRICT=false \
+  -e KC_HTTP_ENABLED=true \
+  quay.io/keycloak/keycloak:26.1 \
+  start-dev --import-realm
+```
+
+Key settings:
+
+- `KC_HOSTNAME_STRICT=false`: Allows Keycloak to respond with the requested host
+  in the issuer URL (both `localhost:8180` and `host.containers.internal:8180`)
+- Port 8180 to avoid conflicts with dashboard on 8080
+
+#### Build and load images
+
+```bash
+make build
+
+# Build container images
+for svc in opa-service document-service user-service agent-service web-dashboard; do
+  podman build -t localhost/spiffe-demo/$svc:latest -f $svc/Dockerfile .
+done
+
+# Load into Kind
+for svc in opa-service document-service user-service agent-service web-dashboard; do
+  kind load docker-image localhost/spiffe-demo/$svc:latest --name spiffe-demo
+done
+```
+
+#### Deploy to Kind
+
+```bash
+kubectl apply -k deploy/k8s/overlays/mock
+```
+
+The mock overlay configures services to use `host.containers.internal:8180` for OIDC.
+
+#### Port-forward dashboard
+
+```bash
+kubectl port-forward -n spiffe-demo svc/web-dashboard 8080:8080
+```
+
+#### Test OAuth flow
+
+```bash
+open http://localhost:8080
+# Click "Login with Keycloak"
+# Enter: alice / alice123 (or bob/carol/david)
+```
+
+### Testing OAuth flow locally (without Kind)
+
+```bash
+# Start Keycloak as above, then:
+./scripts/run-local.sh
+
+# Keycloak admin console
+open http://localhost:8180/admin
+# Login: admin / admin
+
+# Test login flow
+open http://localhost:8080
+# Click "Login with Keycloak"
+# Enter: alice / alice123
+```
 
 ---
 
 ## Dependencies
 
-- Phase 3 complete (mTLS, observability)
-- DNS resolution for FreeIPA and Keycloak hostnames
-- TLS certificates for identity services
-- Persistent storage for FreeIPA and Keycloak databases
-
----
-
-## Risks and Mitigations
-
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| FreeIPA complex to deploy on K8s | High | Use OpenShift IdM Operator or external FreeIPA |
-| LDAP sync latency | Medium | Configure frequent sync, accept eventual consistency |
-| JWT token size with many groups | Low | Use group references instead of full group list |
-| Session management complexity | Medium | Use established session library (gorilla/sessions) |
+- Phase 3 complete (mTLS working, CI/CD ready)
+- Kind cluster with ingress-nginx
+- Go dependencies: `golang.org/x/oauth2`, `github.com/coreos/go-oidc/v3`
 
 ---
 
 ## References
 
-- [FreeIPA Documentation](https://www.freeipa.org/page/Documentation)
 - [Keycloak Documentation](https://www.keycloak.org/documentation)
-- [Keycloak LDAP Federation](https://www.keycloak.org/docs/latest/server_admin/#_ldap)
+- [Keycloak Realm Export/Import](https://www.keycloak.org/server/importExport)
+- [Keycloak Federated Client Authentication (SPIFFE)](https://www.keycloak.org/2026/01/federated-client-authentication)
 - [Go OIDC Library](https://github.com/coreos/go-oidc)
-- [OAuth 2.0 for Browser-Based Apps (RFC)](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-browser-based-apps)
-- [Red Hat SSO on OpenShift](https://access.redhat.com/documentation/en-us/red_hat_single_sign-on/)
-
----
-
-## Appendix: Adding Users and Agents After Phase 4
-
-### Adding a New User (e.g., David)
-
-**Before Phase 4** (current demo):
-1. Edit `user-service/internal/store/users.go`
-2. Edit `opa-service/policies/user_permissions.rego`
-3. Edit `deploy/k8s/opa-policies-configmap.yaml`
-4. Rebuild and redeploy services
-
-**After Phase 4**:
-1. Add user to FreeIPA: `ipa user-add david --first=David --last=Brown`
-2. Assign to groups: `ipa group-add-member engineering --users=david`
-3. Wait for Keycloak sync (or trigger manual sync)
-4. **Done** - no code changes, no redeployment
-
-### Adding a New Agent (e.g., Reviewer)
-
-The process remains similar because agent capabilities are **policy decisions**, not identity:
-
-1. Create agent workload deployment (`deploy/k8s/reviewer-agent.yaml`)
-2. Register SPIFFE ID (`deploy/spire/clusterspiffeids.yaml`)
-3. Define capabilities in OPA policy (`agent_permissions.rego`)
-4. Add to agent-service store for UI listing (`agents.go`)
-5. Update OPA ConfigMap
-6. Deploy
-
-**Why agents don't go in LDAP**: Agent capabilities are security policy decisions ("what should this agent be allowed to do?"), not identity attributes. They're managed by the security team, not HR.
+- [Authenticating MCP OAuth Clients with SPIFFE](https://blog.christianposta.com/authenticating-mcp-oauth-clients-with-spiffe/)
+- [FreeIPA Documentation](https://www.freeipa.org/page/Documentation)

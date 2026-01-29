@@ -44,14 +44,16 @@ type Config struct {
 
 // Delegation represents delegation context from an agent request
 type Delegation struct {
-	UserSPIFFEID  string `json:"user_spiffe_id"`
-	AgentSPIFFEID string `json:"agent_spiffe_id"`
+	UserSPIFFEID    string   `json:"user_spiffe_id"`
+	AgentSPIFFEID   string   `json:"agent_spiffe_id"`
+	UserDepartments []string `json:"user_departments,omitempty"` // From JWT claims (OIDC mode)
 }
 
 // AccessRequest represents a document access request
 type AccessRequest struct {
-	DocumentID string      `json:"document_id"`
-	Delegation *Delegation `json:"delegation,omitempty"`
+	DocumentID      string      `json:"document_id"`
+	Delegation      *Delegation `json:"delegation,omitempty"`
+	UserDepartments []string    `json:"user_departments,omitempty"` // From JWT claims (OIDC mode, for direct access)
 }
 
 // OPARequest represents a policy evaluation request to OPA
@@ -61,10 +63,11 @@ type OPARequest struct {
 
 // OPAInput represents the input to OPA for authorization
 type OPAInput struct {
-	CallerSPIFFEID   string              `json:"caller_spiffe_id"`
-	DocumentID       string              `json:"document_id"`
-	DocumentMetadata *OPADocumentMeta    `json:"document_metadata,omitempty"`
-	Delegation       *Delegation         `json:"delegation,omitempty"`
+	CallerSPIFFEID   string           `json:"caller_spiffe_id"`
+	DocumentID       string           `json:"document_id"`
+	DocumentMetadata *OPADocumentMeta `json:"document_metadata,omitempty"`
+	Delegation       *Delegation      `json:"delegation,omitempty"`
+	UserDepartments  []string         `json:"user_departments,omitempty"` // From JWT claims (OIDC mode)
 }
 
 // OPADocumentMeta represents document metadata for OPA
@@ -387,8 +390,8 @@ func (s *DocumentService) handleDocumentContent(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	// Check authorization
-	allowed, reason, err := s.checkAuthorization(r.Context(), callerSPIFFEID, docID, meta, nil)
+	// Check authorization (no user departments for this path - not JWT-authenticated)
+	allowed, reason, err := s.checkAuthorization(r.Context(), callerSPIFFEID, docID, meta, nil, nil)
 	if err != nil {
 		s.log.Error("Authorization check failed", "error", err)
 		jsonError(w, "Authorization failed", http.StatusInternalServerError)
@@ -749,7 +752,14 @@ func (s *DocumentService) handleAccess(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Query OPA for authorization
-	allowed, reason, err := s.checkAuthorization(r.Context(), callerSPIFFEID, req.DocumentID, meta, req.Delegation)
+	// User departments come from:
+	// - req.Delegation.UserDepartments for delegated access (agent on behalf of user)
+	// - req.UserDepartments for direct access (user via dashboard)
+	userDepts := req.UserDepartments
+	if req.Delegation != nil && len(req.Delegation.UserDepartments) > 0 {
+		userDepts = req.Delegation.UserDepartments
+	}
+	allowed, reason, err := s.checkAuthorization(r.Context(), callerSPIFFEID, req.DocumentID, meta, req.Delegation, userDepts)
 	if err != nil {
 		s.log.Error("Authorization check failed", "error", err)
 		jsonError(w, "Authorization failed", http.StatusInternalServerError)
@@ -824,7 +834,7 @@ func (s *DocumentService) handleAccess(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *DocumentService) checkAuthorization(ctx context.Context, callerSPIFFEID, documentID string, meta *storage.DocumentMetadata, delegation *Delegation) (bool, string, error) {
+func (s *DocumentService) checkAuthorization(ctx context.Context, callerSPIFFEID, documentID string, meta *storage.DocumentMetadata, delegation *Delegation, userDepartments []string) (bool, string, error) {
 	queryLog := logger.New(logger.ComponentOPAQuery)
 
 	// Build document metadata for OPA
@@ -834,12 +844,15 @@ func (s *DocumentService) checkAuthorization(ctx context.Context, callerSPIFFEID
 		Sensitivity:         meta.Sensitivity,
 	}
 
+	// For delegation, user_departments is inside the delegation object
+	// For direct access, user_departments comes from the request
 	opaReq := OPARequest{
 		Input: OPAInput{
 			CallerSPIFFEID:   callerSPIFFEID,
 			DocumentID:       documentID,
 			DocumentMetadata: opaMeta,
 			Delegation:       delegation,
+			UserDepartments:  userDepartments,
 		},
 	}
 
