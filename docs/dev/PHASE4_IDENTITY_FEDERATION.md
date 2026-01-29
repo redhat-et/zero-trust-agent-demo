@@ -1,6 +1,6 @@
 # Phase 4: Identity federation with Keycloak
 
-## Status: PLANNED
+## Status: PHASE 4a COMPLETE
 
 ## Overview
 
@@ -753,13 +753,13 @@ get_delegated_user_departments := data.users.departments[user_name] if {
 
 ### Phase 4a success criteria
 
-- [ ] Keycloak deployed in Kind with realm imported
-- [ ] Demo users (alice, bob, carol, david) can log in
-- [ ] JWT contains groups claim matching user's groups
-- [ ] Dashboard shows logged-in user with their departments
-- [ ] Direct access works using JWT groups (not hardcoded)
-- [ ] Delegated access works with JWT groups
-- [ ] Logout clears session
+- [x] Keycloak deployed in Kind with realm imported
+- [x] Demo users (alice, bob, carol, david) can log in
+- [x] JWT contains groups claim matching user's groups
+- [x] Dashboard shows logged-in user with their departments
+- [x] Direct access works using JWT groups (not hardcoded)
+- [x] Delegated access works with JWT groups
+- [x] Logout clears session
 
 ---
 
@@ -1050,23 +1050,84 @@ func (a *Agent) GetOAuthToken(ctx context.Context) (*oauth2.Token, error) {
 
 ## Development approach
 
-### Local development with Kind
+### Local development with Kind (host Keycloak)
 
-1. Build local images: `make build-images`
-2. Load into Kind: `kind load docker-image ...`
-3. Deploy: `kubectl apply -k deploy/k8s/overlays/kind`
-4. Port-forward Keycloak: `kubectl port-forward svc/keycloak 8180:8080`
-5. Access at: `http://localhost:8180`
+The recommended setup runs Keycloak on the host machine while services run in Kind.
+This allows the browser to access Keycloak at the same URL as the in-cluster services.
 
-### Testing OAuth flow locally
+**Prerequisites:**
+
+- Kind cluster with Podman backend
+- Add `127.0.0.1 host.containers.internal` to `/etc/hosts` on macOS
+
+#### Start Keycloak on host
 
 ```bash
-# Start all services
+podman run -d \
+  --name keycloak-local \
+  -p 8180:8080 \
+  -v $(pwd)/deploy/keycloak:/opt/keycloak/data/import:Z \
+  -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
+  -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
+  -e KC_HOSTNAME_STRICT=false \
+  -e KC_HTTP_ENABLED=true \
+  quay.io/keycloak/keycloak:26.1 \
+  start-dev --import-realm
+```
+
+Key settings:
+
+- `KC_HOSTNAME_STRICT=false`: Allows Keycloak to respond with the requested host
+  in the issuer URL (both `localhost:8180` and `host.containers.internal:8180`)
+- Port 8180 to avoid conflicts with dashboard on 8080
+
+#### Build and load images
+
+```bash
+make build
+
+# Build container images
+for svc in opa-service document-service user-service agent-service web-dashboard; do
+  podman build -t localhost/spiffe-demo/$svc:latest -f $svc/Dockerfile .
+done
+
+# Load into Kind
+for svc in opa-service document-service user-service agent-service web-dashboard; do
+  kind load docker-image localhost/spiffe-demo/$svc:latest --name spiffe-demo
+done
+```
+
+#### Deploy to Kind
+
+```bash
+kubectl apply -k deploy/k8s/overlays/mock
+```
+
+The mock overlay configures services to use `host.containers.internal:8180` for OIDC.
+
+#### Port-forward dashboard
+
+```bash
+kubectl port-forward -n spiffe-demo svc/web-dashboard 8080:8080
+```
+
+#### Test OAuth flow
+
+```bash
+open http://localhost:8080
+# Click "Login with Keycloak"
+# Enter: alice / alice123 (or bob/carol/david)
+```
+
+### Testing OAuth flow locally (without Kind)
+
+```bash
+# Start Keycloak as above, then:
 ./scripts/run-local.sh
 
 # Keycloak admin console
 open http://localhost:8180/admin
-# Login: admin / admin123
+# Login: admin / admin
 
 # Test login flow
 open http://localhost:8080

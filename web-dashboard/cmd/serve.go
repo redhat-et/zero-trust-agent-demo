@@ -793,12 +793,15 @@ func (d *Dashboard) handleCallback(w http.ResponseWriter, r *http.Request) {
 	session := d.sessionStore.Create(claims.PreferredUsername, claims.Name, claims.Email, claims.Groups)
 
 	// Set session cookie
+	// Use SameSiteLaxMode to allow the cookie on top-level navigations
+	// (like redirects from OAuth providers). StrictMode would block the
+	// cookie on the redirect from Keycloak, requiring a second click.
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session_id",
 		Value:    session.ID,
 		HttpOnly: true,
 		Secure:   r.TLS != nil,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		Path:     "/",
 		MaxAge:   int(8 * time.Hour / time.Second),
 	})
