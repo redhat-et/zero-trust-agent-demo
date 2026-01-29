@@ -11,10 +11,11 @@ This guide covers deploying the SPIFFE/SPIRE Zero Trust Demo on OpenShift with p
 
 ## Deployment options
 
-| Overlay | Storage | SPIRE | Use case |
-|---------|---------|-------|----------|
-| `openshift` | Mock (in-memory) | Real | Demo without ODF |
-| `openshift-storage` | S3 via OBC | Real | Full production-like setup |
+| Overlay | Storage | SPIRE | OIDC | Use case |
+| ------- | ------- | ----- | ---- | -------- |
+| `openshift` | Mock (in-memory) | Real | No | Demo without ODF or auth |
+| `openshift-storage` | S3 via OBC | Real | No | Full production-like setup |
+| `openshift-oidc` | Mock (in-memory) | Real | Yes | Demo with Keycloak OAuth |
 
 ## Quick start (with ODF storage)
 
@@ -113,6 +114,62 @@ oc apply -k deploy/k8s/overlays/openshift
 
 # Documents will use in-memory mock storage
 # Documents are lost on pod restart
+```
+
+## Deployment with Keycloak OIDC
+
+The `openshift-oidc` overlay adds Keycloak authentication to the dashboard.
+
+### Prerequisites
+
+- No additional prerequisites beyond the base OpenShift requirements
+- Keycloak runs in the same namespace as other services
+
+### Deploy with OIDC
+
+```bash
+# 1. Get your cluster domain
+CLUSTER_DOMAIN=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}')
+echo "Cluster domain: $CLUSTER_DOMAIN"
+
+# 2. Generate files from templates
+cd deploy/k8s/overlays/openshift-oidc
+sed "s/CLUSTER_DOMAIN/$CLUSTER_DOMAIN/g" oidc-urls-configmap.yaml.template > oidc-urls-configmap.yaml
+sed "s/CLUSTER_DOMAIN/$CLUSTER_DOMAIN/g" keycloak-realm-patch.yaml.template > keycloak-realm-patch.yaml
+cd -
+
+# 3. Deploy
+oc apply -k deploy/k8s/overlays/openshift-oidc
+
+# 4. Wait for Keycloak to be ready (takes about 60-90 seconds)
+oc wait --for=condition=Ready pods -l app=keycloak -n spiffe-demo --timeout=120s
+
+# 5. Wait for dashboard
+oc wait --for=condition=Ready pods -l app=web-dashboard -n spiffe-demo --timeout=60s
+
+# 6. Get the URLs
+echo "Dashboard: https://web-dashboard-spiffe-demo.$CLUSTER_DOMAIN"
+echo "Keycloak:  https://keycloak-spiffe-demo.$CLUSTER_DOMAIN"
+```
+
+### Demo users
+
+The following users are pre-configured in Keycloak:
+
+| User | Password | Groups |
+| ---- | -------- | ------ |
+| alice | alice123 | engineering, finance |
+| bob | bob123 | finance, admin |
+| carol | carol123 | hr |
+| david | david123 | engineering, hr |
+
+### Keycloak admin access
+
+```bash
+# Admin console URL
+echo "Admin: https://keycloak-spiffe-demo.$CLUSTER_DOMAIN/admin"
+# Username: admin
+# Password: admin123
 ```
 
 ## ObjectBucketClaim details

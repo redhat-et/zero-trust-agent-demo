@@ -1,12 +1,10 @@
-apiVersion: v1
-kind: Secret
-metadata:
-  name: keycloak-admin
-  namespace: spiffe-demo
-type: Opaque
-stringData:
-  password: admin123
----
+# Keycloak realm ConfigMap patch for OpenShift
+#
+# IMPORTANT: Replace CLUSTER_DOMAIN with your actual OpenShift cluster domain
+# Generate with:
+#   CLUSTER_DOMAIN=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}')
+#   sed "s/CLUSTER_DOMAIN/$CLUSTER_DOMAIN/g" keycloak-realm-patch.yaml.template > keycloak-realm-patch.yaml
+#
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -88,13 +86,14 @@ data:
           "publicClient": true,
           "standardFlowEnabled": true,
           "directAccessGrantsEnabled": false,
-          "rootUrl": "http://localhost:8080",
+          "rootUrl": "",
           "baseUrl": "/",
           "redirectUris": [
             "http://localhost:8080/*",
             "http://127.0.0.1:8080/*",
             "http://localhost:8081/*",
-            "http://127.0.0.1:8081/*"
+            "http://127.0.0.1:8081/*",
+            "https://web-dashboard-spiffe-demo.CLUSTER_DOMAIN/*"
           ],
           "webOrigins": ["+"],
           "protocol": "openid-connect",
@@ -238,90 +237,3 @@ data:
       ],
       "defaultDefaultClientScopes": ["openid", "profile", "email", "groups"]
     }
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: keycloak
-  namespace: spiffe-demo
-  labels:
-    app: keycloak
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: keycloak
-  template:
-    metadata:
-      labels:
-        app: keycloak
-    spec:
-      containers:
-      - name: keycloak
-        image: quay.io/keycloak/keycloak:26.5
-        args:
-        - start-dev
-        - --import-realm
-        env:
-        - name: KC_BOOTSTRAP_ADMIN_USERNAME
-          value: admin
-        - name: KC_BOOTSTRAP_ADMIN_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: keycloak-admin
-              key: password
-        - name: KC_PROXY_HEADERS
-          value: xforwarded
-        - name: KC_HTTP_ENABLED
-          value: "true"
-        - name: KC_HEALTH_ENABLED
-          value: "true"
-        ports:
-        - containerPort: 8080
-          name: http
-        - containerPort: 9000
-          name: management
-        volumeMounts:
-        - name: realm-config
-          mountPath: /opt/keycloak/data/import
-          readOnly: true
-        resources:
-          requests:
-            memory: "512Mi"
-            cpu: "250m"
-          limits:
-            memory: "1Gi"
-            cpu: "1000m"
-        readinessProbe:
-          httpGet:
-            path: /health/ready
-            port: 9000
-          initialDelaySeconds: 60
-          periodSeconds: 10
-          failureThreshold: 6
-        livenessProbe:
-          httpGet:
-            path: /health/live
-            port: 9000
-          initialDelaySeconds: 90
-          periodSeconds: 30
-          failureThreshold: 3
-      volumes:
-      - name: realm-config
-        configMap:
-          name: keycloak-realm
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: keycloak
-  namespace: spiffe-demo
-  labels:
-    app: keycloak
-spec:
-  selector:
-    app: keycloak
-  ports:
-  - port: 8080
-    targetPort: 8080
-    name: http

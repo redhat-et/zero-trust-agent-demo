@@ -1,0 +1,20 @@
+# OIDC URL configuration for OpenShift deployment
+#
+# IMPORTANT: Replace CLUSTER_DOMAIN with your actual OpenShift cluster domain
+# Example: If your cluster is at apps.mycluster.example.com, replace:
+#   keycloak-spiffe-demo.CLUSTER_DOMAIN -> keycloak-spiffe-demo.apps.mycluster.example.com
+#   web-dashboard-spiffe-demo.CLUSTER_DOMAIN -> web-dashboard-spiffe-demo.apps.mycluster.example.com
+#
+# You can find your cluster domain with:
+#   oc get ingresses.config/cluster -o jsonpath='{.spec.domain}'
+#
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oidc-urls
+  namespace: spiffe-demo
+data:
+  # Keycloak issuer URL (the Route hostname for Keycloak)
+  SPIFFE_DEMO_OIDC_ISSUER_URL: "https://keycloak-spiffe-demo.CLUSTER_DOMAIN/realms/spiffe-demo"
+  # OAuth callback URL (the Route hostname for the dashboard)
+  SPIFFE_DEMO_OIDC_REDIRECT_URL: "https://web-dashboard-spiffe-demo.CLUSTER_DOMAIN/auth/callback"
