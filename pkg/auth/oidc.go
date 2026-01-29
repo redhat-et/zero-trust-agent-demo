@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"net/url"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
@@ -54,12 +55,11 @@ func NewOIDCProvider(ctx context.Context, cfg OIDCConfig) (*OIDCProvider, error)
 	// Determine post-logout URL (default to redirect URL's origin)
 	postLogoutURL := cfg.PostLogoutURL
 	if postLogoutURL == "" {
-		postLogoutURL = cfg.RedirectURL
-		// Strip path to get just the origin
-		if idx := len("http://"); idx < len(postLogoutURL) {
-			if slashIdx := findNthIndex(postLogoutURL[idx:], "/", 1); slashIdx > 0 {
-				postLogoutURL = postLogoutURL[:idx+slashIdx]
-			}
+		// Parse redirect URL and extract origin (scheme + host)
+		if u, err := url.Parse(cfg.RedirectURL); err == nil {
+			postLogoutURL = fmt.Sprintf("%s://%s", u.Scheme, u.Host)
+		} else {
+			postLogoutURL = cfg.RedirectURL
 		}
 	}
 
@@ -71,31 +71,6 @@ func NewOIDCProvider(ctx context.Context, cfg OIDCConfig) (*OIDCProvider, error)
 		clientID:      cfg.ClientID,
 		postLogoutURL: postLogoutURL,
 	}, nil
-}
-
-// findNthIndex finds the nth occurrence of substr in s
-func findNthIndex(s, substr string, n int) int {
-	idx := 0
-	for i := 0; i < n; i++ {
-		pos := indexOf(s[idx:], substr)
-		if pos == -1 {
-			return -1
-		}
-		if i == n-1 {
-			return idx + pos
-		}
-		idx += pos + len(substr)
-	}
-	return -1
-}
-
-func indexOf(s, substr string) int {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
-	}
-	return -1
 }
 
 // AuthCodeURL returns the URL to redirect the user for authentication
