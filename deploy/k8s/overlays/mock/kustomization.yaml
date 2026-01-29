@@ -6,6 +6,7 @@ metadata:
 
 resources:
   - ../../base
+  - keycloak-nodeport.yaml
 
 # Use local images (loaded into Kind with `kind load docker-image`)
 images:
@@ -194,27 +195,7 @@ patches:
         path: /spec/template/spec/containers/0/env/-
         value:
           name: SPIFFE_DEMO_OIDC_ENABLED
-          value: "true"
-      - op: add
-        path: /spec/template/spec/containers/0/env/-
-        value:
-          name: SPIFFE_DEMO_OIDC_ISSUER_URL
-          value: "http://keycloak:8080/realms/spiffe-demo"
-      - op: add
-        path: /spec/template/spec/containers/0/env/-
-        value:
-          name: SPIFFE_DEMO_OIDC_CLIENT_ID
-          value: "spiffe-demo-dashboard"
-      - op: add
-        path: /spec/template/spec/containers/0/env/-
-        value:
-          name: SPIFFE_DEMO_OIDC_REDIRECT_URL
-          value: "http://localhost:8080/auth/callback"
-      - op: add
-        path: /spec/template/spec/containers/0/env/-
-        value:
-          name: SPIFFE_DEMO_OIDC_SKIP_EXPIRY_CHECK
-          value: "true"
+          value: "false"
       - op: add
         path: /spec/template/spec/containers/0/livenessProbe
         value:

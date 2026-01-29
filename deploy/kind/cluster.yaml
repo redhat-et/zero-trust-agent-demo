@@ -19,5 +19,8 @@ nodes:
       - containerPort: 30085
         hostPort: 8085
         protocol: TCP
+      - containerPort: 30180
+        hostPort: 8180
+        protocol: TCP
   - role: worker
   - role: worker
