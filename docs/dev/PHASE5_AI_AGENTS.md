@@ -7,7 +7,7 @@
 Phase 5 adds two AI agent services (Summarizer and Reviewer) that demonstrate real-world AI agent use cases with Zero Trust principles. These agents:
 
 - Fetch documents via document-service with delegation context
-- Call Anthropic Claude API for AI processing
+- Call LLM APIs for AI processing (supports multiple providers)
 - Return markdown output for dashboard display
 - Integrate with OPA for permission intersection
 
@@ -28,8 +28,9 @@ This phase validates the core Zero Trust principle: **agents can only access res
                                   │
                                   ▼
                         ┌────────────────────┐
-                        │   Anthropic API    │
-                        │   (Claude Sonnet)  │
+                        │     LLM API        │
+                        │ (Anthropic/OpenAI/ │
+                        │  LiteLLM/vLLM)     │
                         └────────────────────┘
 ```
 
@@ -51,30 +52,59 @@ This phase validates the core Zero Trust principle: **agents can only access res
 
 ### Shared LLM package (pkg/llm)
 
-The `pkg/llm` package provides a shared Anthropic Claude API client:
+The `pkg/llm` package provides a multi-provider LLM abstraction supporting Anthropic Claude,
+OpenAI, LiteLLM, and other OpenAI-compatible APIs.
 
-```go
-// pkg/llm/client.go
-type Client struct {
-    client    anthropic.Client
-    model     string
-    maxTokens int
-    timeout   time.Duration
-}
-
-func NewClient(cfg Config) (*Client, error)
-func (c *Client) Complete(ctx context.Context, systemPrompt, userPrompt string) (string, error)
+```text
+pkg/llm/
+├── provider.go          # Provider interface definition
+├── config.go            # Configuration with provider defaults
+├── anthropic.go         # Anthropic Claude implementation
+├── openai_compat.go     # OpenAI-compatible implementation (OpenAI, LiteLLM, vLLM)
+├── factory.go           # NewProvider() factory function
+└── prompts.go           # System prompts for agents
 ```
 
-Configuration:
+#### Provider interface
+
+```go
+type Provider interface {
+    Complete(ctx context.Context, systemPrompt, userPrompt string) (string, error)
+    Model() string
+    ProviderName() string
+}
+
+func NewProvider(cfg Config) (Provider, error)
+```
+
+#### Configuration
 
 ```yaml
 llm:
-  api_key: ""  # Set via ANTHROPIC_API_KEY env var
-  model: "claude-sonnet-4-20250514"
+  provider: ""           # anthropic (default), openai, litellm
+  api_key: ""            # Set via LLM_API_KEY or ANTHROPIC_API_KEY env var
+  base_url: ""           # Required for litellm, optional for openai
+  model: ""              # Provider-specific default if empty
   max_tokens: 4096
   timeout_seconds: 45
 ```
+
+#### Environment variables
+
+| Variable | Description |
+| -------- | ----------- |
+| `LLM_PROVIDER` | Provider selection: `anthropic`, `openai`, `litellm` |
+| `LLM_API_KEY` | API key (fallback: `ANTHROPIC_API_KEY`) |
+| `LLM_BASE_URL` | Base URL for OpenAI-compatible APIs |
+| `LLM_MODEL` | Model name (provider-specific default if empty) |
+
+#### Provider defaults
+
+| Provider | Default Model | Default Base URL |
+| -------- | ------------- | ---------------- |
+| anthropic | claude-sonnet-4-20250514 | (SDK default) |
+| openai | gpt-4o | https://api.openai.com/v1 |
+| litellm | qwen3-14b | (must be set via LLM_BASE_URL) |
 
 ### Summarizer service
 
@@ -176,7 +206,11 @@ Review types: `general`, `compliance`, `security`
 
 ```text
 pkg/llm/
-├── client.go                    # Anthropic API client
+├── provider.go                  # Provider interface definition
+├── config.go                    # Configuration with provider defaults
+├── anthropic.go                 # Anthropic Claude implementation
+├── openai_compat.go             # OpenAI-compatible implementation
+├── factory.go                   # NewProvider() factory function
 └── prompts.go                   # System prompts for agents
 
 summarizer-service/
@@ -218,18 +252,47 @@ scripts/run-local.sh            # Start new services
 
 ## Running locally
 
+### With Anthropic (default provider)
+
 ```bash
-# Optional: Set API key for real AI responses
-export ANTHROPIC_API_KEY=your-api-key
+export LLM_API_KEY=your-anthropic-key
+# or: export ANTHROPIC_API_KEY=your-anthropic-key
 
-# Build and run all services
 make run-local
-
-# Open dashboard
 open http://localhost:8080
 ```
 
+### With LiteLLM (Red Hat MaaS)
+
+```bash
+export LLM_PROVIDER=litellm
+export LLM_BASE_URL=https://litellm-prod.apps.maas.redhatworkshops.io/v1
+export LLM_API_KEY=your-litellm-key
+export LLM_MODEL=qwen3-14b  # optional, this is the default
+
+make run-local
+open http://localhost:8080
+```
+
+### With OpenAI
+
+```bash
+export LLM_PROVIDER=openai
+export LLM_API_KEY=your-openai-key
+export LLM_MODEL=gpt-4o  # optional, this is the default
+
+make run-local
+open http://localhost:8080
+```
+
+### Mock mode (no LLM)
+
 Without an API key, the services run in mock mode and return placeholder responses.
+
+```bash
+make run-local
+open http://localhost:8080
+```
 
 ## Testing
 

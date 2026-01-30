@@ -31,12 +31,16 @@ var serveCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(serveCmd)
 	serveCmd.Flags().String("document-service-url", "http://localhost:8084", "Document service URL")
-	serveCmd.Flags().String("anthropic-api-key", "", "Anthropic API key (or set ANTHROPIC_API_KEY env var)")
-	serveCmd.Flags().String("llm-model", "claude-sonnet-4-20250514", "LLM model to use")
+	serveCmd.Flags().String("llm-provider", "", "LLM provider (anthropic, openai, litellm)")
+	serveCmd.Flags().String("llm-api-key", "", "LLM API key (or set LLM_API_KEY/ANTHROPIC_API_KEY env var)")
+	serveCmd.Flags().String("llm-base-url", "", "Base URL for OpenAI-compatible APIs")
+	serveCmd.Flags().String("llm-model", "", "LLM model to use (provider-specific default if empty)")
 	serveCmd.Flags().Int("llm-max-tokens", 4096, "Max tokens for LLM response")
 	serveCmd.Flags().Int("llm-timeout", 45, "LLM request timeout in seconds")
 	v.BindPFlag("document_service_url", serveCmd.Flags().Lookup("document-service-url"))
-	v.BindPFlag("llm.api_key", serveCmd.Flags().Lookup("anthropic-api-key"))
+	v.BindPFlag("llm.provider", serveCmd.Flags().Lookup("llm-provider"))
+	v.BindPFlag("llm.api_key", serveCmd.Flags().Lookup("llm-api-key"))
+	v.BindPFlag("llm.base_url", serveCmd.Flags().Lookup("llm-base-url"))
 	v.BindPFlag("llm.model", serveCmd.Flags().Lookup("llm-model"))
 	v.BindPFlag("llm.max_tokens", serveCmd.Flags().Lookup("llm-max-tokens"))
 	v.BindPFlag("llm.timeout_seconds", serveCmd.Flags().Lookup("llm-timeout"))
@@ -71,7 +75,7 @@ type SummarizerService struct {
 	log                *logger.Logger
 	trustDomain        string
 	workloadClient     *spiffe.WorkloadClient
-	llmClient          *llm.Client
+	llmProvider        llm.Provider
 	agentSPIFFEID      string
 }
 
@@ -94,9 +98,27 @@ func runServe(cmd *cobra.Command, args []string) error {
 		cfg.Service.HealthPort = 8186
 	}
 
+	// Get LLM provider from environment if not set in config
+	if cfg.LLM.Provider == "" {
+		cfg.LLM.Provider = os.Getenv("LLM_PROVIDER")
+	}
+
 	// Get API key from environment if not set in config
 	if cfg.LLM.APIKey == "" {
-		cfg.LLM.APIKey = os.Getenv("ANTHROPIC_API_KEY")
+		cfg.LLM.APIKey = os.Getenv("LLM_API_KEY")
+		if cfg.LLM.APIKey == "" {
+			cfg.LLM.APIKey = os.Getenv("ANTHROPIC_API_KEY")
+		}
+	}
+
+	// Get base URL from environment if not set in config
+	if cfg.LLM.BaseURL == "" {
+		cfg.LLM.BaseURL = os.Getenv("LLM_BASE_URL")
+	}
+
+	// Get model from environment if not set in config
+	if cfg.LLM.Model == "" {
+		cfg.LLM.Model = os.Getenv("LLM_MODEL")
 	}
 
 	log := logger.New(logger.ComponentSummarizer)
@@ -128,15 +150,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Create mTLS HTTP client for outgoing requests
 	httpClient := workloadClient.CreateMTLSClient(30 * time.Second)
 
-	// Initialize LLM client if API key is available
-	var llmClient *llm.Client
+	// Initialize LLM provider if API key is available
+	var llmProvider llm.Provider
 	if cfg.LLM.APIKey != "" {
 		var err error
-		llmClient, err = llm.NewClient(cfg.LLM)
+		llmProvider, err = llm.NewProvider(cfg.LLM)
 		if err != nil {
-			return fmt.Errorf("failed to create LLM client: %w", err)
+			return fmt.Errorf("failed to create LLM provider: %w", err)
 		}
-		log.Info("LLM client initialized", "model", llmClient.Model())
+		log.Info("LLM provider initialized", "provider", llmProvider.ProviderName(), "model", llmProvider.Model())
 	} else {
 		log.Warn("LLM API key not configured - summarization will use mock responses")
 	}
@@ -147,7 +169,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		log:                log,
 		trustDomain:        cfg.SPIFFE.TrustDomain,
 		workloadClient:     workloadClient,
-		llmClient:          llmClient,
+		llmProvider:        llmProvider,
 		agentSPIFFEID:      agentSPIFFEID,
 	}
 
@@ -189,8 +211,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	log.Info("Agent SPIFFE ID", "id", agentSPIFFEID)
 	log.Info("Document service", "url", cfg.DocumentServiceURL)
 	log.Info("mTLS mode", "enabled", !cfg.Service.MockSPIFFE)
-	if llmClient != nil {
-		log.Info("LLM enabled", "model", llmClient.Model())
+	if llmProvider != nil {
+		log.Info("LLM enabled", "provider", llmProvider.ProviderName(), "model", llmProvider.Model())
 	}
 
 	// Start separate plain HTTP health server for Kubernetes probes
@@ -305,10 +327,10 @@ func (s *SummarizerService) handleSummarize(w http.ResponseWriter, r *http.Reque
 
 	// Generate summary using LLM
 	var summary string
-	if s.llmClient != nil {
+	if s.llmProvider != nil {
 		s.log.Info("Generating summary with LLM", "document", title)
 		userPrompt := llm.FormatSummaryRequest(title, content)
-		summary, err = s.llmClient.Complete(r.Context(), llm.SummarizerSystemPrompt, userPrompt)
+		summary, err = s.llmProvider.Complete(r.Context(), llm.SummarizerSystemPrompt, userPrompt)
 		if err != nil {
 			s.log.Error("LLM request failed", "error", err)
 			summary = fmt.Sprintf("## Summary\n\nFailed to generate AI summary: %v\n\n### Document Preview\n\n%s", err, truncate(content, 500))
@@ -317,7 +339,7 @@ func (s *SummarizerService) handleSummarize(w http.ResponseWriter, r *http.Reque
 		}
 	} else {
 		// Mock response when LLM is not configured
-		summary = fmt.Sprintf("## Summary\n\n**Document:** %s\n\nThis is a mock summary. Configure ANTHROPIC_API_KEY to enable real AI summarization.\n\n### Document Preview\n\n%s", title, truncate(content, 500))
+		summary = fmt.Sprintf("## Summary\n\n**Document:** %s\n\nThis is a mock summary. Configure LLM_API_KEY to enable real AI summarization.\n\n### Document Preview\n\n%s", title, truncate(content, 500))
 	}
 
 	w.Header().Set("Content-Type", "application/json")

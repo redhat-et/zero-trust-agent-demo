@@ -9,52 +9,35 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 )
 
-// Config holds LLM client configuration
-type Config struct {
-	APIKey    string `mapstructure:"api_key"`
-	Model     string `mapstructure:"model"`
-	MaxTokens int    `mapstructure:"max_tokens"`
-	Timeout   int    `mapstructure:"timeout_seconds"`
-}
-
-// DefaultConfig returns sensible defaults for the LLM client
-func DefaultConfig() Config {
-	return Config{
-		Model:     "claude-sonnet-4-20250514",
-		MaxTokens: 4096,
-		Timeout:   45,
-	}
-}
-
-// Client wraps the Anthropic API client
-type Client struct {
+// AnthropicProvider wraps the Anthropic API client
+type AnthropicProvider struct {
 	client    anthropic.Client
 	model     string
 	maxTokens int
 	timeout   time.Duration
 }
 
-// NewClient creates a new LLM client with the given configuration
-func NewClient(cfg Config) (*Client, error) {
+// NewAnthropicProvider creates a new Anthropic LLM provider with the given configuration
+func NewAnthropicProvider(cfg Config) (*AnthropicProvider, error) {
 	if cfg.APIKey == "" {
 		return nil, fmt.Errorf("API key is required")
 	}
 
 	if cfg.Model == "" {
-		cfg.Model = DefaultConfig().Model
+		cfg.Model = DefaultAnthropicModel
 	}
 	if cfg.MaxTokens == 0 {
-		cfg.MaxTokens = DefaultConfig().MaxTokens
+		cfg.MaxTokens = DefaultMaxTokens
 	}
 	if cfg.Timeout == 0 {
-		cfg.Timeout = DefaultConfig().Timeout
+		cfg.Timeout = DefaultTimeout
 	}
 
 	client := anthropic.NewClient(
 		option.WithAPIKey(cfg.APIKey),
 	)
 
-	return &Client{
+	return &AnthropicProvider{
 		client:    client,
 		model:     cfg.Model,
 		maxTokens: cfg.MaxTokens,
@@ -63,13 +46,13 @@ func NewClient(cfg Config) (*Client, error) {
 }
 
 // Complete sends a message to the Claude API and returns the response
-func (c *Client) Complete(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+func (p *AnthropicProvider) Complete(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
-	message, err := c.client.Messages.New(ctx, anthropic.MessageNewParams{
-		Model:     anthropic.Model(c.model),
-		MaxTokens: int64(c.maxTokens),
+	message, err := p.client.Messages.New(ctx, anthropic.MessageNewParams{
+		Model:     anthropic.Model(p.model),
+		MaxTokens: int64(p.maxTokens),
 		System: []anthropic.TextBlockParam{
 			{Text: systemPrompt},
 		},
@@ -97,6 +80,14 @@ func (c *Client) Complete(ctx context.Context, systemPrompt, userPrompt string) 
 }
 
 // Model returns the configured model name
-func (c *Client) Model() string {
-	return c.model
+func (p *AnthropicProvider) Model() string {
+	return p.model
 }
+
+// ProviderName returns the name of this provider
+func (p *AnthropicProvider) ProviderName() string {
+	return ProviderAnthropic
+}
+
+// Ensure AnthropicProvider implements Provider interface
+var _ Provider = (*AnthropicProvider)(nil)
