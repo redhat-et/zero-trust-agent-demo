@@ -29,6 +29,8 @@ jobs:
           - agent-service
           - document-service
           - opa-service
+          - summarizer-service
+          - reviewer-service
     steps:
       - uses: actions/checkout@v4
 
