@@ -111,6 +111,12 @@ func setDefaults(v *viper.Viper, serviceName string) {
 	case "opa-service":
 		v.SetDefault("service.port", 8085)
 		v.SetDefault("service.health_port", 8185)
+	case "summarizer-service":
+		v.SetDefault("service.port", 8086)
+		v.SetDefault("service.health_port", 8186)
+	case "reviewer-service":
+		v.SetDefault("service.port", 8087)
+		v.SetDefault("service.health_port", 8187)
 	default:
 		v.SetDefault("service.port", 8080)
 		v.SetDefault("service.health_port", 8180)
@@ -175,6 +181,8 @@ func GetServiceEndpoints() map[string]string {
 		"agent":       "http://localhost:8083",
 		"document":    "http://localhost:8084",
 		"opa":         "http://localhost:8085",
+		"summarizer":  "http://localhost:8086",
+		"reviewer":    "http://localhost:8087",
 		"spire-agent": "unix:///run/spire/sockets/agent.sock",
 	}
 }

@@ -111,6 +111,25 @@
                             Delegate to Agent
                         </button>
                     </div>
+
+                    <div class="section-divider"></div>
+
+                    <h4 style="margin-bottom: 8px;">AI Agent Actions</h4>
+                    <small style="color: var(--rh-gray); font-size: 12px; display: block; margin-bottom: 12px;">
+                        These actions use dedicated AI agents (separate from the agent dropdown above).
+                        The selected user's permissions are intersected with each agent's capabilities.
+                    </small>
+                    <div class="action-row">
+                        <button id="summarize-btn" class="btn btn-info">
+                            Summarize
+                        </button>
+                        <button id="review-btn" class="btn btn-warning">
+                            Review
+                        </button>
+                    </div>
+                    <small style="color: var(--rh-gray); font-size: 11px; margin-top: 8px; display: block;">
+                        <strong>Summarizer:</strong> finance only &nbsp;|&nbsp; <strong>Reviewer:</strong> all departments
+                    </small>
                 </div>
             </div>
 
@@ -188,6 +207,13 @@
                                 <td class="check">&#10003;</td>
                                 <td class="cross">&#10007;</td>
                                 <td class="cross">&#10007;</td>
+                            </tr>
+                            <tr>
+                                <td>Reviewer</td>
+                                <td class="check">&#10003;</td>
+                                <td class="check">&#10003;</td>
+                                <td class="check">&#10003;</td>
+                                <td class="check">&#10003;</td>
                             </tr>
                         </tbody>
                     </table>

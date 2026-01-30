@@ -3,7 +3,7 @@
 # Variables
 BINARY_DIR := bin
 GO := go
-SERVICES := opa-service document-service user-service agent-service web-dashboard
+SERVICES := opa-service document-service user-service agent-service summarizer-service reviewer-service web-dashboard
 
 # Container registry settings
 REGISTRY ?= ghcr.io/redhat-et/zero-trust-agent-demo
@@ -66,6 +66,12 @@ run-user:
 
 run-agent:
 	cd agent-service && $(GO) run . serve
+
+run-summarizer:
+	cd summarizer-service && $(GO) run . serve
+
+run-reviewer:
+	cd reviewer-service && $(GO) run . serve
 
 run-dashboard:
 	cd web-dashboard && $(GO) run . serve

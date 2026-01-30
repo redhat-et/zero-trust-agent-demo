@@ -255,6 +255,18 @@ class Dashboard {
             clearBtn.addEventListener('click', () => this.clearConsole());
         }
 
+        // Summarize button
+        const summarizeBtn = document.getElementById('summarize-btn');
+        if (summarizeBtn) {
+            summarizeBtn.addEventListener('click', () => this.handleSummarize());
+        }
+
+        // Review button
+        const reviewBtn = document.getElementById('review-btn');
+        if (reviewBtn) {
+            reviewBtn.addEventListener('click', () => this.handleReview());
+        }
+
         // Agent select change
         const agentSelect = document.getElementById('agent-select');
         if (agentSelect) {
@@ -408,6 +420,179 @@ class Dashboard {
             this.consoleElement.innerHTML = '';
             this.log('info', 'Console cleared');
         }
+    }
+
+    async handleSummarize() {
+        const userId = document.getElementById('user-select')?.value;
+        const documentId = document.getElementById('document-select')?.value;
+
+        if (!userId || userId === '__no_user__' || !documentId) {
+            this.log('error', 'Please select a user and document for summarization');
+            return;
+        }
+
+        this.log('info', `Initiating AI summarization: User=${userId}, Document=${documentId}`);
+        this.showProcessingIndicator('Summarizing document with AI...', 'summarizer');
+
+        try {
+            const response = await fetch('/api/summarize', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: userId, document_id: documentId })
+            });
+
+            const result = await response.json();
+            this.displayAIResult(result, 'summary');
+        } catch (err) {
+            this.log('error', `Summarization failed: ${err.message}`);
+            this.hideProcessingIndicator();
+        }
+    }
+
+    async handleReview() {
+        const userId = document.getElementById('user-select')?.value;
+        const documentId = document.getElementById('document-select')?.value;
+
+        if (!userId || userId === '__no_user__' || !documentId) {
+            this.log('error', 'Please select a user and document for review');
+            return;
+        }
+
+        // Default to general review
+        const reviewType = 'general';
+
+        this.log('info', `Initiating AI review (${reviewType}): User=${userId}, Document=${documentId}`);
+        this.showProcessingIndicator('Reviewing document with AI...', 'reviewer');
+
+        try {
+            const response = await fetch('/api/review', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ user_id: userId, document_id: documentId, review_type: reviewType })
+            });
+
+            const result = await response.json();
+            this.displayAIResult(result, 'review');
+        } catch (err) {
+            this.log('error', `Review failed: ${err.message}`);
+            this.hideProcessingIndicator();
+        }
+    }
+
+    showProcessingIndicator(message, agentType) {
+        const panel = document.getElementById('result-panel');
+        if (!panel) return;
+
+        // Disable AI action buttons
+        const summarizeBtn = document.getElementById('summarize-btn');
+        const reviewBtn = document.getElementById('review-btn');
+        if (summarizeBtn) summarizeBtn.disabled = true;
+        if (reviewBtn) reviewBtn.disabled = true;
+
+        panel.className = 'result-panel-inline processing';
+        panel.innerHTML = `
+            <div class="processing-indicator">
+                <div class="spinner"></div>
+                <h4>${message}</h4>
+                <p>Using <strong>${agentType === 'summarizer' ? 'Summarizer Agent' : 'Reviewer Agent'}</strong></p>
+                <p class="processing-note">This may take 10-30 seconds depending on document size...</p>
+            </div>
+        `;
+    }
+
+    hideProcessingIndicator() {
+        // Re-enable AI action buttons
+        const summarizeBtn = document.getElementById('summarize-btn');
+        const reviewBtn = document.getElementById('review-btn');
+        if (summarizeBtn) summarizeBtn.disabled = false;
+        if (reviewBtn) reviewBtn.disabled = false;
+    }
+
+    displayAIResult(result, type) {
+        this.hideProcessingIndicator();
+
+        const panel = document.getElementById('result-panel');
+        if (!panel) return;
+
+        const isAllowed = result.allowed === true;
+        panel.className = `result-panel-inline ${isAllowed ? 'granted' : 'denied'}`;
+
+        if (isAllowed) {
+            const content = type === 'summary' ? result.summary : result.review;
+            const processingTime = result.processing_time_ms ? `(${result.processing_time_ms}ms)` : '';
+
+            // Convert markdown to basic HTML
+            const htmlContent = this.markdownToHtml(content || 'No content generated');
+
+            let meta = '';
+            if (type === 'review' && result.issues_found !== undefined) {
+                const severityClass = this.getSeverityClass(result.severity);
+                meta = `
+                    <div style="margin-bottom: 12px;">
+                        <span class="badge badge-${severityClass}">${result.severity || 'low'} severity</span>
+                        <span style="margin-left: 8px;">${result.issues_found} issues found</span>
+                    </div>
+                `;
+            }
+
+            panel.innerHTML = `
+                <h4>${type === 'summary' ? 'Document Summary' : 'Document Review'} ${processingTime}</h4>
+                ${meta}
+                <div class="ai-content">${htmlContent}</div>
+            `;
+        } else {
+            panel.innerHTML = `
+                <h4>${type === 'summary' ? 'Summarization' : 'Review'} Denied</h4>
+                <p>${result.reason || 'Permission denied'}</p>
+                <div class="alert alert-info" style="margin-top: 16px; margin-bottom: 0;">
+                    <strong>Zero Trust:</strong> The ${type === 'summary' ? 'Summarizer' : 'Reviewer'} agent must have access to the document's department.
+                </div>
+            `;
+        }
+    }
+
+    getSeverityClass(severity) {
+        switch (severity) {
+            case 'critical': return 'danger';
+            case 'high': return 'warning';
+            case 'medium': return 'info';
+            default: return 'success';
+        }
+    }
+
+    markdownToHtml(markdown) {
+        if (!markdown) return '';
+
+        // Basic markdown conversion
+        let html = markdown
+            // Escape HTML
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            // Headers
+            .replace(/^### (.+)$/gm, '<h5>$1</h5>')
+            .replace(/^## (.+)$/gm, '<h4>$1</h4>')
+            .replace(/^# (.+)$/gm, '<h3>$1</h3>')
+            // Bold
+            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+            // Italic
+            .replace(/\*(.+?)\*/g, '<em>$1</em>')
+            // Code
+            .replace(/`(.+?)`/g, '<code>$1</code>')
+            // Lists
+            .replace(/^- (.+)$/gm, '<li>$1</li>')
+            .replace(/^(\d+)\. (.+)$/gm, '<li>$2</li>')
+            // Paragraphs
+            .replace(/\n\n/g, '</p><p>')
+            .replace(/\n/g, '<br>');
+
+        // Wrap in paragraph
+        html = '<p>' + html + '</p>';
+
+        // Clean up list items - wrap consecutive <li> in <ul>
+        html = html.replace(/(<li>.*?<\/li>)+/g, '<ul>$&</ul>');
+
+        return html;
     }
 }
 
