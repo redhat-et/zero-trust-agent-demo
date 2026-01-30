@@ -1,0 +1,238 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: spiffe-demo-openshift-ai-agents
+
+# Extends openshift-oidc overlay with AI agent services configured for LiteLLM
+#
+# IMPORTANT: Before deploying:
+#
+# 1. Generate OIDC config files (in openshift-oidc directory):
+#    CLUSTER_DOMAIN=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}')
+#    cd deploy/k8s/overlays/openshift-oidc
+#    sed "s/CLUSTER_DOMAIN/$CLUSTER_DOMAIN/g" oidc-urls-configmap.yaml.template > oidc-urls-configmap.yaml
+#    sed "s/CLUSTER_DOMAIN/$CLUSTER_DOMAIN/g" keycloak-realm-patch.yaml.template > keycloak-realm-patch.yaml
+#
+# 2. Create the LLM secret (in this directory):
+#    cd deploy/k8s/overlays/openshift-ai-agents
+#    cp llm-secret.yaml.template llm-secret.yaml
+#    # Edit llm-secret.yaml with your LiteLLM API key
+#    kubectl apply -f llm-secret.yaml -n spiffe-demo
+#
+resources:
+- ../openshift-oidc
+- ../ai-agents
+  # Note: llm-secret.yaml must be created from template and applied separately
+
+# Override the LLM configmap with LiteLLM settings
+configMapGenerator:
+- behavior: replace
+  literals:
+  - LLM_PROVIDER=litellm
+  - LLM_BASE_URL=https://litellm-prod.apps.maas.redhatworkshops.io/v1
+  - LLM_MODEL=qwen3-14b
+  name: llm-config
+  namespace: spiffe-demo
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+# Image tag overrides
+# Note: Services from base (via ghcr overlay) already have full ghcr.io names,
+# so we match on the full name. Services from ai-agents still have simple names.
+# Services from base (already transformed by ghcr overlay to full names)
+# Services from ai-agents (still have simple image names)
+images:
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/agent-service
+  newTag: e2920fc
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/document-service
+  newTag: e2920fc
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/opa-service
+  newTag: e2920fc
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/user-service
+  newTag: e2920fc
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/web-dashboard
+  newTag: e2920fc
+- name: reviewer-service
+  newName: ghcr.io/redhat-et/zero-trust-agent-demo/reviewer-service
+  newTag: e2920fc
+- name: summarizer-service
+  newName: ghcr.io/redhat-et/zero-trust-agent-demo/summarizer-service
+  newTag: e2920fc
+
+  # Summarizer Service - Real SPIFFE with ghcr.io images
+
+  # Reviewer Service - Real SPIFFE with ghcr.io images
+
+  # Add AI agent service URLs to web-dashboard
+
+  # Update service ports to use mTLS naming
+
+patches:
+- patch: |-
+    - op: add
+      path: /spec/template/spec/containers/0/imagePullPolicy
+      value: IfNotPresent
+    - op: add
+      path: /spec/template/spec/containers/0/ports/-
+      value:
+        containerPort: 8186
+        name: health
+    - op: replace
+      path: /spec/template/spec/containers/0/ports/0/name
+      value: mtls
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: SPIFFE_DEMO_SERVICE_HEALTH_PORT
+        value: "8186"
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: SPIFFE_DEMO_SERVICE_MOCK_SPIFFE
+        value: "false"
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: SPIFFE_DEMO_SPIFFE_SOCKET_PATH
+        value: "unix:///run/spire/agent-sockets/spire-agent.sock"
+    - op: replace
+      path: /spec/template/spec/containers/0/env/1
+      value:
+        name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
+        value: "https://document-service:8084"
+    - op: add
+      path: /spec/template/spec/containers/0/securityContext
+      value:
+        seLinuxOptions:
+          type: spc_t
+    - op: add
+      path: /spec/template/spec/containers/0/volumeMounts
+      value:
+        - name: spire-agent-socket
+          mountPath: /run/spire/agent-sockets
+          readOnly: true
+    - op: add
+      path: /spec/template/spec/volumes
+      value:
+        - name: spire-agent-socket
+          csi:
+            driver: "csi.spiffe.io"
+            readOnly: true
+    - op: add
+      path: /spec/template/spec/containers/0/livenessProbe
+      value:
+        httpGet:
+          path: /health
+          port: 8186
+        initialDelaySeconds: 10
+        periodSeconds: 10
+    - op: add
+      path: /spec/template/spec/containers/0/readinessProbe
+      value:
+        httpGet:
+          path: /ready
+          port: 8186
+        initialDelaySeconds: 5
+        periodSeconds: 5
+  target:
+    kind: Deployment
+    name: summarizer-service
+- patch: |-
+    - op: add
+      path: /spec/template/spec/containers/0/imagePullPolicy
+      value: IfNotPresent
+    - op: add
+      path: /spec/template/spec/containers/0/ports/-
+      value:
+        containerPort: 8187
+        name: health
+    - op: replace
+      path: /spec/template/spec/containers/0/ports/0/name
+      value: mtls
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: SPIFFE_DEMO_SERVICE_HEALTH_PORT
+        value: "8187"
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: SPIFFE_DEMO_SERVICE_MOCK_SPIFFE
+        value: "false"
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: SPIFFE_DEMO_SPIFFE_SOCKET_PATH
+        value: "unix:///run/spire/agent-sockets/spire-agent.sock"
+    - op: replace
+      path: /spec/template/spec/containers/0/env/1
+      value:
+        name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
+        value: "https://document-service:8084"
+    - op: add
+      path: /spec/template/spec/containers/0/securityContext
+      value:
+        seLinuxOptions:
+          type: spc_t
+    - op: add
+      path: /spec/template/spec/containers/0/volumeMounts
+      value:
+        - name: spire-agent-socket
+          mountPath: /run/spire/agent-sockets
+          readOnly: true
+    - op: add
+      path: /spec/template/spec/volumes
+      value:
+        - name: spire-agent-socket
+          csi:
+            driver: "csi.spiffe.io"
+            readOnly: true
+    - op: add
+      path: /spec/template/spec/containers/0/livenessProbe
+      value:
+        httpGet:
+          path: /health
+          port: 8187
+        initialDelaySeconds: 10
+        periodSeconds: 10
+    - op: add
+      path: /spec/template/spec/containers/0/readinessProbe
+      value:
+        httpGet:
+          path: /ready
+          port: 8187
+        initialDelaySeconds: 5
+        periodSeconds: 5
+  target:
+    kind: Deployment
+    name: reviewer-service
+- patch: |-
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: SPIFFE_DEMO_SUMMARIZER_SERVICE_URL
+        value: "https://summarizer-service:8086"
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: SPIFFE_DEMO_REVIEWER_SERVICE_URL
+        value: "https://reviewer-service:8087"
+  target:
+    kind: Deployment
+    name: web-dashboard
+- patch: |-
+    - op: replace
+      path: /spec/ports/0/name
+      value: mtls
+  target:
+    kind: Service
+    name: summarizer-service
+- patch: |-
+    - op: replace
+      path: /spec/ports/0/name
+      value: mtls
+  target:
+    kind: Service
+    name: reviewer-service

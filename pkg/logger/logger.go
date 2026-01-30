@@ -24,6 +24,8 @@ const (
 	ComponentOPAQuery    Component = "OPA-QUERY"
 	ComponentOPAEval     Component = "OPA-EVAL"
 	ComponentOPADecision Component = "OPA-DECISION"
+	ComponentSummarizer  Component = "SUMMARIZER"
+	ComponentReviewer    Component = "REVIEWER"
 )
 
 // ANSI color codes
@@ -52,6 +54,8 @@ var componentColors = map[Component]string{
 	ComponentOPAQuery:    colorOrange,
 	ComponentOPAEval:     colorOrange,
 	ComponentOPADecision: colorGreen,
+	ComponentSummarizer:  colorCyan,
+	ComponentReviewer:    colorMagenta,
 }
 
 // Direction indicates the flow of a request

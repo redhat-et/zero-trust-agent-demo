@@ -45,6 +45,14 @@ echo "Starting Agent Service on :8083..."
 "$BIN_DIR/agent-service" serve > "$LOG_DIR/agent-service.log" 2>&1 &
 sleep 1
 
+echo "Starting Summarizer Service on :8086..."
+"$BIN_DIR/summarizer-service" serve > "$LOG_DIR/summarizer-service.log" 2>&1 &
+sleep 1
+
+echo "Starting Reviewer Service on :8087..."
+"$BIN_DIR/reviewer-service" serve > "$LOG_DIR/reviewer-service.log" 2>&1 &
+sleep 1
+
 echo "Starting Web Dashboard on :8080..."
 "$BIN_DIR/web-dashboard" serve > "$LOG_DIR/web-dashboard.log" 2>&1 &
 sleep 1
@@ -53,11 +61,13 @@ echo ""
 echo "=== All services started! ==="
 echo ""
 echo "Services:"
-echo "  Web Dashboard:    http://localhost:8080"
-echo "  User Service:     http://localhost:8082"
-echo "  Agent Service:    http://localhost:8083"
-echo "  Document Service: http://localhost:8084"
-echo "  OPA Service:      http://localhost:8085"
+echo "  Web Dashboard:      http://localhost:8080"
+echo "  User Service:       http://localhost:8082"
+echo "  Agent Service:      http://localhost:8083"
+echo "  Document Service:   http://localhost:8084"
+echo "  OPA Service:        http://localhost:8085"
+echo "  Summarizer Service: http://localhost:8086"
+echo "  Reviewer Service:   http://localhost:8087"
 echo ""
 echo "Logs directory: $LOG_DIR"
 echo ""

@@ -3,15 +3,49 @@
 # Variables
 BINARY_DIR := bin
 GO := go
-SERVICES := opa-service document-service user-service agent-service web-dashboard
+SERVICES := opa-service document-service user-service agent-service summarizer-service reviewer-service web-dashboard
+# Services that come from base (already transformed to ghcr.io names by ghcr overlay)
+BASE_SERVICES := opa-service document-service user-service agent-service web-dashboard
+# Services that come from ai-agents overlay (still have simple names)
+AI_SERVICES := summarizer-service reviewer-service
 
 # Container registry settings
 REGISTRY ?= ghcr.io/redhat-et/zero-trust-agent-demo
-DEV_TAG ?= dev
+GIT_SHA := $(shell git rev-parse --short HEAD)
+GIT_DIRTY := $(shell git diff --quiet || echo "-dirty")
+DEV_TAG ?= $(GIT_SHA)$(GIT_DIRTY)
 CONTAINER_ENGINE ?= podman
 
 # Default target
 all: build
+
+# Check for required dependencies
+check-deps:
+	@echo "=== Checking dependencies ==="
+	@missing=""; \
+	command -v go >/dev/null 2>&1 || missing="$$missing go"; \
+	command -v $(CONTAINER_ENGINE) >/dev/null 2>&1 || missing="$$missing $(CONTAINER_ENGINE)"; \
+	command -v kubectl >/dev/null 2>&1 || missing="$$missing kubectl"; \
+	command -v kustomize >/dev/null 2>&1 || missing="$$missing kustomize"; \
+	if [ -n "$$missing" ]; then \
+		echo "Missing required tools:$$missing"; \
+		echo ""; \
+		echo "Install with:"; \
+		echo "  go:         https://go.dev/dl/"; \
+		echo "  podman:     brew install podman"; \
+		echo "  kubectl:    brew install kubectl"; \
+		echo "  kustomize:  brew install kustomize"; \
+		echo ""; \
+		exit 1; \
+	fi
+	@echo "  go:         $$(go version | cut -d' ' -f3)"
+	@echo "  $(CONTAINER_ENGINE):     $$($(CONTAINER_ENGINE) --version | head -1)"
+	@echo "  kubectl:    $$(kubectl version --client -o yaml 2>/dev/null | grep gitVersion | cut -d: -f2 | tr -d ' ')"
+	@echo "  kustomize:  $$(kustomize version --short 2>/dev/null || kustomize version)"
+	@command -v oc >/dev/null 2>&1 && echo "  oc:         $$(oc version --client 2>/dev/null | head -1)" || echo "  oc:         (not installed - optional, for OpenShift)"
+	@command -v gh >/dev/null 2>&1 && echo "  gh:         $$(gh --version | head -1)" || echo "  gh:         (not installed - optional, for ghcr-cleanup)"
+	@echo ""
+	@echo "All required dependencies found!"
 
 # Build all services
 build:
@@ -66,6 +100,12 @@ run-user:
 
 run-agent:
 	cd agent-service && $(GO) run . serve
+
+run-summarizer:
+	cd summarizer-service && $(GO) run . serve
+
+run-reviewer:
+	cd reviewer-service && $(GO) run . serve
 
 run-dashboard:
 	cd web-dashboard && $(GO) run . serve
@@ -149,6 +189,72 @@ podman-dev-%:
 	@$(MAKE) podman-build-dev-$*
 	@$(MAKE) podman-push-dev-$*
 
+# OpenShift deployment with git SHA tags
+# Usage: make deploy-openshift
+#        make deploy-openshift DEV_TAG=custom-tag
+deploy-openshift: check-deps podman-dev
+	@echo "=== Deploying to OpenShift with tag $(DEV_TAG) ==="
+	@echo "Updating kustomization with new image tags..."
+	@cd deploy/k8s/overlays/openshift-ai-agents && \
+	for svc in $(BASE_SERVICES); do \
+		kustomize edit set image $(REGISTRY)/$$svc:$(DEV_TAG); \
+	done && \
+	for svc in $(AI_SERVICES); do \
+		kustomize edit set image $$svc=$(REGISTRY)/$$svc:$(DEV_TAG); \
+	done
+	oc apply -k deploy/k8s/overlays/openshift-ai-agents
+	@echo ""
+	@echo "Deployed with images tagged: $(DEV_TAG)"
+	@echo "To rollback: make deploy-openshift DEV_TAG=<previous-sha>"
+
+# Deploy without rebuilding (just update tags and apply)
+deploy-openshift-quick:
+	@echo "=== Quick deploy to OpenShift with tag $(DEV_TAG) ==="
+	@cd deploy/k8s/overlays/openshift-ai-agents && \
+	for svc in $(BASE_SERVICES); do \
+		kustomize edit set image $(REGISTRY)/$$svc:$(DEV_TAG); \
+	done && \
+	for svc in $(AI_SERVICES); do \
+		kustomize edit set image $$svc=$(REGISTRY)/$$svc:$(DEV_TAG); \
+	done
+	oc apply -k deploy/k8s/overlays/openshift-ai-agents
+	@echo "Deployed with tag: $(DEV_TAG)"
+
+# Restart OpenShift deployments (pick up new images with same tag)
+restart-openshift:
+	@echo "=== Restarting OpenShift deployments ==="
+	oc rollout restart deployment -n spiffe-demo
+
+# Clean up old images from GHCR (keeps last N versions)
+# Requires: gh CLI authenticated with delete:packages scope
+# Usage: make ghcr-cleanup KEEP_VERSIONS=5
+KEEP_VERSIONS ?= 10
+ghcr-cleanup:
+	@echo "=== Cleaning up old GHCR images (keeping last $(KEEP_VERSIONS)) ==="
+	@echo "This requires 'gh' CLI with delete:packages scope"
+	@echo ""
+	@for svc in $(SERVICES); do \
+		echo "Cleaning $$svc..."; \
+		gh api --paginate \
+			"/users/redhat-et/packages/container/zero-trust-agent-demo%2F$$svc/versions" \
+			--jq '.[$(KEEP_VERSIONS):]|.[].id' 2>/dev/null | \
+		while read id; do \
+			echo "  Deleting version $$id"; \
+			gh api --method DELETE \
+				"/users/redhat-et/packages/container/zero-trust-agent-demo%2F$$svc/versions/$$id" 2>/dev/null || true; \
+		done; \
+	done
+	@echo "Cleanup complete!"
+
+# List current image tags in GHCR
+ghcr-list:
+	@echo "=== Current GHCR image tags ==="
+	@for svc in $(SERVICES); do \
+		echo "$$svc:"; \
+		gh api "/users/redhat-et/packages/container/zero-trust-agent-demo%2F$$svc/versions" \
+			--jq '.[0:5]|.[]|"  \(.metadata.container.tags|join(", ")) - \(.created_at)"' 2>/dev/null || echo "  (unable to fetch)"; \
+	done
+
 # Development helpers
 fmt:
 	$(GO) fmt ./...
@@ -210,11 +316,22 @@ help:
 	@echo "  make podman-push-dev          - Push all dev images"
 	@echo "  make podman-push-dev-<svc>    - Push specific service"
 	@echo ""
-	@echo "  Override variables:"
-	@echo "    DEV_TAG=mytag make podman-dev   (default: dev)"
-	@echo "    REGISTRY=myrepo make podman-dev"
+	@echo "OpenShift deployment:"
+	@echo "  make deploy-openshift         - Build, push, and deploy (uses git SHA tag)"
+	@echo "  make deploy-openshift-quick   - Deploy with current SHA (no rebuild)"
+	@echo "  make restart-openshift        - Restart all deployments"
+	@echo ""
+	@echo "GHCR cleanup:"
+	@echo "  make ghcr-list                - List recent image tags"
+	@echo "  make ghcr-cleanup             - Delete old images (keeps last 10)"
+	@echo "  make ghcr-cleanup KEEP_VERSIONS=5"
+	@echo ""
+	@echo "Variables:"
+	@echo "  DEV_TAG    - Image tag (default: git SHA, e.g., abc1234)"
+	@echo "  REGISTRY   - Container registry (default: ghcr.io/redhat-et/zero-trust-agent-demo)"
 	@echo ""
 	@echo "Development:"
+	@echo "  make check-deps     - Verify required tools are installed"
 	@echo "  make fmt            - Format code"
 	@echo "  make vet            - Run go vet"
 	@echo "  make lint           - Run linter"

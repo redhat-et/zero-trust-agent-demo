@@ -1,0 +1,31 @@
+# Services for AI Agents
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: summarizer-service
+  namespace: spiffe-demo
+  labels:
+    app: summarizer-service
+spec:
+  selector:
+    app: summarizer-service
+  ports:
+    - port: 8086
+      targetPort: 8086
+      name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reviewer-service
+  namespace: spiffe-demo
+  labels:
+    app: reviewer-service
+spec:
+  selector:
+    app: reviewer-service
+  ports:
+    - port: 8087
+      targetPort: 8087
+      name: http

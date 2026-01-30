@@ -11,11 +11,12 @@ This guide covers deploying the SPIFFE/SPIRE Zero Trust Demo on OpenShift with p
 
 ## Deployment options
 
-| Overlay | Storage | SPIRE | OIDC | Use case |
-| ------- | ------- | ----- | ---- | -------- |
-| `openshift` | Mock (in-memory) | Real | No | Demo without ODF or auth |
-| `openshift-storage` | S3 via OBC | Real | No | Full production-like setup |
-| `openshift-oidc` | Mock (in-memory) | Real | Yes | Demo with Keycloak OAuth |
+| Overlay | Storage | SPIRE | OIDC | AI Agents | Use case |
+| ------- | ------- | ----- | ---- | --------- | -------- |
+| `openshift` | Mock (in-memory) | Real | No | No | Demo without ODF or auth |
+| `openshift-storage` | S3 via OBC | Real | No | No | Full production-like setup |
+| `openshift-oidc` | Mock (in-memory) | Real | Yes | No | Demo with Keycloak OAuth |
+| `openshift-ai-agents` | Mock (in-memory) | Real | Yes | Yes | Full demo with AI agents |
 
 ## Quick start (with ODF storage)
 
@@ -170,6 +171,132 @@ The following users are pre-configured in Keycloak:
 echo "Admin: https://keycloak-spiffe-demo.$CLUSTER_DOMAIN/admin"
 # Username: admin
 # Password: admin123
+```
+
+## Deployment with AI agents
+
+The `openshift-ai-agents` overlay extends `openshift-oidc` with AI agent services (summarizer and reviewer) and LiteLLM configuration.
+
+### Prerequisites
+
+- LiteLLM API key (or other OpenAI-compatible LLM provider)
+
+### Deploy with AI agents
+
+```bash
+# 1. Get your cluster domain and generate OIDC config files
+CLUSTER_DOMAIN=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}')
+cd deploy/k8s/overlays/openshift-oidc
+sed "s/CLUSTER_DOMAIN/$CLUSTER_DOMAIN/g" oidc-urls-configmap.yaml.template > oidc-urls-configmap.yaml
+sed "s/CLUSTER_DOMAIN/$CLUSTER_DOMAIN/g" keycloak-realm-patch.yaml.template > keycloak-realm-patch.yaml
+cd -
+
+# 2. Create the LLM secret
+cd deploy/k8s/overlays/openshift-ai-agents
+cp llm-secret.yaml.template llm-secret.yaml
+# Edit llm-secret.yaml with your LLM API key
+cd -
+
+# 3. Apply the secret (it's not in kustomization to avoid committing secrets)
+oc apply -f deploy/k8s/overlays/openshift-ai-agents/llm-secret.yaml -n spiffe-demo
+
+# 4. Deploy the application
+oc apply -k deploy/k8s/overlays/openshift-ai-agents
+
+# 5. Wait for all pods
+oc wait --for=condition=Ready pods --all -n spiffe-demo --timeout=180s
+
+# 6. Get the dashboard URL
+echo "Dashboard: https://web-dashboard-spiffe-demo.$CLUSTER_DOMAIN"
+```
+
+### LLM configuration
+
+The overlay is configured for LiteLLM by default (via `llm-config` ConfigMap):
+
+| Variable | Default Value |
+| -------- | ------------- |
+| `LLM_PROVIDER` | litellm |
+| `LLM_BASE_URL` | https://litellm-prod.apps.maas.redhatworkshops.io/v1 |
+| `LLM_MODEL` | qwen3-14b |
+
+To use a different provider, modify the `configMapGenerator` in the overlay's `kustomization.yaml`.
+
+### Testing AI agents
+
+1. Open the dashboard and log in via Keycloak
+2. Select a document (e.g., DOC-002 - Q4 Financial Report)
+3. Select an agent (Summarizer or Reviewer)
+4. Click "Summarize" or "Review"
+
+The Summarizer agent only has `finance` permissions, so it can only access finance documents.
+The Reviewer agent has all department permissions.
+
+## Development workflow
+
+For iterative development on OpenShift, use git SHA-based image tagging to ensure each deployment uses unique, traceable images.
+
+### Prerequisites
+
+```bash
+# Verify required tools are installed
+make check-deps
+```
+
+### Build and deploy
+
+```bash
+# Build x86_64 images, push to ghcr.io, update kustomization, and deploy
+make deploy-openshift
+```
+
+This command:
+
+1. Builds all service images for `linux/amd64` platform
+2. Tags images with the current git SHA (e.g., `e2920fc`)
+3. Pushes images to `ghcr.io/redhat-et/zero-trust-agent-demo`
+4. Updates `kustomization.yaml` with new image tags
+5. Applies the kustomization to OpenShift
+
+### Quick deploy (skip rebuild)
+
+If images are already pushed, just update tags and apply:
+
+```bash
+make deploy-openshift-quick
+```
+
+### Restart deployments
+
+To pick up new images with the same tag (after a push):
+
+```bash
+make restart-openshift
+```
+
+### Custom tags
+
+```bash
+# Use a specific tag
+make deploy-openshift DEV_TAG=my-feature
+
+# Deploy a previous version
+make deploy-openshift-quick DEV_TAG=abc1234
+```
+
+### Registry cleanup
+
+Development creates many tagged images. Clean up old versions periodically:
+
+```bash
+# List recent tags
+make ghcr-list
+
+# Delete old versions (keeps last 10 by default)
+make ghcr-cleanup
+
+# Keep fewer versions
+make ghcr-cleanup KEEP_VERSIONS=5
 ```
 
 ## ObjectBucketClaim details

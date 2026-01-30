@@ -48,6 +48,14 @@ func (s *AgentStore) loadSampleAgents(trustDomain string) {
 		SPIFFEID:     "spiffe://" + trustDomain + "/agent/summarizer",
 		Description:  "Specialized agent for summarizing financial documents only",
 	}
+
+	s.agents["reviewer"] = &Agent{
+		ID:           "reviewer",
+		Name:         "Reviewer Agent",
+		Capabilities: []string{"engineering", "finance", "admin", "hr"},
+		SPIFFEID:     "spiffe://" + trustDomain + "/agent/reviewer",
+		Description:  "Reviews documents for compliance, security, and general issues",
+	}
 }
 
 // Get retrieves an agent by ID

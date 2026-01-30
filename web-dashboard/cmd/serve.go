@@ -36,6 +36,8 @@ func init() {
 	serveCmd.Flags().String("user-service-url", "http://localhost:8082", "User service URL")
 	serveCmd.Flags().String("agent-service-url", "http://localhost:8083", "Agent service URL")
 	serveCmd.Flags().String("document-service-url", "http://localhost:8084", "Document service URL")
+	serveCmd.Flags().String("summarizer-service-url", "http://localhost:8086", "Summarizer service URL")
+	serveCmd.Flags().String("reviewer-service-url", "http://localhost:8087", "Reviewer service URL")
 	serveCmd.Flags().Bool("oidc-enabled", false, "Enable OIDC authentication")
 	serveCmd.Flags().String("oidc-issuer-url", "http://localhost:8180/realms/spiffe-demo", "OIDC issuer URL")
 	serveCmd.Flags().String("oidc-client-id", "spiffe-demo-dashboard", "OIDC client ID")
@@ -44,6 +46,8 @@ func init() {
 	v.BindPFlag("user_service_url", serveCmd.Flags().Lookup("user-service-url"))
 	v.BindPFlag("agent_service_url", serveCmd.Flags().Lookup("agent-service-url"))
 	v.BindPFlag("document_service_url", serveCmd.Flags().Lookup("document-service-url"))
+	v.BindPFlag("summarizer_service_url", serveCmd.Flags().Lookup("summarizer-service-url"))
+	v.BindPFlag("reviewer_service_url", serveCmd.Flags().Lookup("reviewer-service-url"))
 	v.BindPFlag("oidc.enabled", serveCmd.Flags().Lookup("oidc-enabled"))
 	v.BindPFlag("oidc.issuer_url", serveCmd.Flags().Lookup("oidc-issuer-url"))
 	v.BindPFlag("oidc.client_id", serveCmd.Flags().Lookup("oidc-client-id"))
@@ -52,28 +56,33 @@ func init() {
 }
 
 type Config struct {
-	config.CommonConfig `mapstructure:",squash"`
-	UserServiceURL      string          `mapstructure:"user_service_url"`
-	AgentServiceURL     string          `mapstructure:"agent_service_url"`
-	DocumentServiceURL  string          `mapstructure:"document_service_url"`
-	OIDC                auth.OIDCConfig `mapstructure:"oidc"`
+	config.CommonConfig   `mapstructure:",squash"`
+	UserServiceURL        string          `mapstructure:"user_service_url"`
+	AgentServiceURL       string          `mapstructure:"agent_service_url"`
+	DocumentServiceURL    string          `mapstructure:"document_service_url"`
+	SummarizerServiceURL  string          `mapstructure:"summarizer_service_url"`
+	ReviewerServiceURL    string          `mapstructure:"reviewer_service_url"`
+	OIDC                  auth.OIDCConfig `mapstructure:"oidc"`
 }
 
 // Dashboard handles the web dashboard
 type Dashboard struct {
-	templates          *template.Template
-	httpClient         *http.Client
-	userServiceURL     string
-	agentServiceURL    string
-	documentServiceURL string
-	log                *logger.Logger
-	sseClients         map[chan string]bool
-	sseMutex           sync.Mutex
-	workloadClient     *spiffe.WorkloadClient
-	oidcEnabled        bool
-	oidcProvider       *auth.OIDCProvider
-	sessionStore       *auth.SessionStore
-	stateStore         *auth.StateStore
+	templates            *template.Template
+	httpClient           *http.Client
+	userServiceURL       string
+	agentServiceURL      string
+	documentServiceURL   string
+	summarizerServiceURL string
+	reviewerServiceURL   string
+	log                  *logger.Logger
+	sseClients           map[chan string]bool
+	sseMutex             sync.Mutex
+	workloadClient       *spiffe.WorkloadClient
+	oidcEnabled          bool
+	oidcProvider         *auth.OIDCProvider
+	sessionStore         *auth.SessionStore
+	stateStore           *auth.StateStore
+	trustDomain          string
 }
 
 // LogEntry represents a log entry for SSE
@@ -100,6 +109,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 	if cfg.DocumentServiceURL == "" {
 		cfg.DocumentServiceURL = "http://localhost:8084"
+	}
+	if cfg.SummarizerServiceURL == "" {
+		cfg.SummarizerServiceURL = "http://localhost:8086"
+	}
+	if cfg.ReviewerServiceURL == "" {
+		cfg.ReviewerServiceURL = "http://localhost:8087"
 	}
 
 	log := logger.New(logger.ComponentDashboard)
@@ -134,15 +149,18 @@ func runServe(cmd *cobra.Command, args []string) error {
 	httpClient := workloadClient.CreateMTLSClient(30 * time.Second)
 
 	dashboard := &Dashboard{
-		templates:          tmpl,
-		httpClient:         httpClient,
-		userServiceURL:     cfg.UserServiceURL,
-		agentServiceURL:    cfg.AgentServiceURL,
-		documentServiceURL: cfg.DocumentServiceURL,
-		log:                log,
-		sseClients:         make(map[chan string]bool),
-		workloadClient:     workloadClient,
-		oidcEnabled:        cfg.OIDC.Enabled,
+		templates:            tmpl,
+		httpClient:           httpClient,
+		userServiceURL:       cfg.UserServiceURL,
+		agentServiceURL:      cfg.AgentServiceURL,
+		documentServiceURL:   cfg.DocumentServiceURL,
+		summarizerServiceURL: cfg.SummarizerServiceURL,
+		reviewerServiceURL:   cfg.ReviewerServiceURL,
+		log:                  log,
+		sseClients:           make(map[chan string]bool),
+		workloadClient:       workloadClient,
+		oidcEnabled:          cfg.OIDC.Enabled,
+		trustDomain:          cfg.SPIFFE.TrustDomain,
 	}
 
 	// Initialize OIDC if enabled
@@ -176,6 +194,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	mux.HandleFunc("/api/access-delegated", dashboard.handleDelegatedAccess)
 	mux.HandleFunc("/api/status", dashboard.handleStatus)
 	mux.HandleFunc("/api/session", dashboard.handleGetSession)
+	mux.HandleFunc("/api/summarize", dashboard.handleSummarize)
+	mux.HandleFunc("/api/review", dashboard.handleReview)
 
 	// Auth routes (only if OIDC is enabled)
 	if cfg.OIDC.Enabled {
@@ -216,6 +236,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	log.Info("User service", "url", cfg.UserServiceURL)
 	log.Info("Agent service", "url", cfg.AgentServiceURL)
 	log.Info("Document service", "url", cfg.DocumentServiceURL)
+	log.Info("Summarizer service", "url", cfg.SummarizerServiceURL)
+	log.Info("Reviewer service", "url", cfg.ReviewerServiceURL)
 	log.Info("Dashboard ready at", "url", fmt.Sprintf("http://localhost:%d", cfg.Service.Port))
 
 	if err := server.ListenAndServe(); err != http.ErrServerClosed {
@@ -622,9 +644,11 @@ func (d *Dashboard) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	services := map[string]string{
-		"user-service":     d.userServiceURL + "/health",
-		"agent-service":    d.agentServiceURL + "/health",
-		"document-service": d.documentServiceURL + "/health",
+		"user-service":       d.userServiceURL + "/health",
+		"agent-service":      d.agentServiceURL + "/health",
+		"document-service":   d.documentServiceURL + "/health",
+		"summarizer-service": d.summarizerServiceURL + "/health",
+		"reviewer-service":   d.reviewerServiceURL + "/health",
 	}
 
 	for name, url := range services {
@@ -868,4 +892,196 @@ func (d *Dashboard) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 	// Redirect to home
 	http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+}
+
+func (d *Dashboard) handleSummarize(w http.ResponseWriter, r *http.Request) {
+	d.log.Info("Summarize request", "remote", r.RemoteAddr)
+	if r.Method != http.MethodPost {
+		d.log.Error("Method not allowed", "method", r.Method)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		UserID     string `json:"user_id"`
+		DocumentID string `json:"document_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		d.log.Error("Invalid request body", "error", err)
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	d.log.Info("Summarize params", "user", req.UserID, "document", req.DocumentID)
+
+	// Get user departments from session (JWT groups) if OIDC is enabled
+	var userDepartments []string
+	if d.oidcEnabled {
+		if cookie, err := r.Cookie("session_id"); err == nil {
+			if session := d.sessionStore.Get(cookie.Value); session != nil {
+				userDepartments = session.Groups
+				d.log.Info("Using JWT groups as user departments", "groups", userDepartments)
+			}
+		}
+	}
+
+	d.broadcastLog(LogEntry{
+		Timestamp: time.Now().Format(time.RFC3339),
+		Component: "DASHBOARD",
+		Level:     "INFO",
+		Message:   fmt.Sprintf("Initiating AI summarization: User=%s, Document=%s", req.UserID, req.DocumentID),
+		Color:     "white",
+	})
+
+	// Build the user's SPIFFE ID
+	userSPIFFEID := "spiffe://" + d.trustDomain + "/user/" + req.UserID
+
+	// Build request for summarizer service
+	summarizeReq := map[string]any{
+		"document_id":    req.DocumentID,
+		"user_spiffe_id": userSPIFFEID,
+	}
+	if len(userDepartments) > 0 {
+		summarizeReq["user_departments"] = userDepartments
+	}
+	body, _ := json.Marshal(summarizeReq)
+
+	d.log.Info("Calling summarizer service", "url", d.summarizerServiceURL+"/summarize")
+	resp, err := d.httpClient.Post(d.summarizerServiceURL+"/summarize", "application/json", bytes.NewReader(body))
+	if err != nil {
+		d.log.Error("Summarizer service request failed", "error", err)
+		d.broadcastLog(LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Component: "DASHBOARD",
+			Level:     "ERROR",
+			Message:   fmt.Sprintf("Summarizer request failed: %v", err),
+			Color:     "red",
+		})
+		http.Error(w, "Request failed", http.StatusServiceUnavailable)
+		return
+	}
+	defer resp.Body.Close()
+
+	d.log.Info("Summarizer service response", "status", resp.StatusCode)
+	var result map[string]any
+	json.NewDecoder(resp.Body).Decode(&result)
+
+	if resp.StatusCode == http.StatusForbidden || (result["allowed"] != nil && result["allowed"] == false) {
+		reason := result["reason"]
+		d.broadcastLog(LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Component: "DASHBOARD",
+			Level:     "WARN",
+			Message:   fmt.Sprintf("Summarization DENIED: %v", reason),
+			Color:     "red",
+		})
+	} else if result["allowed"] == true {
+		d.broadcastLog(LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Component: "DASHBOARD",
+			Level:     "INFO",
+			Message:   "Summarization completed successfully",
+			Color:     "green",
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	json.NewEncoder(w).Encode(result)
+}
+
+func (d *Dashboard) handleReview(w http.ResponseWriter, r *http.Request) {
+	d.log.Info("Review request", "remote", r.RemoteAddr)
+	if r.Method != http.MethodPost {
+		d.log.Error("Method not allowed", "method", r.Method)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		UserID     string `json:"user_id"`
+		DocumentID string `json:"document_id"`
+		ReviewType string `json:"review_type"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		d.log.Error("Invalid request body", "error", err)
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	d.log.Info("Review params", "user", req.UserID, "document", req.DocumentID, "review_type", req.ReviewType)
+
+	// Get user departments from session (JWT groups) if OIDC is enabled
+	var userDepartments []string
+	if d.oidcEnabled {
+		if cookie, err := r.Cookie("session_id"); err == nil {
+			if session := d.sessionStore.Get(cookie.Value); session != nil {
+				userDepartments = session.Groups
+				d.log.Info("Using JWT groups as user departments", "groups", userDepartments)
+			}
+		}
+	}
+
+	d.broadcastLog(LogEntry{
+		Timestamp: time.Now().Format(time.RFC3339),
+		Component: "DASHBOARD",
+		Level:     "INFO",
+		Message:   fmt.Sprintf("Initiating AI review (%s): User=%s, Document=%s", req.ReviewType, req.UserID, req.DocumentID),
+		Color:     "white",
+	})
+
+	// Build the user's SPIFFE ID
+	userSPIFFEID := "spiffe://" + d.trustDomain + "/user/" + req.UserID
+
+	// Build request for reviewer service
+	reviewReq := map[string]any{
+		"document_id":    req.DocumentID,
+		"user_spiffe_id": userSPIFFEID,
+		"review_type":    req.ReviewType,
+	}
+	if len(userDepartments) > 0 {
+		reviewReq["user_departments"] = userDepartments
+	}
+	body, _ := json.Marshal(reviewReq)
+
+	d.log.Info("Calling reviewer service", "url", d.reviewerServiceURL+"/review")
+	resp, err := d.httpClient.Post(d.reviewerServiceURL+"/review", "application/json", bytes.NewReader(body))
+	if err != nil {
+		d.log.Error("Reviewer service request failed", "error", err)
+		d.broadcastLog(LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Component: "DASHBOARD",
+			Level:     "ERROR",
+			Message:   fmt.Sprintf("Reviewer request failed: %v", err),
+			Color:     "red",
+		})
+		http.Error(w, "Request failed", http.StatusServiceUnavailable)
+		return
+	}
+	defer resp.Body.Close()
+
+	d.log.Info("Reviewer service response", "status", resp.StatusCode)
+	var result map[string]any
+	json.NewDecoder(resp.Body).Decode(&result)
+
+	if resp.StatusCode == http.StatusForbidden || (result["allowed"] != nil && result["allowed"] == false) {
+		reason := result["reason"]
+		d.broadcastLog(LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Component: "DASHBOARD",
+			Level:     "WARN",
+			Message:   fmt.Sprintf("Review DENIED: %v", reason),
+			Color:     "red",
+		})
+	} else if result["allowed"] == true {
+		d.broadcastLog(LogEntry{
+			Timestamp: time.Now().Format(time.RFC3339),
+			Component: "DASHBOARD",
+			Level:     "INFO",
+			Message:   fmt.Sprintf("Review completed - %d issues found (%s severity)", result["issues_found"], result["severity"]),
+			Color:     "green",
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	json.NewEncoder(w).Encode(result)
 }

@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: ai-agents
+
+# This overlay adds AI agent services (summarizer, reviewer)
+# It should be used as a component by other overlays, not deployed directly
+
+resources:
+  - deployments.yaml
+  - services.yaml
+  - llm-configmap.yaml
