@@ -17,10 +17,9 @@ resources:
   - keycloak-route.yaml
   - oidc-urls-configmap.yaml       # Generated from .template - do not commit
 
-patchesStrategicMerge:
-  - keycloak-realm-patch.yaml      # Generated from .template - do not commit
-
 patches:
+  # Keycloak realm config with cluster-specific URLs (generated from .template)
+  - path: keycloak-realm-patch.yaml
   # Enable OIDC on web-dashboard with OpenShift Routes
   - target:
       kind: Deployment

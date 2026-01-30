@@ -4,15 +4,24 @@ kind: Kustomization
 metadata:
   name: spiffe-demo-openshift-ai-agents
 
-# Extends openshift overlay with AI agent services configured for LiteLLM
+# Extends openshift-oidc overlay with AI agent services configured for LiteLLM
 #
-# IMPORTANT: Before deploying, create the LLM secret:
-#   1. Copy llm-secret.yaml.template to llm-secret.yaml
-#   2. Replace YOUR_LITELLM_API_KEY with your actual API key
-#   3. Apply: kubectl apply -f llm-secret.yaml
+# IMPORTANT: Before deploying:
+#
+# 1. Generate OIDC config files (in openshift-oidc directory):
+#    CLUSTER_DOMAIN=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}')
+#    cd deploy/k8s/overlays/openshift-oidc
+#    sed "s/CLUSTER_DOMAIN/$CLUSTER_DOMAIN/g" oidc-urls-configmap.yaml.template > oidc-urls-configmap.yaml
+#    sed "s/CLUSTER_DOMAIN/$CLUSTER_DOMAIN/g" keycloak-realm-patch.yaml.template > keycloak-realm-patch.yaml
+#
+# 2. Create the LLM secret (in this directory):
+#    cd deploy/k8s/overlays/openshift-ai-agents
+#    cp llm-secret.yaml.template llm-secret.yaml
+#    # Edit llm-secret.yaml with your LiteLLM API key
+#    kubectl apply -f llm-secret.yaml -n spiffe-demo
 #
 resources:
-  - ../openshift
+  - ../openshift-oidc
   - ../ai-agents
   # Note: llm-secret.yaml must be created from template and applied separately
 
