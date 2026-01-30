@@ -41,25 +41,25 @@ generatorOptions:
 # Image tag overrides
 # Note: Services from base (via ghcr overlay) already have full ghcr.io names,
 # so we match on the full name. Services from ai-agents still have simple names.
-images:
 # Services from base (already transformed by ghcr overlay to full names)
-- name: ghcr.io/redhat-et/zero-trust-agent-demo/agent-service
-  newTag: 78270dd
-- name: ghcr.io/redhat-et/zero-trust-agent-demo/document-service
-  newTag: 78270dd
-- name: ghcr.io/redhat-et/zero-trust-agent-demo/opa-service
-  newTag: 78270dd
-- name: ghcr.io/redhat-et/zero-trust-agent-demo/user-service
-  newTag: 78270dd
-- name: ghcr.io/redhat-et/zero-trust-agent-demo/web-dashboard
-  newTag: 78270dd
 # Services from ai-agents (still have simple image names)
+images:
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/agent-service
+  newTag: e2920fc
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/document-service
+  newTag: e2920fc
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/opa-service
+  newTag: e2920fc
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/user-service
+  newTag: e2920fc
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/web-dashboard
+  newTag: e2920fc
 - name: reviewer-service
   newName: ghcr.io/redhat-et/zero-trust-agent-demo/reviewer-service
-  newTag: 78270dd
+  newTag: e2920fc
 - name: summarizer-service
   newName: ghcr.io/redhat-et/zero-trust-agent-demo/summarizer-service
-  newTag: 78270dd
+  newTag: e2920fc
 
   # Summarizer Service - Real SPIFFE with ghcr.io images
 

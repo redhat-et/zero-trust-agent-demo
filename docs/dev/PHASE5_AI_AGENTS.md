@@ -246,8 +246,28 @@ web-dashboard/internal/assets/templates/index.html
 web-dashboard/internal/assets/static/js/app.js
                                 # Button handlers, markdown rendering
 
-Makefile                        # Added new services
+Makefile                        # New services, podman targets, OpenShift deploy
 scripts/run-local.sh            # Start new services
+
+deploy/k8s/base/opa-policies-configmap.yaml
+                                # Added reviewer agent capabilities
+```
+
+### New Kubernetes overlays
+
+```text
+deploy/k8s/overlays/
+├── ai-agents/
+│   ├── kustomization.yaml      # Base AI agent overlay
+│   ├── deployments.yaml        # summarizer-service, reviewer-service
+│   ├── services.yaml           # ClusterIP services
+│   ├── llm-configmap.yaml      # Default LLM config (mock mode)
+│   └── llm-secret.yaml.template # API key template
+├── local-ai-agents/
+│   └── kustomization.yaml      # Extends local + ai-agents
+└── openshift-ai-agents/
+    ├── kustomization.yaml      # Extends openshift-oidc + ai-agents
+    └── llm-secret.yaml.template # API key template
 ```
 
 ## Running locally
@@ -402,17 +422,78 @@ in its valid redirect URIs when testing this hybrid setup.
 
 ### Full Kubernetes/OpenShift deployment
 
-For production or demo environments, deploy all services to the cluster:
+For production or demo environments, deploy all services to the cluster.
 
-```bash
-# Kind cluster
-./scripts/deploy-app.sh
+#### Kubernetes overlay structure
 
-# OpenShift
-oc apply -k deploy/k8s/overlays/openshift
+AI agent services are optional and deployed via separate overlays:
+
+```text
+deploy/k8s/overlays/
+├── ai-agents/              # Base AI agent resources (deployments, services, config)
+├── local-ai-agents/        # Extends local + ai-agents with mock SPIFFE
+├── openshift-ai-agents/    # Extends openshift-oidc + ai-agents with LiteLLM
+└── ...
 ```
 
-See the deployment documentation for full details.
+| Overlay | Base | AI Agents | LLM Provider | Use case |
+| ------- | ---- | --------- | ------------ | -------- |
+| `local` | base | No | - | Local development without AI |
+| `local-ai-agents` | local + ai-agents | Yes | Anthropic (env) | Local development with AI |
+| `openshift-oidc` | openshift | No | - | OpenShift with Keycloak |
+| `openshift-ai-agents` | openshift-oidc + ai-agents | Yes | LiteLLM | Full OpenShift demo |
+
+#### Kind cluster
+
+```bash
+./scripts/deploy-app.sh
+```
+
+#### OpenShift (without AI agents)
+
+```bash
+oc apply -k deploy/k8s/overlays/openshift-oidc
+```
+
+#### OpenShift (with AI agents)
+
+```bash
+# Generate OIDC config files
+CLUSTER_DOMAIN=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}')
+cd deploy/k8s/overlays/openshift-oidc
+sed "s/CLUSTER_DOMAIN/$CLUSTER_DOMAIN/g" oidc-urls-configmap.yaml.template > oidc-urls-configmap.yaml
+sed "s/CLUSTER_DOMAIN/$CLUSTER_DOMAIN/g" keycloak-realm-patch.yaml.template > keycloak-realm-patch.yaml
+cd -
+
+# Create LLM secret
+cp deploy/k8s/overlays/openshift-ai-agents/llm-secret.yaml.template \
+   deploy/k8s/overlays/openshift-ai-agents/llm-secret.yaml
+# Edit with your API key
+
+# Deploy
+oc apply -f deploy/k8s/overlays/openshift-ai-agents/llm-secret.yaml -n spiffe-demo
+oc apply -k deploy/k8s/overlays/openshift-ai-agents
+```
+
+#### Development workflow with git SHA tags
+
+For iterative development on OpenShift:
+
+```bash
+# Build, push, and deploy with git SHA tag
+make deploy-openshift
+
+# Quick deploy (no rebuild)
+make deploy-openshift-quick
+
+# Restart deployments
+make restart-openshift
+
+# Clean up old images
+make ghcr-cleanup
+```
+
+See [OpenShift deployment guide](../deployment/openshift.md) for full details.
 
 ## Future enhancements
 
