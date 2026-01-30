@@ -4,6 +4,10 @@
 BINARY_DIR := bin
 GO := go
 SERVICES := opa-service document-service user-service agent-service summarizer-service reviewer-service web-dashboard
+# Services that come from base (already transformed to ghcr.io names by ghcr overlay)
+BASE_SERVICES := opa-service document-service user-service agent-service web-dashboard
+# Services that come from ai-agents overlay (still have simple names)
+AI_SERVICES := summarizer-service reviewer-service
 
 # Container registry settings
 REGISTRY ?= ghcr.io/redhat-et/zero-trust-agent-demo
@@ -192,7 +196,10 @@ deploy-openshift: check-deps podman-dev
 	@echo "=== Deploying to OpenShift with tag $(DEV_TAG) ==="
 	@echo "Updating kustomization with new image tags..."
 	@cd deploy/k8s/overlays/openshift-ai-agents && \
-	for svc in $(SERVICES); do \
+	for svc in $(BASE_SERVICES); do \
+		kustomize edit set image $(REGISTRY)/$$svc:$(DEV_TAG); \
+	done && \
+	for svc in $(AI_SERVICES); do \
 		kustomize edit set image $$svc=$(REGISTRY)/$$svc:$(DEV_TAG); \
 	done
 	oc apply -k deploy/k8s/overlays/openshift-ai-agents
@@ -204,7 +211,10 @@ deploy-openshift: check-deps podman-dev
 deploy-openshift-quick:
 	@echo "=== Quick deploy to OpenShift with tag $(DEV_TAG) ==="
 	@cd deploy/k8s/overlays/openshift-ai-agents && \
-	for svc in $(SERVICES); do \
+	for svc in $(BASE_SERVICES); do \
+		kustomize edit set image $(REGISTRY)/$$svc:$(DEV_TAG); \
+	done && \
+	for svc in $(AI_SERVICES); do \
 		kustomize edit set image $$svc=$(REGISTRY)/$$svc:$(DEV_TAG); \
 	done
 	oc apply -k deploy/k8s/overlays/openshift-ai-agents
