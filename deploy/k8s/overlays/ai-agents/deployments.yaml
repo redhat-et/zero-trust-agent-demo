@@ -1,0 +1,90 @@
+# AI Agent Services - Summarizer and Reviewer
+# These are optional services that provide AI-powered document analysis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: summarizer-service
+  namespace: spiffe-demo
+  labels:
+    app: summarizer-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: summarizer-service
+  template:
+    metadata:
+      labels:
+        app: summarizer-service
+    spec:
+      containers:
+        - name: summarizer-service
+          image: summarizer-service
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          ports:
+            - containerPort: 8086
+          args:
+            - serve
+          env:
+            - name: SPIFFE_DEMO_SERVICE_PORT
+              value: "8086"
+            - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
+              value: "http://document-service:8084"
+          envFrom:
+            - configMapRef:
+                name: llm-config
+                optional: true
+            - secretRef:
+                name: llm-secret
+                optional: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reviewer-service
+  namespace: spiffe-demo
+  labels:
+    app: reviewer-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reviewer-service
+  template:
+    metadata:
+      labels:
+        app: reviewer-service
+    spec:
+      containers:
+        - name: reviewer-service
+          image: reviewer-service
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          ports:
+            - containerPort: 8087
+          args:
+            - serve
+          env:
+            - name: SPIFFE_DEMO_SERVICE_PORT
+              value: "8087"
+            - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
+              value: "http://document-service:8084"
+          envFrom:
+            - configMapRef:
+                name: llm-config
+                optional: true
+            - secretRef:
+                name: llm-secret
+                optional: true

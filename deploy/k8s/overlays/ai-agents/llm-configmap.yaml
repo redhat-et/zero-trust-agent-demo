@@ -1,0 +1,17 @@
+# LLM Configuration - Default (mock mode)
+# Override in environment-specific overlays for real LLM providers
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: llm-config
+  namespace: spiffe-demo
+data:
+  # Empty = mock mode (no real LLM calls)
+  # Set these to enable real LLM:
+  #   LLM_PROVIDER: anthropic, openai, or litellm
+  #   LLM_BASE_URL: Required for litellm, optional for openai
+  #   LLM_MODEL: Provider-specific model name
+  LLM_PROVIDER: ""
+  LLM_BASE_URL: ""
+  LLM_MODEL: ""
