@@ -7,7 +7,9 @@ SERVICES := opa-service document-service user-service agent-service summarizer-s
 
 # Container registry settings
 REGISTRY ?= ghcr.io/redhat-et/zero-trust-agent-demo
-DEV_TAG ?= dev
+GIT_SHA := $(shell git rev-parse --short HEAD)
+GIT_DIRTY := $(shell git diff --quiet || echo "-dirty")
+DEV_TAG ?= $(GIT_SHA)$(GIT_DIRTY)
 CONTAINER_ENGINE ?= podman
 
 # Default target
@@ -155,6 +157,66 @@ podman-dev-%:
 	@$(MAKE) podman-build-dev-$*
 	@$(MAKE) podman-push-dev-$*
 
+# OpenShift deployment with git SHA tags
+# Usage: make deploy-openshift
+#        make deploy-openshift DEV_TAG=custom-tag
+deploy-openshift: podman-dev
+	@echo "=== Deploying to OpenShift with tag $(DEV_TAG) ==="
+	@echo "Updating kustomization with new image tags..."
+	@cd deploy/k8s/overlays/openshift-ai-agents && \
+	for svc in $(SERVICES); do \
+		kustomize edit set image $$svc=$(REGISTRY)/$$svc:$(DEV_TAG); \
+	done
+	oc apply -k deploy/k8s/overlays/openshift-ai-agents
+	@echo ""
+	@echo "Deployed with images tagged: $(DEV_TAG)"
+	@echo "To rollback: make deploy-openshift DEV_TAG=<previous-sha>"
+
+# Deploy without rebuilding (just update tags and apply)
+deploy-openshift-quick:
+	@echo "=== Quick deploy to OpenShift with tag $(DEV_TAG) ==="
+	@cd deploy/k8s/overlays/openshift-ai-agents && \
+	for svc in $(SERVICES); do \
+		kustomize edit set image $$svc=$(REGISTRY)/$$svc:$(DEV_TAG); \
+	done
+	oc apply -k deploy/k8s/overlays/openshift-ai-agents
+	@echo "Deployed with tag: $(DEV_TAG)"
+
+# Restart OpenShift deployments (pick up new images with same tag)
+restart-openshift:
+	@echo "=== Restarting OpenShift deployments ==="
+	oc rollout restart deployment -n spiffe-demo
+
+# Clean up old images from GHCR (keeps last N versions)
+# Requires: gh CLI authenticated with delete:packages scope
+# Usage: make ghcr-cleanup KEEP_VERSIONS=5
+KEEP_VERSIONS ?= 10
+ghcr-cleanup:
+	@echo "=== Cleaning up old GHCR images (keeping last $(KEEP_VERSIONS)) ==="
+	@echo "This requires 'gh' CLI with delete:packages scope"
+	@echo ""
+	@for svc in $(SERVICES); do \
+		echo "Cleaning $$svc..."; \
+		gh api --paginate \
+			"/users/redhat-et/packages/container/zero-trust-agent-demo%2F$$svc/versions" \
+			--jq '.[$(KEEP_VERSIONS):]|.[].id' 2>/dev/null | \
+		while read id; do \
+			echo "  Deleting version $$id"; \
+			gh api --method DELETE \
+				"/users/redhat-et/packages/container/zero-trust-agent-demo%2F$$svc/versions/$$id" 2>/dev/null || true; \
+		done; \
+	done
+	@echo "Cleanup complete!"
+
+# List current image tags in GHCR
+ghcr-list:
+	@echo "=== Current GHCR image tags ==="
+	@for svc in $(SERVICES); do \
+		echo "$$svc:"; \
+		gh api "/users/redhat-et/packages/container/zero-trust-agent-demo%2F$$svc/versions" \
+			--jq '.[0:5]|.[]|"  \(.metadata.container.tags|join(", ")) - \(.created_at)"' 2>/dev/null || echo "  (unable to fetch)"; \
+	done
+
 # Development helpers
 fmt:
 	$(GO) fmt ./...
@@ -216,9 +278,19 @@ help:
 	@echo "  make podman-push-dev          - Push all dev images"
 	@echo "  make podman-push-dev-<svc>    - Push specific service"
 	@echo ""
-	@echo "  Override variables:"
-	@echo "    DEV_TAG=mytag make podman-dev   (default: dev)"
-	@echo "    REGISTRY=myrepo make podman-dev"
+	@echo "OpenShift deployment:"
+	@echo "  make deploy-openshift         - Build, push, and deploy (uses git SHA tag)"
+	@echo "  make deploy-openshift-quick   - Deploy with current SHA (no rebuild)"
+	@echo "  make restart-openshift        - Restart all deployments"
+	@echo ""
+	@echo "GHCR cleanup:"
+	@echo "  make ghcr-list                - List recent image tags"
+	@echo "  make ghcr-cleanup             - Delete old images (keeps last 10)"
+	@echo "  make ghcr-cleanup KEEP_VERSIONS=5"
+	@echo ""
+	@echo "Variables:"
+	@echo "  DEV_TAG    - Image tag (default: git SHA, e.g., abc1234)"
+	@echo "  REGISTRY   - Container registry (default: ghcr.io/redhat-et/zero-trust-agent-demo)"
 	@echo ""
 	@echo "Development:"
 	@echo "  make fmt            - Format code"
