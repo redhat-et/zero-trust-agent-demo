@@ -15,6 +15,34 @@ CONTAINER_ENGINE ?= podman
 # Default target
 all: build
 
+# Check for required dependencies
+check-deps:
+	@echo "=== Checking dependencies ==="
+	@missing=""; \
+	command -v go >/dev/null 2>&1 || missing="$$missing go"; \
+	command -v $(CONTAINER_ENGINE) >/dev/null 2>&1 || missing="$$missing $(CONTAINER_ENGINE)"; \
+	command -v kubectl >/dev/null 2>&1 || missing="$$missing kubectl"; \
+	command -v kustomize >/dev/null 2>&1 || missing="$$missing kustomize"; \
+	if [ -n "$$missing" ]; then \
+		echo "Missing required tools:$$missing"; \
+		echo ""; \
+		echo "Install with:"; \
+		echo "  go:         https://go.dev/dl/"; \
+		echo "  podman:     brew install podman"; \
+		echo "  kubectl:    brew install kubectl"; \
+		echo "  kustomize:  brew install kustomize"; \
+		echo ""; \
+		exit 1; \
+	fi
+	@echo "  go:         $$(go version | cut -d' ' -f3)"
+	@echo "  $(CONTAINER_ENGINE):     $$($(CONTAINER_ENGINE) --version | head -1)"
+	@echo "  kubectl:    $$(kubectl version --client -o yaml 2>/dev/null | grep gitVersion | cut -d: -f2 | tr -d ' ')"
+	@echo "  kustomize:  $$(kustomize version --short 2>/dev/null || kustomize version)"
+	@command -v oc >/dev/null 2>&1 && echo "  oc:         $$(oc version --client 2>/dev/null | head -1)" || echo "  oc:         (not installed - optional, for OpenShift)"
+	@command -v gh >/dev/null 2>&1 && echo "  gh:         $$(gh --version | head -1)" || echo "  gh:         (not installed - optional, for ghcr-cleanup)"
+	@echo ""
+	@echo "All required dependencies found!"
+
 # Build all services
 build:
 	@echo "=== Building all services ==="
@@ -160,7 +188,7 @@ podman-dev-%:
 # OpenShift deployment with git SHA tags
 # Usage: make deploy-openshift
 #        make deploy-openshift DEV_TAG=custom-tag
-deploy-openshift: podman-dev
+deploy-openshift: check-deps podman-dev
 	@echo "=== Deploying to OpenShift with tag $(DEV_TAG) ==="
 	@echo "Updating kustomization with new image tags..."
 	@cd deploy/k8s/overlays/openshift-ai-agents && \
@@ -293,6 +321,7 @@ help:
 	@echo "  REGISTRY   - Container registry (default: ghcr.io/redhat-et/zero-trust-agent-demo)"
 	@echo ""
 	@echo "Development:"
+	@echo "  make check-deps     - Verify required tools are installed"
 	@echo "  make fmt            - Format code"
 	@echo "  make vet            - Run go vet"
 	@echo "  make lint           - Run linter"
