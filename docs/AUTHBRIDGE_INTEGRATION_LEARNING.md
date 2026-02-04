@@ -468,10 +468,10 @@ After OPA approves access, the resource gateway must actually fetch the resource
 
 This exploration revealed two authorization layers that must align:
 
-| Layer | Decision maker | Scope |
-|-------|---------------|-------|
-| Application policy | OPA | Per-document, per-user, per-agent |
-| Resource policy | S3/GitHub/etc. | Per-bucket, per-repo, per-workspace |
+| Layer              | Decision maker | Scope                               |
+| ------------------ | -------------- | ----------------------------------- |
+| Application policy | OPA            | Per-document, per-user, per-agent   |
+| Resource policy    | S3/GitHub/etc. | Per-bucket, per-repo, per-workspace |
 
 ### The five-layer authorization model
 
@@ -546,15 +546,15 @@ JWT-SVID ──► Vault (SPIFFE auth) ──► Dynamic secrets engine ──�
 
 ### Storage provider comparison
 
-| Provider | OIDC/STS Support | Implementation approach |
-|----------|------------------|------------------------|
-| AWS S3 | ✅ Full support | AssumeRoleWithWebIdentity |
-| MinIO | ✅ Full support | AssumeRoleWithWebIdentity |
-| Azure Blob | ✅ Full support | Workload Identity Federation |
-| GCP GCS | ✅ Full support | Workload Identity Federation |
-| NooBaa/MCG | ❌ Not for clients | Gateway with static creds or Vault |
-| GitHub | ⚠️ GitHub Apps only | Installation tokens (short-lived) |
-| Slack | ⚠️ OAuth refresh | Store refresh token in Vault |
+| Provider   | OIDC/STS Support   | Implementation approach            |
+| ---------- | ------------------ | ---------------------------------- |
+| AWS S3     | ✅ Full support     | AssumeRoleWithWebIdentity          |
+| MinIO      | ✅ Full support     | AssumeRoleWithWebIdentity          |
+| Azure Blob | ✅ Full support     | Workload Identity Federation       |
+| GCP GCS    | ✅ Full support     | Workload Identity Federation       |
+| NooBaa/MCG | ❌ Not for clients  | Gateway with static creds or Vault |
+| GitHub     | ⚠️ GitHub Apps only | Installation tokens (short-lived)  |
+| Slack      | ⚠️ OAuth refresh    | Store refresh token in Vault       |
 
 ### Implementation approach for this demo
 
@@ -609,31 +609,31 @@ For resources like GitHub or legacy systems:
 
 The zero trust principle applies here too:
 
-| Traditional approach | Zero trust approach |
-|---------------------|---------------------|
-| Store long-lived credentials | Generate short-lived credentials on demand |
-| Rotate periodically | Every request gets fresh credentials |
-| Broad access, filtered by gateway | Scoped access matching OPA decision |
+| Traditional approach              | Zero trust approach                        |
+| --------------------------------- | ------------------------------------------ |
+| Store long-lived credentials      | Generate short-lived credentials on demand |
+| Rotate periodically               | Every request gets fresh credentials       |
+| Broad access, filtered by gateway | Scoped access matching OPA decision        |
 
 ---
 
 ## Glossary of new terms
 
-| Term | Definition |
-| ---- | ---------- |
-| **AssumeRoleWithWebIdentity** | AWS/MinIO STS API that exchanges JWT for temporary credentials |
-| **AuthBridge** | Kagenti component for transparent token exchange |
-| **Audience (aud)** | JWT claim specifying intended recipient of token |
-| **Authorized Party (azp)** | JWT claim identifying client that obtained the token |
-| **Credential Broker** | Service that generates scoped credentials on demand (e.g., Vault) |
-| **Dynamic Secrets** | Credentials generated on-demand with automatic expiration |
-| **ext-proc** | Envoy external processor that performs token exchange |
-| **JWKS** | JSON Web Key Set - public keys for validating JWTs |
-| **OIDC Federation** | Trusting an external identity provider for authentication |
-| **RFC 8693** | OAuth 2.0 Token Exchange specification |
-| **Session Policy** | Inline IAM policy that further restricts assumed role permissions |
-| **STS** | Security Token Service - generates temporary security credentials |
-| **Token Exchange** | Swapping one token for another with different properties |
+| Term                             | Definition                                                         |
+| -------------------------------- | ------------------------------------------------------------------ |
+| **AssumeRoleWithWebIdentity**    | AWS/MinIO STS API that exchanges JWT for temporary credentials     |
+| **AuthBridge**                   | Kagenti component for transparent token exchange                   |
+| **Audience (aud)**               | JWT claim specifying intended recipient of token                   |
+| **Authorized Party (azp)**       | JWT claim identifying client that obtained the token               |
+| **Credential Broker**            | Service that generates scoped credentials on demand (e.g., Vault)  |
+| **Dynamic Secrets**              | Credentials generated on-demand with automatic expiration          |
+| **ext-proc**                     | Envoy external processor that performs token exchange              |
+| **JWKS**                         | JSON Web Key Set - public keys for validating JWTs                 |
+| **OIDC Federation**              | Trusting an external identity provider for authentication          |
+| **RFC 8693**                     | OAuth 2.0 Token Exchange specification                             |
+| **Session Policy**               | Inline IAM policy that further restricts assumed role permissions  |
+| **STS**                          | Security Token Service - generates temporary security credentials  |
+| **Token Exchange**               | Swapping one token for another with different properties           |
 | **Workload Identity Federation** | Cloud pattern for exchanging workload tokens for cloud credentials |
 
 ---
