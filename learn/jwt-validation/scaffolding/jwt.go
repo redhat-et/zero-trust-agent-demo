@@ -1,17 +1,6 @@
 // Package main contains JWT parsing and validation utilities.
 package main
 
-import (
-	"crypto"
-	"crypto/rsa"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/json"
-	"errors"
-	"strings"
-	"time"
-)
-
 // TODO: Task 2 - Implement ParseHeader
 //
 // ParseHeader decodes the JWT header and returns the algorithm and key ID.
@@ -31,21 +20,8 @@ import (
 // - It's base64url encoded - see the example in README.md
 // - Parse as JSON to extract alg and kid
 func ParseHeader(tokenString string) (alg string, kid string, err error) {
-	parts := strings.Split(tokenString, ".")
-	if len(parts) != 3 {
-		return "", "", errors.New("invalid token")
-	}
-	header, err := base64.RawURLEncoding.DecodeString(parts[0])
-	if err != nil {
-		return "", "", err
-	}
-	var headerMap map[string]string
-	if err := json.Unmarshal(header, &headerMap); err != nil {
-		return "", "", err
-	}
-	alg = headerMap["alg"]
-	kid = headerMap["kid"]
-	return alg, kid, nil
+	// YOUR CODE HERE
+	return "", "", nil
 }
 
 // TODO: Task 4 - Implement IsExpired
@@ -59,11 +35,8 @@ func ParseHeader(tokenString string) (alg string, kid string, err error) {
 // - Compare with time.Now().Unix()
 // - Consider adding clock skew tolerance (e.g., 30 seconds)
 func IsExpired(tokenString string) (bool, error) {
-	claims, err := ParseClaims(tokenString)
-	if err != nil {
-		return false, err
-	}
-	return time.Now().Unix() > claims.Exp+30, nil // 30 seconds tolerance
+	// YOUR CODE HERE
+	return false, nil
 }
 
 // TODO: Task 6 - Implement VerifySignature
@@ -89,19 +62,7 @@ func IsExpired(tokenString string) (bool, error) {
 //	"crypto/sha256"
 //
 // )
-func VerifySignature(tokenString string, publicKey *rsa.PublicKey) error {
-	parts := strings.Split(tokenString, ".")
-	if len(parts) != 3 {
-		return errors.New("invalid token")
-	}
-	content := strings.Join(parts[:2], ".")
-	hash := sha256.Sum256([]byte(content))
-	signature, err := base64.RawURLEncoding.DecodeString(parts[2])
-	if err != nil {
-		return err
-	}
-	if err := rsa.VerifyPKCS1v15(publicKey, crypto.SHA256, hash[:], signature); err != nil {
-		return err
-	}
+func VerifySignature(tokenString string, publicKey any) error {
+	// YOUR CODE HERE
 	return nil
 }

@@ -1,15 +1,6 @@
 // Package main contains JWKS fetching utilities.
 package main
 
-import (
-	"crypto/rsa"
-	"encoding/base64"
-	"encoding/json"
-	"io"
-	"math/big"
-	"net/http"
-)
-
 // TODO: Task 5 - Implement FetchJWKS
 //
 // FetchJWKS retrieves the JSON Web Key Set from the given URL.
@@ -54,42 +45,9 @@ import (
 //	"net/http"
 //
 // )
-func FetchJWKS(jwksURL string) (map[string]*rsa.PublicKey, error) {
-	resp, err := http.Get(jwksURL)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	var jwks jwksResponse
-	if err := json.Unmarshal(body, &jwks); err != nil {
-		return nil, err
-	}
-	publicKeys := make(map[string]*rsa.PublicKey)
-	for _, key := range jwks.Keys {
-		if key.Kty == "RSA" && key.Use == "sig" {
-			n := new(big.Int)
-			e := new(big.Int)
-			nBytes, err := decodeBase64URL(key.N)
-			if err != nil {
-				return nil, err
-			}
-			n.SetBytes(nBytes)
-			eBytes, err := decodeBase64URL(key.E)
-			if err != nil {
-				return nil, err
-			}
-			e.SetBytes(eBytes)
-			if e.IsInt64() {
-				publicKey := rsa.PublicKey{N: n, E: int(e.Int64())}
-				publicKeys[key.Kid] = &publicKey
-			}
-		}
-	}
-	return publicKeys, nil
+func FetchJWKS(jwksURL string) (map[string]any, error) {
+	// YOUR CODE HERE
+	return nil, nil
 }
 
 // jwksResponse represents the JWKS JSON structure.
@@ -113,9 +71,6 @@ type jwkKey struct {
 // Hint: base64url uses - and _ instead of + and /
 // You can use base64.RawURLEncoding (no padding) or handle padding yourself.
 func decodeBase64URL(s string) ([]byte, error) {
-	bytes, err := base64.RawURLEncoding.DecodeString(s)
-	if err != nil {
-		return nil, err
-	}
-	return bytes, nil
+	// YOUR CODE HERE
+	return nil, nil
 }

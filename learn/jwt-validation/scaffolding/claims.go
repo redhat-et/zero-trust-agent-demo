@@ -1,15 +1,6 @@
 // Package main contains JWT claim structures and delegation detection.
 package main
 
-import (
-	"encoding/base64"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"strings"
-	"time"
-)
-
 // TODO: Task 3 - Define Claims struct
 //
 // Create a struct that represents JWT claims from Keycloak.
@@ -34,15 +25,14 @@ import (
 
 // Claims represents the JWT claims we care about.
 type Claims struct {
-	Iss               string   `json:"iss"`
-	Sub               string   `json:"sub"`
-	Aud               Audience `json:"aud"`
-	Exp               int64    `json:"exp"`
-	Iat               int64    `json:"iat"`
-	Azp               string   `json:"azp"`
-	Groups            []string `json:"groups"`
-	PreferredUsername string   `json:"preferred_username"`
-	Email             string   `json:"email"`
+	// TODO: Add fields for standard claims
+	// Iss string `json:"iss"`
+	// Sub string `json:"sub"`
+	// ... etc
+
+	// TODO: Add fields for Keycloak-specific claims
+	// Groups []string `json:"groups"`
+	// PreferredUsername string `json:"preferred_username"`
 }
 
 // Audience is a custom type that handles "aud" being string or []string.
@@ -55,20 +45,6 @@ type Claims struct {
 //	    // If that fails, try as []string
 //	}
 type Audience []string
-
-func (a *Audience) UnmarshalJSON(data []byte) error {
-	var s string
-	if err := json.Unmarshal(data, &s); err == nil {
-		*a = []string{s}
-		return nil
-	}
-	var ss []string
-	if err := json.Unmarshal(data, &ss); err == nil {
-		*a = ss
-		return nil
-	}
-	return errors.New("invalid audience")
-}
 
 // TODO: Task 7 - Implement DetectDelegation
 //
@@ -90,14 +66,8 @@ type DelegationInfo struct {
 }
 
 func DetectDelegation(claims *Claims) *DelegationInfo {
-	if claims.Sub == claims.Azp {
-		return nil
-	}
-	return &DelegationInfo{
-		UserID:  claims.Sub,
-		AgentID: claims.Azp,
-		Groups:  claims.Groups,
-	}
+	// YOUR CODE HERE
+	return nil
 }
 
 // ParseClaims extracts claims from a JWT payload.
@@ -106,30 +76,6 @@ func DetectDelegation(claims *Claims) *DelegationInfo {
 // Hint: This is similar to DecodePayloadUnsafe from the example,
 // but it unmarshals into your Claims struct instead of map[string]any.
 func ParseClaims(tokenString string) (*Claims, error) {
-	var claims Claims
-	parts := strings.Split(tokenString, ".")
-	if len(parts) != 3 {
-		return nil, errors.New("invalid token")
-	}
-	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return nil, err
-	}
-	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
-		return nil, err
-	}
-	return &claims, nil
-}
-
-func (d *DelegationInfo) String() string {
-	groups := strings.Join(d.Groups, ", ")
-	return fmt.Sprintf("UserID: %s\nAgentID: %s\nGroups: %v", d.UserID, d.AgentID, groups)
-}
-
-func (c *Claims) String() string {
-	issuedTime := time.Unix(c.Iat, 0).Format(time.RFC3339)
-	expirationTime := time.Unix(c.Exp, 0).Format(time.RFC3339)
-	audience := strings.Join(c.Aud, ", ")
-	groups := strings.Join(c.Groups, ", ")
-	return fmt.Sprintf("Iss: %s\nSub: %s\nAud: %v\nExp: %s\nIat: %s\nAzp: %s\nGroups: %v\nPreferredUsername: %s\nEmail: %s", c.Iss, c.Sub, audience, expirationTime, issuedTime, c.Azp, groups, c.PreferredUsername, c.Email)
+	// YOUR CODE HERE
+	return nil, nil
 }

@@ -13,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 )
 
 func main() {
@@ -30,8 +31,20 @@ func main() {
 
 	// TODO: Read token from file or environment
 	var token string
-	_ = tokenFile // Remove this line when you use the variable
-	_ = token     // Remove this line when you use the variable
+	if *tokenFile != "" {
+		tokenBytes, err := os.ReadFile(*tokenFile)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error: Failed to read token file:", err)
+			os.Exit(1)
+		}
+		token = strings.TrimSpace(string(tokenBytes))
+	} else {
+		token = os.Getenv("JWT_TOKEN")
+	}
+	if token == "" {
+		fmt.Fprintln(os.Stderr, "Error: No token provided")
+		os.Exit(1)
+	}
 
 	// TODO: Validate JWKS URL is provided
 	if *jwksURL == "" {
@@ -46,6 +59,50 @@ func main() {
 	// 4. IsExpired(token) - check expiration
 	// 5. Parse claims and call DetectDelegation
 
-	fmt.Println("JWT Validation - Task 8: Implement this CLI")
-	fmt.Println("See README.md for instructions")
+	expired, err := IsExpired(token)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error: Failed to check expiration:", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Expired: %t\n", expired)
+
+	alg, kid, err := ParseHeader(token)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error: Failed to parse header:", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Algorithm: %s\nKey ID: %s\n", alg, kid)
+
+	publicKeys, err := FetchJWKS(*jwksURL)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error: Failed to fetch JWKS:", err)
+		os.Exit(1)
+	}
+	fmt.Println("Public Keys:")
+	for kid, publicKey := range publicKeys {
+		fmt.Printf("Kid: %s\nPublic Key N: %v\n", kid, publicKey.N.String())
+	}
+	publicKey, ok := publicKeys[kid]
+	if !ok {
+		fmt.Fprintln(os.Stderr, "Error: Public key not found")
+		os.Exit(1)
+	}
+	err = VerifySignature(token, publicKey)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error: Failed to verify signature:", err)
+		os.Exit(1)
+	}
+	fmt.Println("Signature verified")
+
+	claims, err := ParseClaims(token)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error: Failed to parse claims:", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Claims:\n%s\n", claims.String())
+
+	delegationInfo := DetectDelegation(claims)
+	if delegationInfo != nil {
+		fmt.Printf("Delegation Info:\n%s\n", delegationInfo.String())
+	}
 }

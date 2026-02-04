@@ -21,14 +21,48 @@ By completing this project, you will understand:
 
 ## Project structure
 
-```
+```text
 jwt-validation/
-├── main.go          # Entry point - you'll build this incrementally
-├── jwt.go           # JWT parsing utilities - tasks 2-4
-├── jwks.go          # JWKS fetching - tasks 5-6
-├── claims.go        # Claim extraction and delegation detection - task 7
+├── main.go              # CLI entry point (Task 8) - SOLUTION
+├── jwt.go               # JWT parsing utilities (Tasks 2, 4, 6) - SOLUTION
+├── jwks.go              # JWKS fetching (Task 5) - SOLUTION
+├── claims.go            # Claim structures and delegation (Tasks 3, 7) - SOLUTION
+├── *_test.go            # Unit and integration tests
+├── testhelpers_test.go  # Test helpers for generating tokens
 ├── go.mod
-└── README.md
+├── Makefile
+├── README.md
+└── scaffolding/         # Original TODO files for starting fresh
+    ├── main.go
+    ├── jwt.go
+    ├── jwks.go
+    ├── claims.go
+    └── README.md
+```
+
+### For learners starting fresh
+
+Copy the scaffolding files to start with TODO markers:
+
+```bash
+cp scaffolding/*.go .
+```
+
+### Test helpers
+
+The `testhelpers_test.go` file provides utilities for generating test tokens:
+
+```go
+// Generate a key pair for testing
+keyPair := GenerateTestKeyPair(t, "test-kid")
+
+// Build tokens with fluent API
+token := NewTokenBuilder(t, keyPair).
+    WithSubject("alice").
+    WithAzp("agent-gpt4").
+    WithGroups("engineering", "finance").
+    Expired().  // or .ExpiresIn(time.Hour)
+    Build()
 ```
 
 ## Getting started
