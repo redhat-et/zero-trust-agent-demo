@@ -9,8 +9,9 @@ This document captures a Socratic exploration of integrating the Kagenti AuthBri
 3. [Key discoveries](#key-discoveries)
 4. [Integration architecture](#integration-architecture)
 5. [Implementation plan](#implementation-plan)
-6. [Glossary of new terms](#glossary-of-new-terms)
-7. [References](#references)
+6. [Resource credential exchange](#resource-credential-exchange)
+7. [Glossary of new terms](#glossary-of-new-terms)
+8. [References](#references)
 
 ---
 
@@ -107,11 +108,11 @@ What happens with pre-issued tokens vs. AuthBridge exchange?
 
 **Discovery**: There's a natural separation:
 
-| Layer | Tool | Decides |
-|-------|------|---------|
-| Authentication | Keycloak | "Is this a valid agent with valid delegation?" |
-| Coarse authorization | Keycloak scopes | "Can this agent talk to document-service at all?" |
-| Fine-grained authorization | OPA | "Can this agent access THIS specific document?" |
+| Layer                      | Tool            | Decides                                           |
+| -------------------------- | --------------- | ------------------------------------------------- |
+| Authentication             | Keycloak        | "Is this a valid agent with valid delegation?"    |
+| Coarse authorization       | Keycloak scopes | "Can this agent talk to document-service at all?" |
+| Fine-grained authorization | OPA             | "Can this agent access THIS specific document?"   |
 
 **Insight**: Keycloak excels at identity and session management. OPA excels at evaluating complex rules over structured data (document-to-department mappings, permission intersection).
 
@@ -145,11 +146,11 @@ Each resource type (S3, GitHub, Slack) needs a gateway that understands its reso
 
 **Discovery**:
 
-| Data | Current (mTLS) | With JWT |
-|------|----------------|----------|
-| Caller identity | TLS certificate SAN | JWT `sub` or `azp` claim |
-| User departments | OPA static lookup | JWT `groups` claim |
-| Delegation context | Request body JSON | Request body JSON |
+| Data               | Current (mTLS)      | With JWT                 |
+| ------------------ | ------------------- | ------------------------ |
+| Caller identity    | TLS certificate SAN | JWT `sub` or `azp` claim |
+| User departments   | OPA static lookup   | JWT `groups` claim       |
+| Delegation context | Request body JSON   | Request body JSON        |
 
 **Insight**: The key change is where user departments come from. Currently OPA looks them up from hardcoded data. With JWT, they come directly from Keycloak (source of truth).
 
@@ -259,13 +260,13 @@ Pre-issued tokens are a snapshot. Token exchange enables:
 
 ### Discovery 3: Identity vs. policy separation
 
-| Aspect | Managed by | Examples |
-|--------|-----------|----------|
-| User identity | Keycloak | alice is in engineering group |
-| User sessions | Keycloak | alice's session is valid for 8 hours |
-| Agent capabilities | OPA | summarizer can only access finance |
-| Resource requirements | OPA | DOC-002 requires finance department |
-| Permission intersection | OPA | effective = user ∩ agent |
+| Aspect                  | Managed by | Examples                             |
+| ----------------------- | ---------- | ------------------------------------ |
+| User identity           | Keycloak   | alice is in engineering group        |
+| User sessions           | Keycloak   | alice's session is valid for 8 hours |
+| Agent capabilities      | OPA        | summarizer can only access finance   |
+| Resource requirements   | OPA        | DOC-002 requires finance department  |
+| Permission intersection | OPA        | effective = user ∩ agent             |
 
 ### Discovery 4: The OPA policies were designed for this
 
@@ -284,10 +285,10 @@ The `user_permissions.rego` already prioritizes JWT claims over fallback data. T
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  PHASE 1: User delegates to agent (Keycloak)                           │
+│  PHASE 1: User delegates to agent (Keycloak)                            │
 ├─────────────────────────────────────────────────────────────────────────┤
-│  Alice logs in → delegates to GPT-4 agent                              │
-│  Agent gets token: aud=agent-spiffe-id, sub=alice, azp=gpt4            │
+│  Alice logs in → delegates to GPT-4 agent                               │
+│  Agent gets token: aud=agent-spiffe-id, sub=alice, azp=gpt4             │
 └─────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
@@ -296,7 +297,7 @@ The `user_permissions.rego` already prioritizes JWT claims over fallback data. T
 ├─────────────────────────────────────────────────────────────────────────┤
 │  Agent calls document-service with token                                │
 │  ext-proc intercepts → exchanges token via Keycloak (RFC 8693)          │
-│  New token: aud=document-service, sub=alice, azp=gpt4,                 │
+│  New token: aud=document-service, sub=alice, azp=gpt4,                  │
 │             groups=[engineering, finance]                               │
 │                                                                         │
 │  ✓ Keycloak can DENY if agent is revoked                                │
@@ -313,8 +314,8 @@ The `user_permissions.rego` already prioritizes JWT claims over fallback data. T
 │  Calls OPA with:                                                        │
 │    {                                                                    │
 │      delegation: {                                                      │
-│        user_spiffe_id: "spiffe://.../user/alice",                      │
-│        agent_spiffe_id: "spiffe://.../agent/gpt4",                     │
+│        user_spiffe_id: "spiffe://.../user/alice",                       │
+│        agent_spiffe_id: "spiffe://.../agent/gpt4",                      │
 │        user_departments: ["engineering", "finance"]                     │
 │      },                                                                 │
 │      document_metadata: { required_departments: ["finance"] }           │
@@ -326,12 +327,12 @@ The `user_permissions.rego` already prioritizes JWT claims over fallback data. T
 
 ### What each component contributes
 
-| Component | Responsibility | Re-scoping contribution |
-|-----------|---------------|------------------------|
-| Keycloak | User auth, groups, sessions | Source of truth for user→department |
-| AuthBridge ext-proc | Token exchange per target | Audience narrowing, real-time revocation |
-| document-service | JWT validation, resource metadata | Combines identity + resource requirements |
-| OPA | Policy evaluation | Permission intersection (user ∩ agent) |
+| Component           | Responsibility                    | Re-scoping contribution                   |
+| ------------------- | --------------------------------- | ----------------------------------------- |
+| Keycloak            | User auth, groups, sessions       | Source of truth for user→department       |
+| AuthBridge ext-proc | Token exchange per target         | Audience narrowing, real-time revocation  |
+| document-service    | JWT validation, resource metadata | Combines identity + resource requirements |
+| OPA                 | Policy evaluation                 | Permission intersection (user ∩ agent)    |
 
 ---
 
@@ -459,17 +460,181 @@ Test scenarios:
 
 ---
 
+## Resource credential exchange
+
+### The "last mile" problem
+
+After OPA approves access, the resource gateway must actually fetch the resource. This raises a critical question: **what credentials does the gateway use to access S3, GitHub, or other backend services?**
+
+This exploration revealed two authorization layers that must align:
+
+| Layer | Decision maker | Scope |
+|-------|---------------|-------|
+| Application policy | OPA | Per-document, per-user, per-agent |
+| Resource policy | S3/GitHub/etc. | Per-bucket, per-repo, per-workspace |
+
+### The five-layer authorization model
+
+```text
+┌─────────────────────────────────────────────────────────────────────────┐
+│  Layer 1: Identity (Keycloak)                                           │
+│  "Who is this user/agent?"                                              │
+├─────────────────────────────────────────────────────────────────────────┤
+│  Layer 2: Token Exchange (AuthBridge)                                   │
+│  "Is this agent allowed to talk to this service?"                       │
+├─────────────────────────────────────────────────────────────────────────┤
+│  Layer 3: Application Policy (OPA)                                      │
+│  "Can this user+agent access this specific resource?"                   │
+├─────────────────────────────────────────────────────────────────────────┤
+│  Layer 4: Credential Broker (Vault or STS)                              │
+│  "Generate credentials scoped to allowed resources"                     │
+├─────────────────────────────────────────────────────────────────────────┤
+│  Layer 5: Resource Access (S3/GitHub/Slack)                             │
+│  "Access with scoped credentials"                                       │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+For resources that support OIDC/STS (AWS S3, MinIO, Azure, GCP), layers 3-4 can collapse.
+For resources that don't (NooBaa, GitHub PATs), you need a credential broker at layer 4.
+
+### Solution patterns
+
+#### Pattern 1: OIDC federation with cloud providers
+
+Cloud providers support exchanging JWT tokens for temporary credentials:
+
+```text
+JWT from Keycloak ──► Cloud Provider STS ──► Temporary cloud credentials
+```
+
+This is documented in [SPIFFE OIDC Federation with AWS](https://spiffe.io/docs/latest/keyless/oidc-federation-aws/):
+
+> "A SPIRE identified workload can, using a JWT-SVID, authenticate to Amazon AWS APIs, assume an AWS IAM role, and retrieve data from an AWS S3 bucket. This avoids the need to create and deploy AWS IAM credentials with the workload itself."
+
+#### Pattern 2: S3-compatible storage with STS
+
+MinIO (and AWS S3) support `AssumeRoleWithWebIdentity`:
+
+```text
+Keycloak JWT ──► MinIO/AWS STS API ──► Temporary S3 credentials
+```
+
+The gateway can pass a **session policy** that restricts access to specific objects:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": "s3:GetObject",
+    "Resource": "arn:aws:s3:::documents/DOC-005"
+  }]
+}
+```
+
+#### Pattern 3: Vault as credential broker
+
+For resources that don't support OIDC/STS natively:
+
+```text
+JWT-SVID ──► Vault (SPIFFE auth) ──► Dynamic secrets engine ──► Service-specific token
+```
+
+[Vault Enterprise 1.21](https://www.hashicorp.com/en/blog/vault-enterprise-1-21-spiffe-auth-fips-140-3-level-1-compliance-granular-secret-recovery) added native SPIFFE auth support:
+
+> "With native SPIFFE auth support, Vault Enterprise simplifies authentication of non-human-identity workloads such as AI agents."
+
+### Storage provider comparison
+
+| Provider | OIDC/STS Support | Implementation approach |
+|----------|------------------|------------------------|
+| AWS S3 | ✅ Full support | AssumeRoleWithWebIdentity |
+| MinIO | ✅ Full support | AssumeRoleWithWebIdentity |
+| Azure Blob | ✅ Full support | Workload Identity Federation |
+| GCP GCS | ✅ Full support | Workload Identity Federation |
+| NooBaa/MCG | ❌ Not for clients | Gateway with static creds or Vault |
+| GitHub | ⚠️ GitHub Apps only | Installation tokens (short-lived) |
+| Slack | ⚠️ OAuth refresh | Store refresh token in Vault |
+
+### Implementation approach for this demo
+
+#### Phase A: Gateway with static credentials (current)
+
+Start with the existing pattern where document-service uses OBC-provided credentials:
+
+```text
+Agent → AuthBridge → document-service → OPA (ALLOW)
+                           ↓
+                     Uses static ACCESS_KEY/SECRET_KEY
+                     (from OBC secret)
+                           ↓
+                         NooBaa
+```
+
+This demonstrates the core AuthBridge integration without additional complexity.
+
+#### Phase B: AWS S3 with OIDC federation (production path)
+
+For production deployments with AWS S3:
+
+```text
+Agent → AuthBridge → document-service → OPA (ALLOW)
+                           ↓
+                     Extract JWT claims
+                           ↓
+                     AWS STS AssumeRoleWithWebIdentity
+                     (JWT → temporary credentials)
+                           ↓
+                     S3 GetObject with session policy
+                     (scoped to specific object)
+```
+
+Implementation steps:
+
+1. Configure AWS IAM OIDC identity provider with Keycloak's JWKS
+2. Create IAM roles mapped to Keycloak groups (engineering-reader, finance-reader)
+3. Modify document-service to call STS with the JWT
+4. Use session policies to scope access to specific objects
+
+#### Phase C: Vault for non-OIDC resources (advanced)
+
+For resources like GitHub or legacy systems:
+
+1. Deploy Vault with SPIFFE auth method
+2. Configure dynamic secrets engines for each resource type
+3. Document-service requests credentials from Vault after OPA approval
+4. Credentials have short TTL and are scoped appropriately
+
+### Key insight: Credential generation, not storage
+
+The zero trust principle applies here too:
+
+| Traditional approach | Zero trust approach |
+|---------------------|---------------------|
+| Store long-lived credentials | Generate short-lived credentials on demand |
+| Rotate periodically | Every request gets fresh credentials |
+| Broad access, filtered by gateway | Scoped access matching OPA decision |
+
+---
+
 ## Glossary of new terms
 
 | Term | Definition |
-|------|------------|
+| ---- | ---------- |
+| **AssumeRoleWithWebIdentity** | AWS/MinIO STS API that exchanges JWT for temporary credentials |
 | **AuthBridge** | Kagenti component for transparent token exchange |
 | **Audience (aud)** | JWT claim specifying intended recipient of token |
 | **Authorized Party (azp)** | JWT claim identifying client that obtained the token |
+| **Credential Broker** | Service that generates scoped credentials on demand (e.g., Vault) |
+| **Dynamic Secrets** | Credentials generated on-demand with automatic expiration |
 | **ext-proc** | Envoy external processor that performs token exchange |
 | **JWKS** | JSON Web Key Set - public keys for validating JWTs |
+| **OIDC Federation** | Trusting an external identity provider for authentication |
 | **RFC 8693** | OAuth 2.0 Token Exchange specification |
+| **Session Policy** | Inline IAM policy that further restricts assumed role permissions |
+| **STS** | Security Token Service - generates temporary security credentials |
 | **Token Exchange** | Swapping one token for another with different properties |
+| **Workload Identity Federation** | Cloud pattern for exchanging workload tokens for cloud credentials |
 
 ---
 
@@ -484,6 +649,23 @@ Test scenarios:
 
 - [Keycloak Token Exchange Documentation](https://www.keycloak.org/docs/latest/securing_apps/#_token-exchange)
 - [JWKS Explanation](https://auth0.com/docs/secure/tokens/json-web-tokens/json-web-key-sets)
+
+### SPIFFE OIDC federation
+
+- [SPIFFE OIDC Federation with AWS](https://spiffe.io/docs/latest/keyless/oidc-federation-aws/)
+- [Indeed Engineering - Workload Identity with SPIRE](https://engineering.indeedblog.com/blog/2024/07/workload-identity-with-spire-oidc-for-k8s-istio/)
+- [SPIRE and Vault Integration](https://spiffe.io/docs/latest/keyless/vault/readme/)
+
+### S3 STS and OIDC
+
+- [AWS AssumeRoleWithWebIdentity](https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRoleWithWebIdentity.html)
+- [MinIO AssumeRoleWithWebIdentity](https://min.io/docs/minio/linux/developers/security-token-service/AssumeRoleWithWebIdentity.html)
+- [MinIO OIDC Integration](https://blog.min.io/minio-openid-connect-integration/)
+
+### HashiCorp Vault
+
+- [Vault AWS Secrets Engine](https://developer.hashicorp.com/vault/docs/secrets/aws)
+- [Vault Enterprise 1.21 SPIFFE Support](https://www.hashicorp.com/en/blog/vault-enterprise-1-21-spiffe-auth-fips-140-3-level-1-compliance-granular-secret-recovery)
 
 ### Go libraries for JWT
 
