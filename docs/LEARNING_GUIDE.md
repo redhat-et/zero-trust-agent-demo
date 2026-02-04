@@ -14,8 +14,9 @@ This guide provides a deep dive into the Zero Trust concepts and SPIFFE/SPIRE te
 8. [Permission Intersection Pattern](#permission-intersection-pattern)
 9. [Code Implementation Guide](#code-implementation-guide)
 10. [Extending the Demo: Adding Users and Agents](#extending-the-demo-adding-users-and-agents)
-11. [Further Reading](#further-reading)
-12. [Glossary](#glossary)
+11. [Advanced Topics](#advanced-topics)
+12. [Further Reading](#further-reading)
+13. [Glossary](#glossary)
 
 ---
 
@@ -58,7 +59,7 @@ Zero Trust is a security model based on the principle of **"never trust, always 
 
 ### SPIFFE ID Format
 
-```
+```text
 spiffe://trust-domain/path
 ```
 
@@ -86,7 +87,7 @@ Examples from this demo:
 
 ### SPIRE Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────┐
 │                   SPIRE Server                      │
 │  - Manages trust domain                             │
@@ -158,7 +159,7 @@ An **SVID** (SPIFFE Verifiable Identity Document) is a cryptographically signed 
 
 ### SVID Lifecycle
 
-```
+```text
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
 │   Workload   │────▶│ SPIRE Agent  │────▶│ SPIRE Server │
 │ Requests ID  │     │  Attests WL  │     │  Signs SVID  │
@@ -202,7 +203,7 @@ SVIDs are automatically rotated before expiration. SPIRE Agent:
 
 In standard TLS, only the server presents a certificate. In **mutual TLS (mTLS)**, both client and server present certificates and verify each other's identity.
 
-```
+```text
 ┌────────────┐                              ┌────────────┐
 │   Client   │                              │   Server   │
 │ (has SVID) │                              │ (has SVID) │
@@ -348,7 +349,7 @@ SPIRE supports various attestation methods:
 
 The **opa-service** evaluates authorization requests using Rego policies.
 
-```
+```text
 ┌────────────────┐      ┌───────────────┐
 │ document-svc   │─────▶│  opa-service  │
 │ "Can X access  │      │               │
@@ -438,13 +439,13 @@ When an AI agent acts on behalf of a user, what permissions should it have?
 
 ### The Solution: Permission Intersection
 
-```
+```text
 Effective Permissions = User Permissions ∩ Agent Capabilities
 ```
 
 ### Example
 
-```
+```text
 Alice has: [engineering, finance]
 GPT-4 has: [engineering, finance]
 Intersection: [engineering, finance] ✅
@@ -547,12 +548,12 @@ This section explains how to extend the demo by adding new users and agents. Und
 
 Before diving into the steps, understand this crucial distinction:
 
-| Concept | Users | Agents |
-|---------|-------|--------|
-| **What it represents** | "Who is this person?" | "What should this workload be allowed to do?" |
-| **Source** | Identity Provider (LDAP, Keycloak) | Security Policy (OPA) |
-| **Managed by** | HR / IT Admin | Security Team |
-| **Example** | Alice is in engineering (fact about Alice) | Summarizer can only access finance (policy decision) |
+| Concept                | Users                                      | Agents                                               |
+| ---------------------- | ------------------------------------------ | ---------------------------------------------------- |
+| **What it represents** | "Who is this person?"                      | "What should this workload be allowed to do?"        |
+| **Source**             | Identity Provider (LDAP, Keycloak)         | Security Policy (OPA)                                |
+| **Managed by**         | HR / IT Admin                              | Security Team                                        |
+| **Example**            | Alice is in engineering (fact about Alice) | Summarizer can only access finance (policy decision) |
 
 User **departments** are identity attributes (facts about who they are).
 Agent **capabilities** are policy decisions (what we allow them to do).
@@ -561,10 +562,10 @@ Agent **capabilities** are policy decisions (what we allow them to do).
 
 In this demo, you'll see user SPIFFE IDs like `spiffe://demo.example.com/user/alice`. But these are **not real SVIDs** issued by SPIRE.
 
-| Entity | Real SVID? | Source |
-|--------|------------|--------|
-| user-service (workload) | Yes | SPIRE issues X.509 certificate |
-| alice (human) | No | Constructed from username |
+| Entity                  | Real SVID? | Source                         |
+| ----------------------- | ---------- | ------------------------------ |
+| user-service (workload) | Yes        | SPIRE issues X.509 certificate |
+| alice (human)           | No         | Constructed from username      |
 
 Humans can't receive SVIDs because they're not processes running on machines. The "user SPIFFE ID" is a **naming convention** for representing users in policy decisions:
 
@@ -703,11 +704,11 @@ You may have noticed that user/agent data exists in multiple places:
 
 **This duplication is a demo simplification**. In production:
 
-| Data | Demo Approach | Production Approach |
-|------|---------------|---------------------|
-| User departments | Hardcoded in Go + Rego | LDAP/Keycloak (single source) |
-| Agent capabilities | Hardcoded in Go + Rego | OPA policy (single source) |
-| Policies in K8s | ConfigMap (manual sync) | OPA Bundles (auto-sync) |
+| Data               | Demo Approach           | Production Approach           |
+| ------------------ | ----------------------- | ----------------------------- |
+| User departments   | Hardcoded in Go + Rego  | LDAP/Keycloak (single source) |
+| Agent capabilities | Hardcoded in Go + Rego  | OPA policy (single source)    |
+| Policies in K8s    | ConfigMap (manual sync) | OPA Bundles (auto-sync)       |
 
 ### Production Architecture Preview
 
@@ -728,15 +729,32 @@ The key difference: **users come from identity infrastructure** (FreeIPA/Keycloa
 
 ### Summary: Who Changes What
 
-| Change | Files to Modify | Who Typically Does This |
-|--------|-----------------|-------------------------|
-| Add user (demo) | users.go, user_permissions.rego, ConfigMap | Developer |
-| Add user (production) | FreeIPA only | IT Admin / HR |
-| Add agent | agents.go, agent_permissions.rego, ClusterSPIFFEID, ConfigMap | Platform Team |
-| Change user departments | Same as add user | IT Admin |
-| Change agent capabilities | agent_permissions.rego, ConfigMap | Security Team |
+| Change                    | Files to Modify                                               | Who Typically Does This |
+| ------------------------- | ------------------------------------------------------------- | ----------------------- |
+| Add user (demo)           | users.go, user_permissions.rego, ConfigMap                    | Developer               |
+| Add user (production)     | FreeIPA only                                                  | IT Admin / HR           |
+| Add agent                 | agents.go, agent_permissions.rego, ClusterSPIFFEID, ConfigMap | Platform Team           |
+| Change user departments   | Same as add user                                              | IT Admin                |
+| Change agent capabilities | agent_permissions.rego, ConfigMap                             | Security Team           |
 
 For detailed production architecture, see [Phase 4: Identity Federation](dev/PHASE4_IDENTITY_FEDERATION.md).
+
+---
+
+## Advanced topics
+
+### AuthBridge integration (Kagenti project)
+
+For integrating this demo with the Kagenti AuthBridge for dynamic token exchange and agent permission re-scoping, see:
+
+- [AuthBridge Integration Learning Guide](AUTHBRIDGE_INTEGRATION_LEARNING.md) - A Socratic exploration of how AuthBridge enables real-time permission re-scoping through token exchange
+
+This integration adds:
+
+- **Real-time token exchange** via RFC 8693
+- **Dynamic user attributes** from Keycloak (replacing hardcoded OPA data)
+- **Session-based revocation** for immediate access control changes
+- **Temporal scoping** for time-bounded delegation
 
 ---
 
