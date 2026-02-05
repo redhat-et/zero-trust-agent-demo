@@ -13,12 +13,19 @@ These projects follow the **Guided Project Construction** methodology:
 ## Projects
 
 | Project | Concepts | Status |
-|---------|----------|--------|
-| [jwt-validation](jwt-validation/) | JWKS fetching, JWT parsing, claim extraction, signature verification | Ready |
-| [sts-token-exchange](sts-token-exchange/) | RFC 8693 token exchange with Keycloak | Planned |
+| ------- | -------- | ------ |
+| [jwt-validation](jwt-validation/) | JWKS fetching, JWT parsing, claim extraction, signature verification | Completed |
+| [sts-token-exchange](sts-token-exchange/) | RFC 8693 token exchange with Keycloak | Ready |
+| [envoy-ext-proc](envoy-ext-proc/) | Writing Envoy external processor in Go | Ready |
 | [aws-sts-assume-role](aws-sts-assume-role/) | AssumeRoleWithWebIdentity, session policies | Planned |
 | [minio-oidc](minio-oidc/) | MinIO OIDC configuration, STS API | Planned |
-| [envoy-ext-proc](envoy-ext-proc/) | Writing Envoy external processor in Go | Planned |
+
+## Recommended order
+
+1. **jwt-validation** - Learn JWT structure, JWKS, and signature verification
+2. **sts-token-exchange** - Learn RFC 8693 token exchange with Keycloak
+3. **envoy-ext-proc** - Learn how to write an Envoy external processor
+4. **aws-sts-assume-role** / **minio-oidc** - Learn resource credential exchange (optional)
 
 ## Prerequisites
 
