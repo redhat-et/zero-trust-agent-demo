@@ -57,7 +57,7 @@ go mod tidy
 
 In a zero-trust architecture, tokens should be scoped to specific services:
 
-```
+```text
 Agent Token (audience: "agent-service")
     ↓ exchange
 Document Token (audience: "document-service")

@@ -1,0 +1,10 @@
+# Binary
+sts-token-exchange
+
+# Secrets and tokens (may contain credentials)
+*.txt
+*.token
+
+# IDE
+.idea/
+.vscode/
