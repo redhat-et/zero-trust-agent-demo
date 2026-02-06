@@ -73,7 +73,7 @@ This ensures:
 
 ### The token exchange flow
 
-```
+```text
 ┌─────────┐      ┌──────────────┐      ┌────────────────┐
 │  Agent  │─────▶│   Keycloak   │─────▶│ Target Service │
 │         │  1   │              │  3   │                │
@@ -194,7 +194,7 @@ func (r *ExchangeRequest) BuildRequestBody() url.Values
 
 **RFC 8693 required parameters**:
 
-```
+```text
 grant_type=urn:ietf:params:oauth:grant-type:token-exchange
 subject_token=<the JWT to exchange>
 subject_token_type=urn:ietf:params:oauth:token-type:access_token
@@ -203,7 +203,7 @@ audience=<target service>
 
 **Optional parameters**:
 
-```
+```text
 requested_token_type=urn:ietf:params:oauth:token-type:access_token
 scope=openid profile email
 ```

@@ -10,3 +10,11 @@ resources:
   - services.yaml
   - deployments.yaml
   - keycloak.yaml
+
+configMapGenerator:
+    - name: keycloak-realm
+      namespace: spiffe-demo
+      files:
+        - realm-spiffe-demo.json=../../keycloak/realm-spiffe-demo.json
+      options:
+        disableNameSuffixHash: true

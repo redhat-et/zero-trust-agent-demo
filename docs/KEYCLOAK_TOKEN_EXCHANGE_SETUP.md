@@ -1,47 +1,48 @@
-# Keycloak token exchange setup plan
+# Keycloak token exchange setup
 
-This document outlines how to configure Keycloak for RFC 8693 token exchange, including persistent storage and proper feature flags.
+This document describes how to configure Keycloak for RFC 8693 OAuth 2.0 Token Exchange. This enables services like `agent-service` to exchange their tokens for tokens scoped to other services like `document-service`.
 
-## Current issues
+## Overview
 
-1. **Missing feature flags**: Token exchange requires `token-exchange` and `admin-fine-grained-authz` features
-2. **No persistence**: Keycloak loses data on restart (uses H2 in-memory by default in dev mode)
-3. **Missing clients**: `agent-service` and `document-service` need to be in the realm config
+Token exchange allows a client to exchange one token for another with a different audience. This is essential for zero-trust architectures where each service requires tokens specifically scoped to it.
 
-## Solution overview
+```text
+agent-service token (aud: agent-service)
+    ↓ token exchange
+document-service token (aud: document-service)
+```
 
-We'll update the base Keycloak configuration to:
+## Prerequisites
 
-1. Add required feature flags
-2. Add `agent-service` and `document-service` clients to the realm JSON
-3. Optionally add PostgreSQL for persistence (or use realm export/import)
+- Keycloak 24+ (tested with 26.3.3)
+- `token-exchange` feature enabled
 
----
+## Configuration steps
 
-## Step 1: Update Keycloak deployment with feature flags
+### Step 1: Enable token exchange feature
 
-Edit `deploy/k8s/base/keycloak.yaml`, change the args section:
+Add the `token-exchange` feature flag to Keycloak startup:
 
 ```yaml
 args:
 - start-dev
 - --import-realm
-- --features=token-exchange,admin-fine-grained-authz
+- --features=token-exchange
 ```
 
-Or use environment variable (alternative):
+Or via environment variable:
 
 ```yaml
 env:
 - name: KC_FEATURES
-  value: "token-exchange,admin-fine-grained-authz"
+  value: "token-exchange"
 ```
 
----
+**Note**: Do NOT enable `admin-fine-grained-authz` - it activates V2 admin permissions which don't support token exchange in Keycloak 26.x.
 
-## Step 2: Add clients to realm configuration
+### Step 2: Create the caller client (agent-service)
 
-Update the `clients` array in `deploy/k8s/base/keycloak.yaml` (the ConfigMap section) to include:
+Create a client that will perform token exchanges:
 
 ```json
 {
@@ -50,261 +51,197 @@ Update the `clients` array in `deploy/k8s/base/keycloak.yaml` (the ConfigMap sec
   "enabled": true,
   "clientAuthenticatorType": "client-secret",
   "secret": "agent-service-secret",
+  "publicClient": false,
   "serviceAccountsEnabled": true,
   "standardFlowEnabled": false,
   "directAccessGrantsEnabled": true,
-  "publicClient": false,
   "protocol": "openid-connect",
-  "defaultClientScopes": ["openid", "profile", "email", "groups"]
-},
+  "attributes": {
+    "standard.token.exchange.enabled": "true"
+  },
+  "defaultClientScopes": ["profile", "email", "roles", "web-origins", "acr", "basic"]
+}
+```
+
+**Key settings:**
+
+- `serviceAccountsEnabled: true` - Required for client credentials grant
+- `standard.token.exchange.enabled: true` - Enables token exchange capability
+
+### Step 3: Create the target client (document-service)
+
+Create the client that will be the audience of exchanged tokens:
+
+```json
 {
   "clientId": "document-service",
   "name": "Document Service",
   "enabled": true,
   "clientAuthenticatorType": "client-secret",
   "secret": "document-service-secret",
-  "serviceAccountsEnabled": true,
-  "authorizationServicesEnabled": true,
-  "standardFlowEnabled": false,
   "publicClient": false,
+  "serviceAccountsEnabled": true,
+  "standardFlowEnabled": false,
   "protocol": "openid-connect",
-  "defaultClientScopes": ["openid", "profile", "email", "groups"]
+  "attributes": {
+    "standard.token.exchange.enabled": "true"
+  },
+  "defaultClientScopes": ["profile", "email", "roles", "web-origins", "acr", "basic"]
 }
 ```
 
-**Important**: The `authorizationServicesEnabled: true` on `document-service` is required for fine-grained permissions.
+### Step 4: Create an audience scope
 
----
+Create a client scope that adds `document-service` to the token's audience claim:
 
-## Step 3: Configure token exchange permissions (via realm JSON)
+1. Go to **Client scopes** → **Create client scope**
+2. Name: `document-service-aud`
+3. Type: `Optional` (or `Default` if always needed)
+4. Protocol: `OpenID Connect`
+5. Save
 
-Add authorization settings to `document-service` in the realm JSON:
+Then add an audience mapper:
+
+1. Go to the scope's **Mappers** tab → **Add mapper** → **By configuration** → **Audience**
+2. Name: `document-service-aud`
+3. Included Custom Audience: `document-service`
+4. Add to access token: ON
+5. Save
+
+In realm JSON format:
 
 ```json
 {
-  "clientId": "document-service",
-  ...
-  "authorizationServicesEnabled": true,
-  "authorizationSettings": {
-    "allowRemoteResourceManagement": true,
-    "policyEnforcementMode": "ENFORCING",
-    "resources": [],
-    "policies": [
-      {
-        "name": "agent-service-policy",
-        "type": "client",
-        "logic": "POSITIVE",
-        "decisionStrategy": "UNANIMOUS",
-        "config": {
-          "clients": "[\"agent-service\"]"
-        }
+  "name": "document-service-aud",
+  "protocol": "openid-connect",
+  "attributes": {
+    "include.in.token.scope": "true",
+    "display.on.consent.screen": "false"
+  },
+  "protocolMappers": [
+    {
+      "name": "document-service-aud",
+      "protocol": "openid-connect",
+      "protocolMapper": "oidc-audience-mapper",
+      "consentRequired": false,
+      "config": {
+        "included.custom.audience": "document-service",
+        "access.token.claim": "true",
+        "id.token.claim": "false",
+        "userinfo.token.claim": "false"
       }
-    ],
-    "scopes": [
-      {
-        "name": "token-exchange"
-      }
-    ]
-  }
+    }
+  ]
 }
 ```
 
-**Note**: Full token-exchange permission configuration via realm JSON is complex. It may be easier to:
+### Step 5: Assign the scope to the caller client
 
-1. Deploy with features enabled
-2. Configure permissions via Admin Console
-3. Export the realm for future deployments
+1. Go to **Clients** → **agent-service** → **Client scopes**
+2. Click **Add client scope**
+3. Select `document-service-aud`
+4. Choose **Optional** (requires explicit `scope` parameter) or **Default** (always included)
 
----
+## Default vs Optional scopes
 
-## Step 4: Add persistent storage (optional but recommended)
+When assigning audience scopes to a client, you choose between Default and Optional:
 
-### Option A: Use PostgreSQL (production-like)
+| Type | Behavior | Use case |
+|------|----------|----------|
+| Default | Automatically included in every token | Agent always calls the same target service |
+| Optional | Only included when explicitly requested via `scope` parameter | Agent calls multiple target services |
 
-Create a new overlay `deploy/k8s/overlays/keycloak-postgres/`:
+### Single target service
 
-```yaml
-# kustomization.yaml
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
+If your agent always exchanges tokens for the same service, use **Default**:
 
-resources:
-  - ../../base
-  - postgres.yaml
-
-patches:
-  - path: keycloak-postgres-patch.yaml
+```text
+reviewer-agent → document-service (always)
 ```
 
-```yaml
-# postgres.yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: keycloak-db
-  namespace: spiffe-demo
-stringData:
-  username: keycloak
-  password: keycloak123
-  database: keycloak
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: keycloak-postgres
-  namespace: spiffe-demo
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: keycloak-postgres
-  template:
-    metadata:
-      labels:
-        app: keycloak-postgres
-    spec:
-      containers:
-      - name: postgres
-        image: postgres:15
-        env:
-        - name: POSTGRES_USER
-          valueFrom:
-            secretKeyRef:
-              name: keycloak-db
-              key: username
-        - name: POSTGRES_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: keycloak-db
-              key: password
-        - name: POSTGRES_DB
-          valueFrom:
-            secretKeyRef:
-              name: keycloak-db
-              key: database
-        ports:
-        - containerPort: 5432
-        volumeMounts:
-        - name: postgres-data
-          mountPath: /var/lib/postgresql/data
-      volumes:
-      - name: postgres-data
-        emptyDir: {}  # Use PVC for real persistence
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: keycloak-postgres
-  namespace: spiffe-demo
-spec:
-  selector:
-    app: keycloak-postgres
-  ports:
-  - port: 5432
+Configuration is simpler - no need to track or request scope names.
+
+### Multiple target services
+
+If your agent exchanges tokens for different services based on context, use **Optional**:
+
+```text
+reviewer-agent → finance-document-service (for finance reviews)
+              → engineering-document-service (for engineering reviews)
+              → hr-document-service (for HR reviews)
 ```
 
-```yaml
-# keycloak-postgres-patch.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: keycloak
-spec:
-  template:
-    spec:
-      containers:
-      - name: keycloak
-        args:
-        - start-dev
-        - --import-realm
-        - --features=token-exchange,admin-fine-grained-authz
-        - --db=postgres
-        - --db-url=jdbc:postgresql://keycloak-postgres:5432/keycloak
-        - --db-username=$(KC_DB_USERNAME)
-        - --db-password=$(KC_DB_PASSWORD)
-        env:
-        - name: KC_DB_USERNAME
-          valueFrom:
-            secretKeyRef:
-              name: keycloak-db
-              key: username
-        - name: KC_DB_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: keycloak-db
-              key: password
+This follows the principle of least privilege - tokens only contain the audience actually needed for each request. The caller explicitly declares intent by requesting the appropriate scope.
+
+**Example configuration for multi-target agent:**
+
+```text
+Client scopes (all Optional):
+├── finance-document-service-aud
+├── engineering-document-service-aud
+└── hr-document-service-aud
+
+Assigned to: reviewer-agent (as Optional)
 ```
 
-### Option B: Use realm export/import (simpler)
-
-Keep H2 but always import a complete realm on startup:
-
-1. Configure everything via Admin Console
-2. Export the realm: Admin Console → Realm Settings → Action → Partial Export
-3. Save to `deploy/keycloak/realm-spiffe-demo.json`
-4. Keycloak will import on every restart with `--import-realm`
-
-**Limitation**: Exported realm doesn't include client secrets, so you need to set them via environment variables or regenerate.
-
----
-
-## Step 5: Quick fix for OpenShift (immediate)
-
-For your current OpenShift deployment, do this now:
+**Token exchange requests:**
 
 ```bash
-# Edit the deployment
-oc edit deployment keycloak -n spiffe-demo
+# Finance review task
+curl ... -d "audience=finance-document-service" \
+         -d "scope=finance-document-service-aud"
 
-# Change args to:
-args:
-- start-dev
-- --import-realm
-- --features=token-exchange,admin-fine-grained-authz
+# Engineering review task
+curl ... -d "audience=engineering-document-service" \
+         -d "scope=engineering-document-service-aud"
 ```
 
-Then update the ConfigMap with the new clients before the pod restarts:
+In a real service (like AuthBridge), scope mappings are typically configured:
 
-```bash
-# Get current configmap
-oc get configmap keycloak-realm -n spiffe-demo -o yaml > /tmp/realm-cm.yaml
-
-# Edit to add agent-service and document-service clients
-# Then apply
-oc apply -f /tmp/realm-cm.yaml
-
-# Restart keycloak to pick up changes
-oc rollout restart deployment/keycloak -n spiffe-demo
+```yaml
+targets:
+  finance-document-service:
+    scope: finance-document-service-aud
+  engineering-document-service:
+    scope: engineering-document-service-aud
 ```
 
----
+The proxy determines the target from the request destination and uses the corresponding scope.
 
-## Step 6: Verify token exchange works
+## Verification
 
-After deployment:
+### Get an initial token
 
 ```bash
-# 1. Get agent-service token
+export KEYCLOAK_URL="https://your-keycloak-url"
+
 AGENT_TOKEN=$(curl -s -X POST "$KEYCLOAK_URL/realms/spiffe-demo/protocol/openid-connect/token" \
   -d "grant_type=client_credentials" \
   -d "client_id=agent-service" \
   -d "client_secret=agent-service-secret" | jq -r '.access_token')
 
-# 2. Enable management permissions on document-service (one-time setup)
-DOC_UUID=$(curl -s "$KEYCLOAK_URL/admin/realms/spiffe-demo/clients?clientId=document-service" \
-  -H "Authorization: Bearer $ADMIN_TOKEN" | jq -r '.[0].id')
+echo $AGENT_TOKEN | cut -d. -f2 | base64 -d 2>/dev/null | jq
+# Should show: "aud": "account" or similar, "azp": "agent-service"
+```
 
-curl -X PUT "$KEYCLOAK_URL/admin/realms/spiffe-demo/clients/$DOC_UUID/management/permissions" \
-  -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"enabled": true}'
+### Exchange the token
 
-# 3. Configure the token-exchange permission via Admin Console:
-#    - Clients → realm-management → Authorization → Permissions
-#    - Find token-exchange.permission.client.$DOC_UUID
-#    - Edit and add a policy that allows agent-service
+With Optional scope (explicit):
 
-# 4. Test token exchange
+```bash
+curl -s -X POST "$KEYCLOAK_URL/realms/spiffe-demo/protocol/openid-connect/token" \
+  -d "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
+  -d "client_id=agent-service" \
+  -d "client_secret=agent-service-secret" \
+  -d "subject_token=$AGENT_TOKEN" \
+  -d "subject_token_type=urn:ietf:params:oauth:token-type:access_token" \
+  -d "audience=document-service" \
+  -d "scope=document-service-aud" | jq
+```
+
+With Default scope (automatic):
+
+```bash
 curl -s -X POST "$KEYCLOAK_URL/realms/spiffe-demo/protocol/openid-connect/token" \
   -d "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
   -d "client_id=agent-service" \
@@ -314,24 +251,56 @@ curl -s -X POST "$KEYCLOAK_URL/realms/spiffe-demo/protocol/openid-connect/token"
   -d "audience=document-service" | jq
 ```
 
----
+### Verify the exchanged token
 
-## Files to modify
+```bash
+# Extract and decode the exchanged token
+echo $EXCHANGED_TOKEN | cut -d. -f2 | base64 -d 2>/dev/null | jq
+```
 
-| File | Change |
-| ---- | ------ |
-| `deploy/k8s/base/keycloak.yaml` | Add feature flags, add clients to realm JSON |
-| `deploy/keycloak/realm-spiffe-demo.json` | Add clients (keep in sync with ConfigMap) |
-| New: `deploy/k8s/overlays/keycloak-postgres/` | Optional PostgreSQL overlay |
+Expected claims:
 
----
+```json
+{
+  "aud": "document-service",
+  "azp": "agent-service",
+  "sub": "...",
+  "preferred_username": "service-account-agent-service"
+}
+```
 
-## Tomorrow's checklist
+## Troubleshooting
 
-1. [ ] Update `deploy/k8s/base/keycloak.yaml` with feature flags
-2. [ ] Add `agent-service` and `document-service` to realm JSON
-3. [ ] Apply changes to OpenShift: `oc apply -k deploy/k8s/base`
-4. [ ] Enable management permissions on `document-service` via API
-5. [ ] Configure token-exchange policy via Admin Console
-6. [ ] Test token exchange with curl
-7. [ ] Continue with sts-token-exchange Task 2 (Go implementation)
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `unsupported_grant_type` | Feature not enabled | Add `--features=token-exchange` to startup |
+| `invalid_client` | Wrong credentials | Check client_id and client_secret |
+| `Requested audience not available` | Missing audience scope | Create and assign the audience scope |
+| `Not supported in V2` | V2 admin permissions enabled | Disable admin permissions in Realm Settings |
+| `access_denied` | Client not allowed | Enable `standard.token.exchange.enabled` on client |
+
+## Configuration summary
+
+| Component | Required Setting |
+|-----------|------------------|
+| Keycloak startup | `--features=token-exchange` |
+| Caller client | `standard.token.exchange.enabled: true` |
+| Target client | `standard.token.exchange.enabled: true` |
+| Audience scope | `oidc-audience-mapper` with target client |
+| Scope assignment | Assign audience scope to caller client |
+
+## Realm export
+
+After configuring via Admin Console, export the realm for reproducible deployments:
+
+1. **Realm Settings** → **Action** → **Partial export**
+2. Enable "Export clients" and "Export groups and roles"
+3. Save to `deploy/keycloak/realm-spiffe-demo.json`
+
+**Note**: Client secrets are masked in exports. Set them via environment variables or regenerate after import.
+
+## References
+
+- [RFC 8693: OAuth 2.0 Token Exchange](https://datatracker.ietf.org/doc/html/rfc8693)
+- [Keycloak Token Exchange Documentation](https://www.keycloak.org/docs/latest/securing_apps/#_token-exchange)
+- [Kagenti AuthBridge](https://github.com/kagenti/kagenti-extensions/tree/main/AuthBridge)

@@ -743,15 +743,51 @@ For detailed production architecture, see [Phase 4: Identity Federation](dev/PHA
 
 ## Advanced topics
 
+### RFC 8693 token exchange with Keycloak
+
+Token exchange enables services to swap tokens for different audiences - essential for zero-trust architectures where each service requires tokens specifically scoped to it.
+
+**Learning path:**
+
+1. **Keycloak setup** - Configure Keycloak for token exchange
+   - [Keycloak Token Exchange Setup](KEYCLOAK_TOKEN_EXCHANGE_SETUP.md) - Complete configuration guide
+   - Key setting: `standard.token.exchange.enabled: true` on clients
+   - Requires `--features=token-exchange` on Keycloak startup
+
+2. **Go implementation** - Build a CLI that performs token exchange
+   - [STS Token Exchange Learning Project](../learn/sts-token-exchange/README.md)
+   - Tasks: Config loading → Request building → Exchange execution → Token verification
+
+3. **Envoy ext-proc** - Integrate with Envoy as an external processor
+   - [Envoy Ext-Proc Learning Project](../learn/envoy-ext-proc/README.md)
+   - Intercept requests, exchange tokens, modify headers
+
+**Token exchange flow:**
+
+```text
+agent-service token (aud: agent-service)
+    ↓ POST /token (grant_type=token-exchange)
+document-service token (aud: document-service)
+```
+
+**Key concepts:**
+
+| Concept | Description |
+|---------|-------------|
+| Subject token | The original token to exchange |
+| Audience | The target service for the new token |
+| `azp` claim | Authorized party - who performed the exchange |
+| Audience scope | Client scope with `oidc-audience-mapper` |
+
 ### AuthBridge integration (Kagenti project)
 
 For integrating this demo with the Kagenti AuthBridge for dynamic token exchange and agent permission re-scoping, see:
 
 - [AuthBridge Integration Learning Guide](AUTHBRIDGE_INTEGRATION_LEARNING.md) - A Socratic exploration of how AuthBridge enables real-time permission re-scoping through token exchange
 
-This integration adds:
+AuthBridge builds on token exchange to add:
 
-- **Real-time token exchange** via RFC 8693
+- **Envoy sidecar integration** via ext-proc gRPC protocol
 - **Dynamic user attributes** from Keycloak (replacing hardcoded OPA data)
 - **Session-based revocation** for immediate access control changes
 - **Temporal scoping** for time-bounded delegation
@@ -802,18 +838,24 @@ This integration adds:
 
 ## Glossary
 
-| Term             | Definition                                                |
-| ---------------- | --------------------------------------------------------- |
-| **Attestation**  | The process of verifying a workload's identity            |
-| **mTLS**         | Mutual TLS - both parties authenticate each other         |
-| **OPA**          | Open Policy Agent - policy decision point                 |
-| **Rego**         | OPA's declarative policy language                         |
-| **SPIFFE**       | Secure Production Identity Framework for Everyone         |
-| **SPIFFE ID**    | URI identifying a workload (e.g., `spiffe://domain/path`) |
-| **SPIRE**        | SPIFFE Runtime Environment (reference implementation)     |
-| **SVID**         | SPIFFE Verifiable Identity Document                       |
-| **Trust Domain** | The root of trust in SPIFFE (like a DNS domain)           |
-| **Workload**     | A software system that needs an identity                  |
-| **Workload API** | Unix socket interface for fetching SVIDs                  |
-| **X.509**        | Standard format for public key certificates               |
-| **Zero Trust**   | Security model: "never trust, always verify"              |
+| Term                  | Definition                                                         |
+| --------------------- | ------------------------------------------------------------------ |
+| **Attestation**       | The process of verifying a workload's identity                     |
+| **Audience (aud)**    | JWT claim identifying intended recipient of the token              |
+| **azp**               | Authorized party - the client that obtained/exchanged the token    |
+| **ext-proc**          | Envoy external processing filter for request/response modification |
+| **mTLS**              | Mutual TLS - both parties authenticate each other                  |
+| **OPA**               | Open Policy Agent - policy decision point                          |
+| **Rego**              | OPA's declarative policy language                                  |
+| **RFC 8693**          | OAuth 2.0 Token Exchange specification                             |
+| **SPIFFE**            | Secure Production Identity Framework for Everyone                  |
+| **SPIFFE ID**         | URI identifying a workload (e.g., `spiffe://domain/path`)          |
+| **SPIRE**             | SPIFFE Runtime Environment (reference implementation)              |
+| **Subject token**     | The original token being exchanged in token exchange flow          |
+| **SVID**              | SPIFFE Verifiable Identity Document                                |
+| **Token exchange**    | Swapping one token for another with different audience/scope       |
+| **Trust Domain**      | The root of trust in SPIFFE (like a DNS domain)                    |
+| **Workload**          | A software system that needs an identity                           |
+| **Workload API**      | Unix socket interface for fetching SVIDs                           |
+| **X.509**             | Standard format for public key certificates                        |
+| **Zero Trust**        | Security model: "never trust, always verify"                       |
