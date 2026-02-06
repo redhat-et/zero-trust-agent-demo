@@ -73,3 +73,31 @@ spec:
   namespaceSelector:
     matchLabels:
       kubernetes.io/metadata.name: spiffe-demo
+---
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: spiffe-demo-summarizer-service
+spec:
+  className: spire-system-spire
+  spiffeIDTemplate: "spiffe://demo.example.com/agent/summarizer"
+  podSelector:
+    matchLabels:
+      app: summarizer-service
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: spiffe-demo
+---
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: spiffe-demo-reviewer-service
+spec:
+  className: spire-system-spire
+  spiffeIDTemplate: "spiffe://demo.example.com/agent/reviewer"
+  podSelector:
+    matchLabels:
+      app: reviewer-service
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: spiffe-demo
