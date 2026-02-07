@@ -65,13 +65,13 @@ Envoy's External Processing filter allows you to offload request/response proces
 
 ### The ext-proc flow
 
-```
+```text
 ┌────────┐      ┌─────────┐      ┌──────────┐      ┌──────────┐
 │ Client │─────▶│  Envoy  │─────▶│ ext-proc │      │ Upstream │
 │        │      │         │◀─────│ (your Go │      │          │
 │        │      │         │      │  server) │      │          │
-│        │◀─────│         │─────────────────────▶│          │
-└────────┘      └─────────┘                       └──────────┘
+│        │◀─────│         │───────────────────────▶│          │
+└────────┘      └─────────┘                        └──────────┘
 
 1. Client sends request to Envoy
 2. Envoy sends headers to ext-proc via gRPC stream
@@ -79,6 +79,36 @@ Envoy's External Processing filter allows you to offload request/response proces
 4. Envoy applies mutations and forwards to upstream
 5. Response flows back (optionally through ext-proc)
 ```
+
+Envoy is not a standalone HTTP server -- it's a **reverse proxy** that
+sits in front of the real service. The upstream service receives
+requests after Envoy (and ext-proc) have processed them. The upstream
+is unaware that any processing happened.
+
+### Learning setup vs production
+
+In the exercises, we use [httpbin.org][httpbin] as the upstream. httpbin
+is an HTTP echo service -- its `/headers` endpoint returns all the
+request headers it received as JSON. This makes it useful for verifying
+that ext-proc mutations actually reach the upstream (e.g., seeing
+`X-Processed-By` in the response confirms the header was added).
+
+In the real AuthBridge scenario, the setup translates directly:
+
+```text
+Learning exercise:
+  curl → Envoy → ext-proc (adds X-Processed-By) → httpbin.org
+
+Production (AuthBridge):
+  Agent → Envoy → ext-proc (exchanges token) → document-service
+```
+
+The ext-proc replaces the `Authorization` header with a token scoped
+to the upstream's audience. The upstream service (document-service)
+just sees a token already intended for it -- no token exchange logic
+needed in the application code.
+
+[httpbin]: https://httpbin.org/
 
 ### The gRPC protocol
 
@@ -216,8 +246,8 @@ When you receive request headers:
                     SetHeaders: []*corev3.HeaderValueOption{
                         {
                             Header: &corev3.HeaderValue{
-                                Key:   "X-Processed-By",
-                                Value: "ext-proc-learning",
+                                Key:      "x-processed-by",
+                                RawValue: []byte("ext-proc-learning"),
                             },
                         },
                     },
@@ -227,6 +257,15 @@ When you receive request headers:
     },
 }
 ```
+
+**Pitfall -- `RawValue` vs `Value`:**
+
+The `HeaderValue` proto has both a `Value` (string) and `RawValue`
+(bytes) field. Newer Envoy versions populate `RawValue` and leave
+`Value` empty. Many online examples still use `Value`, which results
+in empty header values in both directions (reading and writing).
+Always use `RawValue` (converting with `string(h.RawValue)` when
+reading, `[]byte("...")` when writing).
 
 **Success criteria**:
 
@@ -375,6 +414,17 @@ static_resources:
      -c /etc/envoy/envoy.yaml
    ```
 
+   Or, for Podman:
+
+   ```bash
+   podman run --rm -p 8080:8080 \
+     -v $(pwd)/envoy.yaml:/etc/envoy/envoy.yaml:ro \
+     --add-host=host.containers.internal:host-gateway \
+     --entrypoint envoy \
+     envoyproxy/envoy:v1.28-latest \
+     -c /etc/envoy/envoy.yaml
+   ```
+
 3. Send a test request:
 
    ```bash
@@ -386,6 +436,18 @@ static_resources:
    - ext-proc logs show the Authorization header
    - Response includes `X-Processed-By: ext-proc-learning`
    - Request reaches httpbin and returns successfully
+
+**Pitfalls:**
+
+- **Podman on macOS**: The Envoy container entrypoint runs `chown` on
+  stdout/stderr, which fails in Podman's rootless mode. Use
+  `--entrypoint envoy` to bypass the shell entrypoint (already shown
+  in the Podman command above).
+- **`host.containers.internal` with STATIC cluster**: Podman provides
+  `host.containers.internal` as a hostname, but Envoy's `STATIC` cluster
+  type requires a literal IP address. Use `type: STRICT_DNS` for the
+  ext-proc cluster when using hostnames.
+- **Empty header values**: See the `RawValue` vs `Value` note in Task 3.
 
 **Success criteria**:
 

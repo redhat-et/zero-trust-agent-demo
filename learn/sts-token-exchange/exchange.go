@@ -139,6 +139,36 @@ func VerifyExchange(originalToken, exchangedToken, expectedAudience string) erro
 	return nil
 }
 
+func IntrospectToken(cfg *Config, token string) (bool, error) {
+	resp, err := http.PostForm(cfg.TokenURL+"/introspect", url.Values{
+		"token":         {token},
+		"client_id":     {cfg.ClientID},
+		"client_secret": {cfg.ClientSecret},
+	})
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, err
+	}
+	response := make(map[string]any)
+	err = json.Unmarshal(body, &response)
+	if err != nil {
+		return false, err
+	}
+	if errMsg, ok := response["error"].(string); ok {
+		desc, _ := response["error_description"].(string)
+		return false, fmt.Errorf("%s: %s", errMsg, desc)
+	}
+	active, ok := response["active"].(bool)
+	if !ok {
+		return false, fmt.Errorf("unexpected introspection response: missing 'active' field")
+	}
+	return active, nil
+}
+
 // PrintTokenComparison displays a before/after comparison of token claims.
 // Useful for debugging and understanding what changed during exchange.
 func PrintTokenComparison(originalToken, exchangedToken string) {

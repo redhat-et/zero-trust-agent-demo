@@ -102,4 +102,10 @@ func main() {
 	}
 	fmt.Println("Exchange successful")
 	PrintTokenComparison(*exchangeSubjectToken, newToken)
+	active, err := IntrospectToken(cfg, newToken)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error: failed to introspect token:", err)
+		os.Exit(1)
+	}
+	fmt.Println("Token is active:", active)
 }
