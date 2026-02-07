@@ -1,0 +1,9 @@
+# Binary
+jwt-validation
+
+# Test tokens (may contain secrets)
+*.txt
+
+# IDE
+.idea/
+.vscode/
