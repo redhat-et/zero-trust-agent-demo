@@ -18,6 +18,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
 
+	"github.com/redhat-et/zero-trust-agent-demo/pkg/auth"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/config"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/logger"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/metrics"
@@ -36,10 +37,18 @@ func init() {
 	rootCmd.AddCommand(serveCmd)
 }
 
+// JWTConfig holds JWT validation configuration
+type JWTConfig struct {
+	ValidationEnabled bool   `mapstructure:"validation_enabled"`
+	IssuerURL         string `mapstructure:"issuer_url"`
+	ExpectedAudience  string `mapstructure:"expected_audience"`
+}
+
 // Config holds the document service configuration
 type Config struct {
 	config.CommonConfig `mapstructure:",squash"`
 	Storage             config.StorageConfig `mapstructure:"storage"`
+	JWT                 JWTConfig            `mapstructure:"jwt"`
 }
 
 // Delegation represents delegation context from an agent request
@@ -105,6 +114,7 @@ type DocumentService struct {
 	log            *logger.Logger
 	workloadClient *spiffe.WorkloadClient
 	mockMode       bool
+	jwtValidator   *auth.JWTValidator
 }
 
 // jsonError writes a JSON error response
@@ -202,6 +212,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 		mockMode:       cfg.Service.MockSPIFFE,
 	}
 
+	// Initialize JWT validator if enabled
+	if cfg.JWT.ValidationEnabled && cfg.JWT.IssuerURL != "" {
+		svc.jwtValidator = auth.NewJWTValidatorFromIssuer(cfg.JWT.IssuerURL, cfg.JWT.ExpectedAudience)
+		log.Info("JWT validation enabled",
+			"issuer", cfg.JWT.IssuerURL,
+			"audience", cfg.JWT.ExpectedAudience)
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", svc.handleHealth)
 	mux.HandleFunc("/documents", svc.handleDocuments)
@@ -209,9 +227,19 @@ func runServe(cmd *cobra.Command, args []string) error {
 	mux.HandleFunc("/access", svc.handleAccess)
 
 	// Wrap with SPIFFE identity middleware
-	handler := spiffe.IdentityMiddleware(cfg.Service.MockSPIFFE)(mux)
+	// In plain HTTP mode (AuthBridge/Envoy), use header-based identity like mock mode
+	handler := spiffe.IdentityMiddleware(cfg.Service.MockSPIFFE || cfg.Service.ListenPlainHTTP)(mux)
 
-	server := workloadClient.CreateHTTPServer(cfg.Service.Addr(), handler)
+	// Create server: plain HTTP when behind Envoy proxy, mTLS otherwise
+	var server *http.Server
+	if cfg.Service.ListenPlainHTTP {
+		server = &http.Server{
+			Addr:    cfg.Service.Addr(),
+			Handler: handler,
+		}
+	} else {
+		server = workloadClient.CreateHTTPServer(cfg.Service.Addr(), handler)
+	}
 	server.ReadTimeout = 10 * time.Second
 	server.WriteTimeout = 10 * time.Second
 
@@ -245,7 +273,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 	log.Info("Loaded documents", "count", docCount)
 	log.Info("Storage backend", "type", storageType(cfg.Storage.Enabled))
 	log.Info("OPA endpoint", "url", svc.opaURL)
-	log.Info("mTLS mode", "enabled", !cfg.Service.MockSPIFFE)
+	log.Info("mTLS mode", "enabled", !cfg.Service.MockSPIFFE && !cfg.Service.ListenPlainHTTP)
+	if cfg.Service.ListenPlainHTTP {
+		log.Info("Plain HTTP listener enabled (AuthBridge/Envoy mode)")
+	}
+	log.Info("JWT validation", "enabled", svc.jwtValidator != nil)
 
 	// Start separate plain HTTP health server for Kubernetes probes
 	healthMux := http.NewServeMux()
@@ -264,9 +296,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	// Start main server (mTLS if not in mock mode)
+	// Start main server (mTLS if not in mock mode and not behind Envoy)
 	var serverErr error
-	if !cfg.Service.MockSPIFFE && server.TLSConfig != nil {
+	if !cfg.Service.MockSPIFFE && !cfg.Service.ListenPlainHTTP && server.TLSConfig != nil {
 		serverErr = server.ListenAndServeTLS("", "")
 	} else {
 		serverErr = server.ListenAndServe()
@@ -721,9 +753,42 @@ func (s *DocumentService) handleAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check for JWT access token (AuthBridge token exchange mode)
+	// JWT validation runs first because the caller SPIFFE ID may come from the JWT's azp claim
+	var jwtClaims *auth.AccessTokenClaims
+	if s.jwtValidator != nil {
+		if authHeader := r.Header.Get("Authorization"); strings.HasPrefix(authHeader, "Bearer ") {
+			tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+			claims, jwtErr := s.jwtValidator.ValidateAccessToken(tokenStr)
+			if jwtErr != nil {
+				s.log.Error("JWT validation failed", "error", jwtErr)
+				jsonError(w, "JWT validation failed: "+jwtErr.Error(), http.StatusUnauthorized)
+				return
+			}
+			jwtClaims = claims
+			s.log.Info("JWT validated successfully",
+				"sub", claims.Subject,
+				"aud", []string(claims.Audience),
+				"groups", claims.Groups,
+				"azp", claims.AuthorizedParty)
+
+			// Use JWT groups as user departments if not already provided in request body
+			if len(req.UserDepartments) == 0 && req.Delegation == nil {
+				req.UserDepartments = claims.Groups
+			}
+			if req.Delegation != nil && len(req.Delegation.UserDepartments) == 0 {
+				req.Delegation.UserDepartments = claims.Groups
+			}
+		}
+	}
+
+	// Get caller SPIFFE ID from header, TLS peer cert, or JWT azp claim
 	callerSPIFFEID := r.Header.Get("X-SPIFFE-ID")
 	if callerSPIFFEID == "" {
 		callerSPIFFEID = spiffe.GetSPIFFEIDFromRequest(r)
+	}
+	if callerSPIFFEID == "" && jwtClaims != nil {
+		callerSPIFFEID = jwtClaims.AuthorizedParty
 	}
 	if callerSPIFFEID == "" {
 		s.log.Error("No SPIFFE ID provided")
@@ -735,7 +800,8 @@ func (s *DocumentService) handleAccess(w http.ResponseWriter, r *http.Request) {
 	s.log.Info("Received access request",
 		"document", req.DocumentID,
 		"caller", callerSPIFFEID,
-		"has_delegation", req.Delegation != nil)
+		"has_delegation", req.Delegation != nil,
+		"jwt_authenticated", jwtClaims != nil)
 
 	// Get document metadata
 	meta, err := s.storage.GetMetadata(r.Context(), req.DocumentID)

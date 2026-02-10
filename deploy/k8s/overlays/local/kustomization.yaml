@@ -92,9 +92,14 @@ patches:
       kind: Deployment
       name: document-service
     patch: |-
+      - op: remove
+        path: /spec/template/spec/initContainers
       - op: add
         path: /spec/template/spec/containers/0/imagePullPolicy
         value: Never
+      - op: replace
+        path: /spec/template/spec/containers/0/env/3/value
+        value: "false"
       - op: add
         path: /spec/template/spec/containers/0/ports/-
         value:

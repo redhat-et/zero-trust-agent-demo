@@ -231,7 +231,7 @@ curl -X POST http://localhost:8083/agents/gpt4/access \
 ./scripts/setup-kind.sh
 
 # Deploy to Kind
-./scripts/deploy-app.sh
+kubectl apply -k deploy/k8s/overlays/local
 
 # Port forward for local access
 ./scripts/port-forward.sh

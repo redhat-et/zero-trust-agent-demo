@@ -29,7 +29,7 @@ This document provides operational guidance for deploying, monitoring, and troub
 ./scripts/setup-kind.sh
 
 # Deploy application
-./scripts/deploy-app.sh
+kubectl apply -k deploy/k8s/overlays/local
 
 # Verify deployment
 kubectl get pods -n spiffe-demo

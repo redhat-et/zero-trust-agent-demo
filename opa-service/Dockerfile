@@ -10,7 +10,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /opa-service ./opa-service
 
 FROM alpine:3.23
 
-RUN apk --no-cache add ca-certificates
+RUN apk --no-cache add ca-certificates curl
 
 WORKDIR /app
 COPY --from=builder /opa-service /app/opa-service

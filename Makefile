@@ -119,10 +119,10 @@ delete-kind:
 	@echo "=== Deleting Kind cluster ==="
 	kind delete cluster --name spiffe-demo
 
-# Kubernetes deployment
+# Kubernetes deployment (uses local overlay by default)
 deploy-k8s:
 	@echo "=== Deploying to Kubernetes ==="
-	./scripts/deploy-app.sh
+	kubectl apply -k deploy/k8s/overlays/local
 
 undeploy-k8s:
 	@echo "=== Removing from Kubernetes ==="
@@ -255,6 +255,25 @@ ghcr-list:
 			--jq '.[0:5]|.[]|"  \(.metadata.container.tags|join(", ")) - \(.created_at)"' 2>/dev/null || echo "  (unable to fetch)"; \
 	done
 
+# AuthBridge deployment
+deploy-authbridge:
+	@echo "=== Deploying AuthBridge overlay ==="
+	./scripts/setup-authbridge.sh
+
+test-authbridge:
+	@echo "=== Running AuthBridge tests ==="
+	./scripts/test-authbridge.sh
+
+# AuthBridge with remote Keycloak (Kind + external Keycloak on OpenShift)
+deploy-authbridge-remote-kc:
+	@echo "=== Deploying AuthBridge with remote Keycloak ==="
+	./scripts/setup-authbridge.sh remote-kc
+
+test-authbridge-remote-kc:
+	@echo "=== Running AuthBridge tests against remote Keycloak ==="
+	KEYCLOAK_URL=https://keycloak.example.com \
+		./scripts/test-authbridge.sh
+
 # Development helpers
 fmt:
 	$(GO) fmt ./...
@@ -303,6 +322,12 @@ help:
 	@echo "  make undeploy-k8s   - Remove from Kubernetes"
 	@echo "  make port-forward   - Set up port forwards"
 	@echo "  make delete-kind    - Delete Kind cluster"
+	@echo ""
+	@echo "AuthBridge:"
+	@echo "  make deploy-authbridge            - Deploy AuthBridge overlay to Kind"
+	@echo "  make test-authbridge              - Run AuthBridge token exchange tests"
+	@echo "  make deploy-authbridge-remote-kc  - Deploy with remote Keycloak"
+	@echo "  make test-authbridge-remote-kc    - Test with remote Keycloak"
 	@echo ""
 	@echo "Docker/Podman:"
 	@echo "  make docker-build   - Build Docker images (local)"

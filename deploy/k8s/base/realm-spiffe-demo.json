@@ -1455,16 +1455,45 @@
         "consent.screen.text": "${offlineAccessScopeConsentText}",
         "display.on.consent.screen": "true"
       }
+    },
+    {
+      "id": "f8a1b2c3-d4e5-6789-abcd-ef0123456789",
+      "name": "agent-service-spiffe-aud",
+      "description": "Adds agent-service SPIFFE ID as audience for token exchange",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "false",
+        "display.on.consent.screen": "false",
+        "include.in.openid.provider.metadata": "true"
+      },
+      "protocolMappers": [
+        {
+          "id": "a1b2c3d4-e5f6-7890-abcd-ef0123456789",
+          "name": "agent-service-spiffe-aud",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "spiffe://demo.example.com/service/agent-service",
+            "id.token.claim": "false",
+            "lightweight.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
     }
   ],
   "defaultDefaultClientScopes": [
     "openid",
     "profile",
     "email",
-    "groups"
+    "groups",
+    "agent-service-spiffe-aud"
   ],
   "defaultOptionalClientScopes": [
-    "offline_access"
+    "offline_access",
+    "document-service-aud"
   ],
   "browserSecurityHeaders": {
     "contentSecurityPolicyReportOnly": "",

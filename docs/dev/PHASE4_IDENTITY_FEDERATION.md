@@ -154,7 +154,7 @@ References:
 
 **Objective**: Define realm configuration for reproducible setup.
 
-**File**: `deploy/keycloak/realm-spiffe-demo.json`
+**File**: `deploy/k8s/base/realm-spiffe-demo.json`
 
 ```json
 {

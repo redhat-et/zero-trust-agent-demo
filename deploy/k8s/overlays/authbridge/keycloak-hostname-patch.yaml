@@ -1,0 +1,16 @@
+# Set consistent Keycloak hostname for token issuer claims
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: spiffe-demo
+spec:
+  template:
+    spec:
+      containers:
+        - name: keycloak
+          env:
+            - name: KC_HOSTNAME
+              value: "keycloak.localtest.me"
+            - name: KC_HOSTNAME_STRICT
+              value: "false"

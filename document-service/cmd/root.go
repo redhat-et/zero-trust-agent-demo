@@ -34,6 +34,15 @@ func init() {
 
 	v = config.InitViper("document-service")
 	config.BindFlags(rootCmd, v)
+
+	// JWT validation flags
+	rootCmd.PersistentFlags().Bool("jwt-validation-enabled", false, "Enable JWT access token validation")
+	rootCmd.PersistentFlags().String("jwt-issuer-url", "", "JWT issuer URL (Keycloak realm URL)")
+	rootCmd.PersistentFlags().String("jwt-expected-audience", "document-service", "Expected JWT audience")
+
+	v.BindPFlag("jwt.validation_enabled", rootCmd.PersistentFlags().Lookup("jwt-validation-enabled"))
+	v.BindPFlag("jwt.issuer_url", rootCmd.PersistentFlags().Lookup("jwt-issuer-url"))
+	v.BindPFlag("jwt.expected_audience", rootCmd.PersistentFlags().Lookup("jwt-expected-audience"))
 }
 
 func initConfig() {
