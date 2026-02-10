@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	DefaultTokenURL = "https://keycloak-spiffe-demo.apps.ocp-beta-test.nerc.mghpcc.org/realms/spiffe-demo/protocol/openid-connect/token"
+	DefaultTokenURL = "https://keycloak.example.com/realms/spiffe-demo/protocol/openid-connect/token"
 )
 
 //

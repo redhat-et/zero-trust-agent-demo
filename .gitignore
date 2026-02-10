@@ -55,6 +55,9 @@ secrets/
 deploy/k8s/overlays/openshift-oidc/oidc-urls-configmap.yaml
 deploy/k8s/overlays/openshift-oidc/keycloak-realm-patch.yaml
 
+# AuthBridge remote Keycloak settings (user-specific, copy from .example)
+deploy/k8s/overlays/authbridge-remote-kc/settings.yaml
+
 # Debug files
 debug
 *.prof

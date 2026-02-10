@@ -15,6 +15,6 @@ configMapGenerator:
     - name: keycloak-realm
       namespace: spiffe-demo
       files:
-        - realm-spiffe-demo.json=../../keycloak/realm-spiffe-demo.json
+        - realm-spiffe-demo.json
       options:
         disableNameSuffixHash: true

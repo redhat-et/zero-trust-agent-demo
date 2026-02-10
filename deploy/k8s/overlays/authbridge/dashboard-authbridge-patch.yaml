@@ -1,0 +1,18 @@
+# Override dashboard service URLs to use HTTP.
+# Agent-service has Envoy inbound iptables that expect plain HTTP.
+# Document-service listens on plain HTTP (listen_plain_http=true).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-dashboard
+  namespace: spiffe-demo
+spec:
+  template:
+    spec:
+      containers:
+        - name: web-dashboard
+          env:
+            - name: SPIFFE_DEMO_AGENT_SERVICE_URL
+              value: "http://agent-service:8083"
+            - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
+              value: "http://document-service:8084"

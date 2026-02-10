@@ -446,7 +446,7 @@ deploy/k8s/overlays/
 #### Kind cluster
 
 ```bash
-./scripts/deploy-app.sh
+kubectl apply -k deploy/k8s/overlays/local
 ```
 
 #### OpenShift (without AI agents)

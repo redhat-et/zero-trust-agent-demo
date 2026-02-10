@@ -295,7 +295,7 @@ After configuring via Admin Console, export the realm for reproducible deploymen
 
 1. **Realm Settings** → **Action** → **Partial export**
 2. Enable "Export clients" and "Export groups and roles"
-3. Save to `deploy/keycloak/realm-spiffe-demo.json`
+3. Save to `deploy/k8s/base/realm-spiffe-demo.json`
 
 **Note**: Client secrets are masked in exports. Set them via environment variables or regenerate after import.
 

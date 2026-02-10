@@ -108,9 +108,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 	mux.HandleFunc("/agents/", svc.handleAgentRoutes)
 
 	// Wrap with SPIFFE identity middleware
-	handler := spiffe.IdentityMiddleware(cfg.Service.MockSPIFFE)(mux)
+	// In plain HTTP mode (behind Envoy proxy), use header-based identity like mock mode
+	handler := spiffe.IdentityMiddleware(cfg.Service.MockSPIFFE || cfg.Service.ListenPlainHTTP)(mux)
 
-	server := workloadClient.CreateHTTPServer(cfg.Service.Addr(), handler)
+	var server *http.Server
+	if cfg.Service.ListenPlainHTTP {
+		server = &http.Server{Addr: cfg.Service.Addr(), Handler: handler}
+	} else {
+		server = workloadClient.CreateHTTPServer(cfg.Service.Addr(), handler)
+	}
 	server.ReadTimeout = 10 * time.Second
 	server.WriteTimeout = 30 * time.Second
 
@@ -140,7 +146,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	log.Info("Trust domain", "domain", cfg.SPIFFE.TrustDomain)
 	log.Info("Document service", "url", cfg.DocumentServiceURL)
 	log.Info("Loaded agents", "count", len(svc.store.List()))
-	log.Info("mTLS mode", "enabled", !cfg.Service.MockSPIFFE)
+	log.Info("mTLS mode", "enabled", !cfg.Service.MockSPIFFE && !cfg.Service.ListenPlainHTTP)
+	log.Info("Plain HTTP mode", "enabled", cfg.Service.ListenPlainHTTP)
 
 	for _, agent := range svc.store.List() {
 		log.Info("Registered agent",
@@ -166,9 +173,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	// Start main server (mTLS if not in mock mode)
+	// Start main server (mTLS if not in mock or plain HTTP mode)
 	var serverErr error
-	if !cfg.Service.MockSPIFFE && server.TLSConfig != nil {
+	if !cfg.Service.MockSPIFFE && !cfg.Service.ListenPlainHTTP && server.TLSConfig != nil {
 		serverErr = server.ListenAndServeTLS("", "")
 	} else {
 		serverErr = server.ListenAndServe()

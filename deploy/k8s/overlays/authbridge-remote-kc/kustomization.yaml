@@ -1,0 +1,86 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: spiffe-demo-authbridge-remote-kc
+
+# Build on top of the authbridge overlay, replacing in-cluster Keycloak
+# with a remote instance.
+#
+# Before deploying, copy settings.yaml.example to settings.yaml and
+# fill in your Keycloak URL and admin password:
+#   cp settings.yaml.example settings.yaml
+resources:
+  - ../authbridge
+  - settings.yaml
+
+patches:
+  # Scale in-cluster Keycloak to 0 (using remote instance)
+  - path: keycloak-scale-patch.yaml
+  # Exclude port 443 (HTTPS) instead of 8080 from iptables interception
+  - path: remote-kc-agent-service-patch.yaml
+
+# Inject values from settings.yaml into the right resources.
+# The settings ConfigMap is annotated with local-config and will not
+# be deployed to the cluster.
+replacements:
+  # Keycloak base URL for client-registration container
+  - source:
+      kind: ConfigMap
+      name: remote-kc-settings
+      fieldPath: data.keycloak-url
+    targets:
+      - select:
+          kind: ConfigMap
+          name: authbridge-environments
+        fieldPaths:
+          - data.KEYCLOAK_URL
+
+  # Keycloak admin password for client-registration
+  - source:
+      kind: ConfigMap
+      name: remote-kc-settings
+      fieldPath: data.admin-password
+    targets:
+      - select:
+          kind: ConfigMap
+          name: authbridge-environments
+        fieldPaths:
+          - data.KEYCLOAK_ADMIN_PASSWORD
+
+  # Token exchange endpoint for Envoy ext-proc
+  - source:
+      kind: ConfigMap
+      name: remote-kc-settings
+      fieldPath: data.token-url
+    targets:
+      - select:
+          kind: Secret
+          name: authbridge-proxy-config
+        fieldPaths:
+          - stringData.TOKEN_URL
+
+  # Issuer URL -- used by three components:
+  #   1. Envoy ext-proc (proxy config secret)
+  #   2. Document-service (JWT validation)
+  #   3. Web dashboard (OIDC login)
+  - source:
+      kind: ConfigMap
+      name: remote-kc-settings
+      fieldPath: data.issuer-url
+    targets:
+      - select:
+          kind: Secret
+          name: authbridge-proxy-config
+        fieldPaths:
+          - stringData.ISSUER
+      - select:
+          kind: Deployment
+          name: document-service
+        fieldPaths:
+          - spec.template.spec.containers.[name=document-service].env.[name=SPIFFE_DEMO_JWT_ISSUER_URL].value
+      - select:
+          kind: Deployment
+          name: web-dashboard
+        fieldPaths:
+          - spec.template.spec.containers.[name=web-dashboard].env.[name=SPIFFE_DEMO_OIDC_ISSUER_URL].value

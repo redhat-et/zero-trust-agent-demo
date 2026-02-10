@@ -15,6 +15,8 @@ SERVICES=(
     "user-service"
     "agent-service"
     "web-dashboard"
+    "summarizer-service"
+    "reviewer-service"
 )
 
 IMAGE_PREFIX="localhost/spiffe-demo"

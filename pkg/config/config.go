@@ -12,11 +12,12 @@ import (
 
 // ServiceConfig holds common service configuration
 type ServiceConfig struct {
-	Port       int    `mapstructure:"port"`
-	HealthPort int    `mapstructure:"health_port"`
-	Host       string `mapstructure:"host"`
-	MockSPIFFE bool   `mapstructure:"mock_spiffe"`
-	LogLevel   string `mapstructure:"log_level"`
+	Port           int    `mapstructure:"port"`
+	HealthPort     int    `mapstructure:"health_port"`
+	Host           string `mapstructure:"host"`
+	MockSPIFFE     bool   `mapstructure:"mock_spiffe"`
+	ListenPlainHTTP bool  `mapstructure:"listen_plain_http"`
+	LogLevel       string `mapstructure:"log_level"`
 }
 
 // HealthAddr returns the health check listen address (plain HTTP)
@@ -91,6 +92,7 @@ func setDefaults(v *viper.Viper, serviceName string) {
 	// Service defaults
 	v.SetDefault("service.host", "0.0.0.0")
 	v.SetDefault("service.mock_spiffe", true)
+	v.SetDefault("service.listen_plain_http", false)
 	v.SetDefault("service.log_level", "info")
 
 	// Port defaults based on service name
@@ -161,6 +163,7 @@ func BindFlags(cmd *cobra.Command, v *viper.Viper) {
 	cmd.PersistentFlags().IntP("port", "p", 0, "Port to listen on")
 	cmd.PersistentFlags().String("host", "", "Host to bind to")
 	cmd.PersistentFlags().Bool("mock-spiffe", true, "Use mock SPIFFE mode (no SPIRE required)")
+	cmd.PersistentFlags().Bool("listen-plain-http", false, "Listen on plain HTTP instead of mTLS (for use behind Envoy proxy)")
 	cmd.PersistentFlags().String("log-level", "info", "Log level (debug, info, warn, error)")
 	cmd.PersistentFlags().String("opa-host", "", "OPA service host")
 	cmd.PersistentFlags().Int("opa-port", 0, "OPA service port")
@@ -168,6 +171,7 @@ func BindFlags(cmd *cobra.Command, v *viper.Viper) {
 	v.BindPFlag("service.port", cmd.PersistentFlags().Lookup("port"))
 	v.BindPFlag("service.host", cmd.PersistentFlags().Lookup("host"))
 	v.BindPFlag("service.mock_spiffe", cmd.PersistentFlags().Lookup("mock-spiffe"))
+	v.BindPFlag("service.listen_plain_http", cmd.PersistentFlags().Lookup("listen-plain-http"))
 	v.BindPFlag("service.log_level", cmd.PersistentFlags().Lookup("log-level"))
 	v.BindPFlag("opa.host", cmd.PersistentFlags().Lookup("opa-host"))
 	v.BindPFlag("opa.port", cmd.PersistentFlags().Lookup("opa-port"))
