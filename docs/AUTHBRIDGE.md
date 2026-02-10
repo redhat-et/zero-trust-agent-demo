@@ -456,6 +456,65 @@ Alternatively, add the scope manually via the Keycloak admin UI:
 1. Add `agent-service-spiffe-aud` to default scopes
 1. Add `document-service-aud` to optional scopes (if not already present)
 
+## Security model
+
+### Why plain HTTP between services?
+
+The AuthBridge overlay switches inter-service communication from mTLS to plain
+HTTP. This is expected and secure for several reasons.
+
+### JWT replaces mTLS for authentication
+
+In the `local` overlay, services authenticate each other via mutual TLS: each
+service presents its SPIFFE X.509 SVID, and the peer verifies it against the
+SPIRE trust bundle. This gives you both encryption and identity.
+
+With AuthBridge, JWT tokens take over the authentication role. Every request
+from agent-service to document-service carries a signed JWT that has been
+exchanged by Envoy for the correct audience. Document-service validates the JWT
+signature against Keycloak's JWKS endpoint and checks the `aud`, `iss`, and
+`exp` claims. The JWT provides cryptographic proof of identity just as the TLS
+certificate did, but through a different mechanism.
+
+### Cluster-internal traffic is isolated
+
+All plain HTTP traffic stays within the Kubernetes cluster network. Services
+communicate via ClusterIP addresses that are not routable from outside the
+cluster. The Kubernetes network model provides pod-to-pod isolation, and
+NetworkPolicies can further restrict which pods can talk to each other.
+
+This is the same trust model used by every major service mesh: Istio, Linkerd,
+and Envoy-based architectures all terminate TLS at the sidecar proxy and
+forward plain HTTP to the application container within the same pod.
+
+### Defense in depth
+
+The AuthBridge overlay provides multiple security layers:
+
+| Layer | Mechanism | What it protects |
+| ----- | --------- | ---------------- |
+| Identity | SPIFFE/SPIRE SVIDs | Workload identity is cryptographically attested |
+| Authentication | JWT validation (JWKS signature, audience, issuer) | Only tokens issued by the trusted Keycloak instance are accepted |
+| Authorization | OPA policy evaluation (permission intersection) | Agents can never exceed the intersection of user and agent permissions |
+| Token scoping | RFC 8693 token exchange | Tokens are scoped to the target service audience |
+| Network | Kubernetes cluster network | Inter-service traffic is not externally routable |
+| OPA transport | mTLS | Document-service to OPA communication remains mTLS-protected |
+
+### Production deployment
+
+For production environments that require encryption of all inter-service
+traffic, add a service mesh (Istio, Linkerd, or OpenShift Service Mesh) on top
+of the AuthBridge overlay. The mesh provides transparent mTLS at the
+infrastructure level, so the application-level JWT authentication and the
+network-level encryption are complementary:
+
+- **Service mesh mTLS**: encrypts traffic, prevents eavesdropping
+- **JWT tokens**: authenticate the caller, carry audience and group claims
+- **OPA policies**: authorize access based on permission intersection
+
+This layered approach is the standard pattern for zero-trust architectures in
+Kubernetes.
+
 ## Backward compatibility
 
 The AuthBridge overlay extends the `local` overlay. Deploying with the

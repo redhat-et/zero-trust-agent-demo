@@ -1,0 +1,18 @@
+# Override user-service URLs to use HTTP.
+# Document-service listens on plain HTTP (listen_plain_http=true).
+# Agent-service has Envoy inbound iptables that expect plain HTTP.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: spiffe-demo
+spec:
+  template:
+    spec:
+      containers:
+        - name: user-service
+          env:
+            - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
+              value: "http://document-service:8084"
+            - name: SPIFFE_DEMO_AGENT_SERVICE_URL
+              value: "http://agent-service:8083"

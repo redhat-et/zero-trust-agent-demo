@@ -13,4 +13,6 @@ resources:
 patches:
   - path: agent-service-authbridge-patch.yaml
   - path: document-service-jwt-patch.yaml
+  - path: dashboard-authbridge-patch.yaml
+  - path: user-service-authbridge-patch.yaml
   - path: keycloak-hostname-patch.yaml

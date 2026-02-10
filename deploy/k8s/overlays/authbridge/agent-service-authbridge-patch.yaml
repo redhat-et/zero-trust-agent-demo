@@ -40,9 +40,12 @@ spec:
               cpu: 10m
               memory: 10Mi
       containers:
-        # Override document-service URL to use HTTP (Envoy handles token exchange)
+        # Agent-service: listen on plain HTTP (Envoy inbound intercepts and forwards HTTP)
+        # and use HTTP URL for document-service (Envoy outbound handles token exchange)
         - name: agent-service
           env:
+            - name: SPIFFE_DEMO_SERVICE_LISTEN_PLAIN_HTTP
+              value: "true"
             - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
               value: "http://document-service:8084"
         # spiffe-helper: fetches JWT SVID from SPIRE agent
