@@ -1,0 +1,24 @@
+# Enable JWT validation and plain HTTP listener on document-service.
+# Plain HTTP is required because Envoy transparent proxy sends HTTP, not mTLS.
+# The service still uses mTLS for outbound OPA calls.
+#
+# Kept in sync with ../authbridge/document-service-jwt-patch.yaml.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: document-service
+  namespace: spiffe-demo
+spec:
+  template:
+    spec:
+      containers:
+        - name: document-service
+          env:
+            - name: SPIFFE_DEMO_JWT_VALIDATION_ENABLED
+              value: "true"
+            - name: SPIFFE_DEMO_JWT_ISSUER_URL
+              value: "http://keycloak.localtest.me:8080/realms/spiffe-demo"
+            - name: SPIFFE_DEMO_JWT_EXPECTED_AUDIENCE
+              value: "document-service"
+            - name: SPIFFE_DEMO_SERVICE_LISTEN_PLAIN_HTTP
+              value: "true"

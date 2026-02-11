@@ -1,4 +1,5 @@
-.PHONY: all build test clean run-local run-kind setup-kind deploy-k8s docker-build docker-load help
+.PHONY: all build test clean run-local run-kind setup-kind deploy-k8s docker-build docker-load help \
+	deploy-openshift-authbridge deploy-openshift-authbridge-quick test-openshift-authbridge
 
 # Variables
 BINARY_DIR := bin
@@ -274,6 +275,38 @@ test-authbridge-remote-kc:
 	KEYCLOAK_URL=https://keycloak.example.com \
 		./scripts/test-authbridge.sh
 
+# AuthBridge on OpenShift (remote Keycloak via OpenShift Route)
+deploy-openshift-authbridge: check-deps podman-dev
+	@echo "=== Deploying AuthBridge to OpenShift with tag $(DEV_TAG) ==="
+	@echo "Updating kustomization with new image tags..."
+	@cd deploy/k8s/overlays/openshift-authbridge && \
+	for svc in $(BASE_SERVICES); do \
+		kustomize edit set image $(REGISTRY)/$$svc:$(DEV_TAG); \
+	done
+	oc apply -k deploy/k8s/overlays/openshift-authbridge
+	@echo ""
+	@echo "Deployed with images tagged: $(DEV_TAG)"
+	@echo "To rollback: make deploy-openshift-authbridge DEV_TAG=<previous-sha>"
+
+deploy-openshift-authbridge-quick:
+	@echo "=== Quick deploy AuthBridge to OpenShift with tag $(DEV_TAG) ==="
+	@cd deploy/k8s/overlays/openshift-authbridge && \
+	for svc in $(BASE_SERVICES); do \
+		kustomize edit set image $(REGISTRY)/$$svc:$(DEV_TAG); \
+	done
+	oc apply -k deploy/k8s/overlays/openshift-authbridge
+	@echo "Deployed with tag: $(DEV_TAG)"
+
+test-openshift-authbridge:
+	@echo "=== Running AuthBridge tests on OpenShift ==="
+	$(eval KC_ROUTE := $(shell oc get route keycloak -n spiffe-demo -o jsonpath='{.spec.host}' 2>/dev/null))
+	@if [ -z "$(KC_ROUTE)" ]; then \
+		echo "ERROR: Could not detect Keycloak Route. Is it deployed?"; \
+		exit 1; \
+	fi
+	KEYCLOAK_URL=https://$(KC_ROUTE) \
+		./scripts/test-authbridge.sh
+
 # Development helpers
 fmt:
 	$(GO) fmt ./...
@@ -328,6 +361,11 @@ help:
 	@echo "  make test-authbridge              - Run AuthBridge token exchange tests"
 	@echo "  make deploy-authbridge-remote-kc  - Deploy with remote Keycloak"
 	@echo "  make test-authbridge-remote-kc    - Test with remote Keycloak"
+	@echo ""
+	@echo "AuthBridge on OpenShift:"
+	@echo "  make deploy-openshift-authbridge        - Build, push, deploy AuthBridge to OpenShift"
+	@echo "  make deploy-openshift-authbridge-quick  - Deploy without rebuild"
+	@echo "  make test-openshift-authbridge          - Run AuthBridge tests on OpenShift"
 	@echo ""
 	@echo "Docker/Podman:"
 	@echo "  make docker-build   - Build Docker images (local)"

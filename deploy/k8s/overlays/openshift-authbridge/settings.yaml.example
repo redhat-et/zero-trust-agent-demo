@@ -1,0 +1,35 @@
+# Keycloak settings for AuthBridge on OpenShift.
+#
+# Copy this file to settings.yaml and fill in your values:
+#   cp settings.yaml.example settings.yaml
+#
+# settings.yaml is gitignored and will not be committed.
+#
+# To get your cluster domain:
+#   CLUSTER_DOMAIN=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}')
+#
+# Then replace CLUSTER_DOMAIN below with the actual value, e.g.:
+#   apps.my-cluster.example.com
+#
+# The issuer-url is reused for the proxy config, document-service JWT
+# validation, and dashboard OIDC -- you only need to set it once here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: remote-kc-settings
+  namespace: spiffe-demo
+  annotations:
+    config.kubernetes.io/local-config: "true"
+data:
+  # Base URL of your Keycloak instance (no trailing slash)
+  # Use the OpenShift Route URL for Keycloak
+  keycloak-url: "https://keycloak-spiffe-demo.CLUSTER_DOMAIN"
+
+  # Keycloak admin password for client-registration
+  admin-password: "CHANGE_ME"
+
+  # Full realm issuer URL (used by proxy, document-service, and dashboard)
+  issuer-url: "https://keycloak-spiffe-demo.CLUSTER_DOMAIN/realms/spiffe-demo"
+
+  # Keycloak token endpoint (for Envoy ext-proc token exchange)
+  token-url: "https://keycloak-spiffe-demo.CLUSTER_DOMAIN/realms/spiffe-demo/protocol/openid-connect/token"

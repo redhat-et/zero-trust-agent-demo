@@ -1,0 +1,218 @@
+# Strategic merge patch to add AuthBridge sidecar containers to agent-service.
+#
+# OpenShift-specific version with:
+#   - OUTBOUND_PORTS_EXCLUDE=443 (HTTPS to remote Keycloak)
+#   - seLinuxOptions.type=spc_t on all containers/initContainers for CSI
+#     driver socket access (same as the base openshift overlay applies to
+#     containers/0)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-service
+  namespace: spiffe-demo
+spec:
+  template:
+    metadata:
+      labels:
+        app: agent-service
+    spec:
+      initContainers:
+        # proxy-init: sets up iptables to intercept outbound traffic
+        - name: proxy-init
+          image: ghcr.io/kagenti/kagenti-extensions/proxy-init:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+                - NET_RAW
+            runAsNonRoot: false
+            runAsUser: 0
+            seLinuxOptions:
+              type: spc_t
+          env:
+            - name: PROXY_PORT
+              value: "15123"
+            - name: INBOUND_PROXY_PORT
+              value: "15124"
+            - name: PROXY_UID
+              value: "1337"
+            # Exclude HTTPS port so client-registration can reach remote Keycloak
+            - name: OUTBOUND_PORTS_EXCLUDE
+              value: "443"
+          resources:
+            limits:
+              cpu: 10m
+              memory: 10Mi
+            requests:
+              cpu: 10m
+              memory: 10Mi
+      containers:
+        # Agent-service: listen on plain HTTP (Envoy inbound intercepts and forwards HTTP)
+        # and use HTTP URL for document-service (Envoy outbound handles token exchange)
+        - name: agent-service
+          env:
+            - name: SPIFFE_DEMO_SERVICE_LISTEN_PLAIN_HTTP
+              value: "true"
+            - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
+              value: "http://document-service:8084"
+        # spiffe-helper: fetches JWT SVID from SPIRE agent
+        - name: spiffe-helper
+          image: ghcr.io/spiffe/spiffe-helper:nightly
+          command:
+            - /spiffe-helper
+            - -config=/etc/spiffe-helper/helper.conf
+            - run
+          securityContext:
+            seLinuxOptions:
+              type: spc_t
+          volumeMounts:
+            - name: authbridge-spiffe-helper-config
+              mountPath: /etc/spiffe-helper
+            - name: spire-agent-socket
+              mountPath: /run/spire/agent-sockets
+              readOnly: true
+            - name: svid-output
+              mountPath: /opt
+        # client-registration: registers agent-service with Keycloak using SPIFFE ID
+        - name: client-registration
+          image: ghcr.io/kagenti/kagenti-extensions/client-registration:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Waiting for SPIFFE credentials..."
+              while [ ! -f /opt/jwt_svid.token ]; do
+                echo "Waiting for SVID..."
+                sleep 2
+              done
+              echo "SPIFFE credentials ready!"
+
+              # Extract and save the client ID (SPIFFE ID) from the JWT
+              JWT_PAYLOAD=$(cat /opt/jwt_svid.token | cut -d'.' -f2)
+              CLIENT_ID=$(echo "$JWT_PAYLOAD"== | base64 -d 2>/dev/null | python -c "import sys,json; print(json.load(sys.stdin).get('sub',''))")
+              echo "$CLIENT_ID" > /shared/client-id.txt
+              echo "Client ID (SPIFFE ID): $CLIENT_ID"
+
+              echo "Starting client registration..."
+              python client_registration.py
+              echo "Client registration complete!"
+              echo "Staying alive to keep pod running..."
+              tail -f /dev/null
+          securityContext:
+            seLinuxOptions:
+              type: spc_t
+          env:
+            - name: SPIRE_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: authbridge-environments
+                  key: SPIRE_ENABLED
+            - name: KEYCLOAK_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: authbridge-environments
+                  key: KEYCLOAK_URL
+            - name: KEYCLOAK_REALM
+              valueFrom:
+                configMapKeyRef:
+                  name: authbridge-environments
+                  key: KEYCLOAK_REALM
+            - name: KEYCLOAK_ADMIN_USERNAME
+              valueFrom:
+                configMapKeyRef:
+                  name: authbridge-environments
+                  key: KEYCLOAK_ADMIN_USERNAME
+            - name: KEYCLOAK_ADMIN_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: authbridge-environments
+                  key: KEYCLOAK_ADMIN_PASSWORD
+            - name: KEYCLOAK_TOKEN_EXCHANGE_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: authbridge-environments
+                  key: KEYCLOAK_TOKEN_EXCHANGE_ENABLED
+            - name: KEYCLOAK_CLIENT_REGISTRATION_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: authbridge-environments
+                  key: KEYCLOAK_CLIENT_REGISTRATION_ENABLED
+            - name: CLIENT_NAME
+              value: agent-service
+            - name: SECRET_FILE_PATH
+              value: /shared/client-secret.txt
+          volumeMounts:
+            - name: shared-data
+              mountPath: /shared
+            - name: svid-output
+              mountPath: /opt
+        # envoy-proxy: intercepts outbound traffic and exchanges tokens
+        - name: envoy-proxy
+          image: ghcr.io/kagenti/kagenti-extensions/envoy-with-processor:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 1337
+            runAsGroup: 1337
+            seLinuxOptions:
+              type: spc_t
+          ports:
+            - containerPort: 15123
+              name: envoy-outbound
+            - containerPort: 15124
+              name: envoy-inbound
+            - containerPort: 9901
+              name: envoy-admin
+            - containerPort: 9090
+              name: ext-proc
+          env:
+            - name: TOKEN_URL
+              valueFrom:
+                secretKeyRef:
+                  name: authbridge-proxy-config
+                  key: TOKEN_URL
+            - name: ISSUER
+              valueFrom:
+                secretKeyRef:
+                  name: authbridge-proxy-config
+                  key: ISSUER
+            - name: TARGET_AUDIENCE
+              valueFrom:
+                secretKeyRef:
+                  name: authbridge-proxy-config
+                  key: TARGET_AUDIENCE
+            - name: TARGET_SCOPES
+              valueFrom:
+                secretKeyRef:
+                  name: authbridge-proxy-config
+                  key: TARGET_SCOPES
+            - name: CLIENT_ID_FILE
+              value: "/shared/client-id.txt"
+            - name: CLIENT_SECRET_FILE
+              value: "/shared/client-secret.txt"
+          volumeMounts:
+            - name: authbridge-envoy-config
+              mountPath: /etc/envoy
+              readOnly: true
+            - name: shared-data
+              mountPath: /shared
+              readOnly: true
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+      volumes:
+        - name: shared-data
+          emptyDir: {}
+        - name: svid-output
+          emptyDir: {}
+        - name: authbridge-spiffe-helper-config
+          configMap:
+            name: authbridge-spiffe-helper-config
+        - name: authbridge-envoy-config
+          configMap:
+            name: authbridge-envoy-config
