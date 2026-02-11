@@ -1,0 +1,111 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: spiffe-demo-openshift-authbridge
+
+# Build on top of the openshift-ai-agents overlay (OpenShift Routes + OIDC +
+# AI agent services) and add AuthBridge sidecars for JWT token exchange.
+#
+# Before deploying,
+# copy settings.yaml.example to settings.yaml and fill in your values:
+#   cp settings.yaml.example settings.yaml
+#
+# Also ensure openshift-oidc template files exist:
+#   CLUSTER_DOMAIN=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}')
+#   cd deploy/k8s/overlays/openshift-oidc
+#   sed "s/CLUSTER_DOMAIN/$CLUSTER_DOMAIN/g" oidc-urls-configmap.yaml.template > oidc-urls-configmap.yaml
+#   sed "s/CLUSTER_DOMAIN/$CLUSTER_DOMAIN/g" keycloak-realm-patch.yaml.template > keycloak-realm-patch.yaml
+resources:
+- ../openshift-ai-agents
+- authbridge-configmaps.yaml
+- authbridge-secrets.yaml
+- settings.yaml
+
+  # OpenShift-specific agent-service sidecar patch (SELinux + port 443)
+  # Document-service JWT validation
+  # Dashboard AuthBridge env vars
+  # User-service plain HTTP
+  # AI agents: switch to http:// for document-service
+patches:
+- path: agent-service-authbridge-openshift-patch.yaml
+- path: document-service-jwt-patch.yaml
+- path: dashboard-authbridge-patch.yaml
+- path: user-service-authbridge-patch.yaml
+- path: ai-agents-authbridge-patch.yaml
+
+# Inject values from settings.yaml into the right resources.
+# The settings ConfigMap is annotated with local-config and will not
+# be deployed to the cluster.
+  # Keycloak base URL for client-registration container
+
+  # Keycloak admin password for client-registration
+
+  # Token exchange endpoint for Envoy ext-proc
+
+  # Issuer URL -- used by three components:
+  #   1. Envoy ext-proc (proxy config secret)
+  #   2. Document-service (JWT validation)
+  #   3. Web dashboard (OIDC login, via oidc-urls ConfigMap from openshift-oidc)
+replacements:
+- source:
+    fieldPath: data.keycloak-url
+    kind: ConfigMap
+    name: remote-kc-settings
+  targets:
+  - fieldPaths:
+    - data.KEYCLOAK_URL
+    select:
+      kind: ConfigMap
+      name: authbridge-environments
+- source:
+    fieldPath: data.admin-password
+    kind: ConfigMap
+    name: remote-kc-settings
+  targets:
+  - fieldPaths:
+    - data.KEYCLOAK_ADMIN_PASSWORD
+    select:
+      kind: ConfigMap
+      name: authbridge-environments
+- source:
+    fieldPath: data.token-url
+    kind: ConfigMap
+    name: remote-kc-settings
+  targets:
+  - fieldPaths:
+    - stringData.TOKEN_URL
+    select:
+      kind: Secret
+      name: authbridge-proxy-config
+- source:
+    fieldPath: data.issuer-url
+    kind: ConfigMap
+    name: remote-kc-settings
+  targets:
+  - fieldPaths:
+    - stringData.ISSUER
+    select:
+      kind: Secret
+      name: authbridge-proxy-config
+  - fieldPaths:
+    - spec.template.spec.containers.[name=document-service].env.[name=SPIFFE_DEMO_JWT_ISSUER_URL].value
+    select:
+      kind: Deployment
+      name: document-service
+  - fieldPaths:
+    - data.SPIFFE_DEMO_OIDC_ISSUER_URL
+    select:
+      kind: ConfigMap
+      name: oidc-urls
+images:
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/agent-service
+  newTag: d41994f-dirty
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/document-service
+  newTag: d41994f-dirty
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/opa-service
+  newTag: d41994f-dirty
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/user-service
+  newTag: d41994f-dirty
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/web-dashboard
+  newTag: d41994f-dirty

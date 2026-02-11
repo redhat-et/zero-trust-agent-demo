@@ -97,6 +97,7 @@ extends a base or another overlay and adds environment-specific configuration.
 | `openshift` | `oc apply -k deploy/k8s/overlays/openshift` | Extends `ghcr` with OpenShift Routes and SELinux security contexts. |
 | `openshift-oidc` | `oc apply -k deploy/k8s/overlays/openshift-oidc` | Extends `openshift` with Keycloak Route and OIDC authentication. |
 | `openshift-ai-agents` | `oc apply -k deploy/k8s/overlays/openshift-ai-agents` | Extends `openshift-oidc` with AI agent services and LiteLLM. |
+| `openshift-authbridge` | `oc apply -k deploy/k8s/overlays/openshift-authbridge` | Extends `openshift-ai-agents` with AuthBridge sidecars. |
 | `openshift-storage` | `oc apply -k deploy/k8s/overlays/openshift-storage` | Extends `openshift` with object storage (OBC) for document persistence. |
 
 ### Overlay inheritance
@@ -112,6 +113,7 @@ base
     └── openshift
         ├── openshift-oidc
         │   └── openshift-ai-agents
+        │       └── openshift-authbridge
         └── openshift-storage
 ```
 
@@ -225,6 +227,104 @@ To use a different Keycloak instance, edit `settings.yaml` in
 `deploy/k8s/overlays/authbridge-remote-kc/`. All four values derive from the
 hostname. Kustomize `replacements` propagate them to the ConfigMap, Secret, and
 Deployment env vars automatically.
+
+### OpenShift deployment
+
+The `openshift-authbridge` overlay extends `openshift-ai-agents` with
+AuthBridge sidecars and adds SELinux `spc_t` contexts to all sidecar
+containers for CSI driver socket access. It also patches the summarizer
+and reviewer services to use plain HTTP for document-service (since
+document-service now listens on plain HTTP via AuthBridge).
+
+#### Prerequisites
+
+- OpenShift cluster with `oc` CLI logged in
+- SPIRE installed in `spire-system` namespace
+- `privileged` SCC granted to the default ServiceAccount (the setup script
+  handles this automatically)
+- `openshift-oidc` template files generated (see below)
+
+#### Generate openshift-oidc templates
+
+The overlay inherits from `openshift-oidc`, which requires cluster-specific
+files generated from templates:
+
+```bash
+CLUSTER_DOMAIN=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}')
+cd deploy/k8s/overlays/openshift-oidc
+sed "s/CLUSTER_DOMAIN/$CLUSTER_DOMAIN/g" oidc-urls-configmap.yaml.template > oidc-urls-configmap.yaml
+sed "s/CLUSTER_DOMAIN/$CLUSTER_DOMAIN/g" keycloak-realm-patch.yaml.template > keycloak-realm-patch.yaml
+```
+
+#### Configure settings
+
+```bash
+cd deploy/k8s/overlays/openshift-authbridge
+cp settings.yaml.example settings.yaml
+
+# Replace CLUSTER_DOMAIN with your actual domain
+CLUSTER_DOMAIN=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}')
+sed -i "s/CLUSTER_DOMAIN/$CLUSTER_DOMAIN/g" settings.yaml
+
+# Set your Keycloak admin password
+vi settings.yaml
+```
+
+#### Deploy
+
+```bash
+# Full build + push + deploy
+make deploy-openshift-authbridge
+
+# Or without rebuild
+make deploy-openshift-authbridge-quick
+
+# Or using the setup script directly
+./scripts/setup-openshift-authbridge.sh
+```
+
+#### Verify
+
+```bash
+# Run automated tests
+make test-openshift-authbridge
+
+# Check containers
+oc get pod -l app=agent-service -n spiffe-demo \
+  -o jsonpath='{.items[0].spec.containers[*].name}'
+# Expected: agent-service client-registration spiffe-helper envoy-proxy
+
+# Check client registration
+oc logs deployment/agent-service -n spiffe-demo -c client-registration
+```
+
+#### What the overlay changes vs Kind AuthBridge
+
+| Component | Kind (authbridge) | OpenShift (openshift-authbridge) |
+| --------- | ----------------- | -------------------------------- |
+| Base overlay | `local` | `openshift-ai-agents` |
+| Keycloak | In-cluster | In-cluster (via openshift-oidc) |
+| iptables exclude | Port 8080 (HTTP) | Port 443 (HTTPS) |
+| SELinux context | Not needed | `spc_t` on all containers |
+| Settings | N/A | `settings.yaml` (gitignored) |
+| SCC | N/A | `privileged` (for proxy-init) |
+
+#### iptables vs nftables
+
+OpenShift on RHEL 9 uses nftables by default, but the `iptables-nft`
+compatibility layer is available on CoreOS nodes. The proxy-init container
+uses iptables commands which work through this compatibility layer.
+
+If proxy-init fails with iptables errors:
+
+```bash
+# Check proxy-init logs
+oc logs deployment/agent-service -n spiffe-demo -c proxy-init
+
+# Verify iptables compatibility on a node
+oc debug node/<node-name> -- chroot /host iptables --version
+# Expected: iptables v1.8.x (nf_tables)
+```
 
 ## Verification
 

@@ -1,6 +1,11 @@
 # Keycloak realm ConfigMap patch for OpenShift
 #
-# IMPORTANT: Replace CLUSTER_DOMAIN with your actual OpenShift cluster domain
+# This replaces the base realm-spiffe-demo.json with a version that includes:
+#   - Human users (alice, bob, carol, david)
+#   - AuthBridge clients (agent-service, document-service, admin-permissions)
+#   - Token exchange policies
+#   - OpenShift Route redirect URIs
+#
 # Generate with:
 #   CLUSTER_DOMAIN=$(oc get ingresses.config/cluster -o jsonpath='{.spec.domain}')
 #   sed "s/CLUSTER_DOMAIN/$CLUSTER_DOMAIN/g" keycloak-realm-patch.yaml.template > keycloak-realm-patch.yaml
@@ -11,7 +16,7 @@ metadata:
   name: keycloak-realm
   namespace: spiffe-demo
 data:
-  spiffe-demo-realm.json: |
+  realm-spiffe-demo.json: |
     {
       "realm": "spiffe-demo",
       "enabled": true,
@@ -22,13 +27,19 @@ data:
       "resetPasswordAllowed": false,
       "editUsernameAllowed": false,
       "bruteForceProtected": true,
+      "adminPermissionsEnabled": true,
       "roles": {
         "realm": [
           { "name": "engineering", "description": "Engineering department" },
           { "name": "finance", "description": "Finance department" },
           { "name": "admin", "description": "Administration" },
           { "name": "hr", "description": "Human Resources" }
-        ]
+        ],
+        "client": {
+          "document-service": [
+            { "name": "uma_protection", "composite": false, "clientRole": true }
+          ]
+        }
       },
       "groups": [
         { "name": "engineering" },
@@ -76,6 +87,19 @@ data:
           "emailVerified": true,
           "credentials": [{ "type": "password", "value": "david123", "temporary": false }],
           "groups": ["engineering", "hr"]
+        },
+        {
+          "username": "service-account-agent-service",
+          "enabled": true,
+          "serviceAccountClientId": "agent-service"
+        },
+        {
+          "username": "service-account-document-service",
+          "enabled": true,
+          "serviceAccountClientId": "document-service",
+          "clientRoles": {
+            "document-service": ["uma_protection"]
+          }
         }
       ],
       "clients": [
@@ -97,7 +121,81 @@ data:
           ],
           "webOrigins": ["+"],
           "protocol": "openid-connect",
+          "fullScopeAllowed": true,
           "defaultClientScopes": ["openid", "profile", "email", "groups"]
+        },
+        {
+          "clientId": "agent-service",
+          "enabled": true,
+          "publicClient": false,
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": true,
+          "serviceAccountsEnabled": true,
+          "clientAuthenticatorType": "client-secret",
+          "protocol": "openid-connect",
+          "fullScopeAllowed": true,
+          "attributes": {
+            "standard.token.exchange.enabled": "true"
+          },
+          "defaultClientScopes": ["openid", "profile", "groups", "email"],
+          "optionalClientScopes": ["document-service-aud", "offline_access"]
+        },
+        {
+          "clientId": "document-service",
+          "enabled": true,
+          "publicClient": false,
+          "standardFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": true,
+          "clientAuthenticatorType": "client-secret",
+          "protocol": "openid-connect",
+          "fullScopeAllowed": true,
+          "attributes": {
+            "standard.token.exchange.enabled": "true"
+          },
+          "defaultClientScopes": ["openid", "profile", "groups", "email"],
+          "optionalClientScopes": ["offline_access"]
+        },
+        {
+          "clientId": "admin-permissions",
+          "enabled": true,
+          "publicClient": false,
+          "standardFlowEnabled": true,
+          "serviceAccountsEnabled": true,
+          "authorizationServicesEnabled": true,
+          "protocol": "openid-connect",
+          "fullScopeAllowed": false,
+          "defaultClientScopes": ["openid", "profile", "groups", "email"],
+          "optionalClientScopes": ["offline_access"],
+          "authorizationSettings": {
+            "allowRemoteResourceManagement": true,
+            "policyEnforcementMode": "ENFORCING",
+            "policies": [
+              {
+                "name": "agent-service-token-exchange",
+                "type": "client",
+                "logic": "POSITIVE",
+                "decisionStrategy": "UNANIMOUS",
+                "config": {
+                  "clients": "[\"agent-service\"]"
+                }
+              },
+              {
+                "name": "token-exchange-permission",
+                "type": "scope",
+                "logic": "POSITIVE",
+                "decisionStrategy": "UNANIMOUS",
+                "config": {
+                  "scopes": "[\"manage\"]",
+                  "applyPolicies": "[\"agent-service-token-exchange\"]"
+                }
+              }
+            ],
+            "scopes": [
+              { "name": "manage" },
+              { "name": "view" }
+            ]
+          }
         }
       ],
       "clientScopes": [
@@ -233,7 +331,62 @@ data:
               }
             }
           ]
+        },
+        {
+          "name": "offline_access",
+          "description": "OpenID Connect built-in scope: offline_access",
+          "protocol": "openid-connect",
+          "attributes": {
+            "display.on.consent.screen": "true"
+          }
+        },
+        {
+          "name": "agent-service-spiffe-aud",
+          "description": "Adds agent-service SPIFFE ID as audience for token exchange",
+          "protocol": "openid-connect",
+          "attributes": {
+            "include.in.token.scope": "false",
+            "display.on.consent.screen": "false"
+          },
+          "protocolMappers": [
+            {
+              "name": "agent-service-spiffe-aud",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "consentRequired": false,
+              "config": {
+                "included.custom.audience": "spiffe://demo.example.com/service/agent-service",
+                "id.token.claim": "false",
+                "access.token.claim": "true",
+                "introspection.token.claim": "true"
+              }
+            }
+          ]
+        },
+        {
+          "name": "document-service-aud",
+          "description": "Adds document-service as audience for token exchange",
+          "protocol": "openid-connect",
+          "attributes": {
+            "include.in.token.scope": "false",
+            "display.on.consent.screen": "true"
+          },
+          "protocolMappers": [
+            {
+              "name": "document-service-aud",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "consentRequired": false,
+              "config": {
+                "included.client.audience": "document-service",
+                "id.token.claim": "false",
+                "access.token.claim": "true",
+                "introspection.token.claim": "true"
+              }
+            }
+          ]
         }
       ],
-      "defaultDefaultClientScopes": ["openid", "profile", "email", "groups"]
+      "defaultDefaultClientScopes": ["openid", "profile", "email", "groups", "agent-service-spiffe-aud"],
+      "defaultOptionalClientScopes": ["offline_access", "document-service-aud"]
     }

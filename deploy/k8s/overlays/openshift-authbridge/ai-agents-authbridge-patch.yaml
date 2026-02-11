@@ -1,0 +1,31 @@
+# Override document-service URL for summarizer and reviewer.
+# Document-service now listens on plain HTTP (AuthBridge), so AI agent
+# services must use http:// instead of https://.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: summarizer-service
+  namespace: spiffe-demo
+spec:
+  template:
+    spec:
+      containers:
+        - name: summarizer-service
+          env:
+            - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
+              value: "http://document-service:8084"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reviewer-service
+  namespace: spiffe-demo
+spec:
+  template:
+    spec:
+      containers:
+        - name: reviewer-service
+          env:
+            - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
+              value: "http://document-service:8084"
