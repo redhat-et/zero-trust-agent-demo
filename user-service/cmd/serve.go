@@ -70,6 +70,14 @@ type UserService struct {
 	workloadClient     *spiffe.WorkloadClient
 }
 
+func extractBearerToken(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	if strings.HasPrefix(auth, "Bearer ") {
+		return strings.TrimPrefix(auth, "Bearer ")
+	}
+	return ""
+}
+
 func runServe(cmd *cobra.Command, args []string) error {
 	var cfg Config
 	if err := config.Load(v, &cfg); err != nil {
@@ -335,7 +343,8 @@ func (s *UserService) handleDelegate(w http.ResponseWriter, r *http.Request) {
 	s.log.SVID(user.SPIFFEID, "User SVID for delegation context")
 
 	// Forward delegation request to agent service
-	result, err := s.delegateToAgent(ctx, user, req.AgentID, req.DocumentID, req.UserDepartments)
+	bearerToken := extractBearerToken(r)
+	result, err := s.delegateToAgent(ctx, user, req.AgentID, req.DocumentID, req.UserDepartments, bearerToken)
 	if err != nil {
 		telemetry.SetSpanError(span, err)
 		s.log.Error("Delegation failed", "error", err)
@@ -437,7 +446,7 @@ func (s *UserService) accessDocument(ctx context.Context, spiffeID, documentID s
 	}, nil
 }
 
-func (s *UserService) delegateToAgent(ctx context.Context, user *store.User, agentID, documentID string, userDepartments []string) (*AccessResult, error) {
+func (s *UserService) delegateToAgent(ctx context.Context, user *store.User, agentID, documentID string, userDepartments []string, bearerToken string) (*AccessResult, error) {
 	reqBody := map[string]any{
 		"user_spiffe_id": user.SPIFFEID,
 		"document_id":    documentID,
@@ -458,6 +467,9 @@ func (s *UserService) delegateToAgent(ctx context.Context, user *store.User, age
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
 
 	s.log.Flow(logger.DirectionOutgoing, "Delegating to Agent Service")
 

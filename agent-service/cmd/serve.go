@@ -58,6 +58,14 @@ type AgentService struct {
 	workloadClient     *spiffe.WorkloadClient
 }
 
+func extractBearerToken(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	if strings.HasPrefix(auth, "Bearer ") {
+		return strings.TrimPrefix(auth, "Bearer ")
+	}
+	return ""
+}
+
 func runServe(cmd *cobra.Command, args []string) error {
 	var cfg Config
 	if err := config.Load(v, &cfg); err != nil {
@@ -313,7 +321,8 @@ func (s *AgentService) handleDelegatedAccess(w http.ResponseWriter, r *http.Requ
 		"agent_spiffe_id", agent.SPIFFEID)
 
 	// Make delegated request to document service
-	result, err := s.accessDocumentDelegated(ctx, agent, req.UserSPIFFEID, req.DocumentID, req.UserDepartments)
+	bearerToken := extractBearerToken(r)
+	result, err := s.accessDocumentDelegated(ctx, agent, req.UserSPIFFEID, req.DocumentID, req.UserDepartments, bearerToken)
 	if err != nil {
 		telemetry.SetSpanError(span, err)
 		s.log.Error("Delegated access failed", "error", err)
@@ -347,7 +356,7 @@ type AccessResult struct {
 	User     string `json:"user,omitempty"`
 }
 
-func (s *AgentService) accessDocumentDelegated(ctx context.Context, agent *store.Agent, userSPIFFEID, documentID string, userDepartments []string) (*AccessResult, error) {
+func (s *AgentService) accessDocumentDelegated(ctx context.Context, agent *store.Agent, userSPIFFEID, documentID string, userDepartments []string, bearerToken string) (*AccessResult, error) {
 	delegation := map[string]any{
 		"user_spiffe_id":  userSPIFFEID,
 		"agent_spiffe_id": agent.SPIFFEID,
@@ -374,6 +383,9 @@ func (s *AgentService) accessDocumentDelegated(ctx context.Context, agent *store
 	req.Header.Set("Content-Type", "application/json")
 	// Agent uses its own SPIFFE ID for the mTLS connection
 	req.Header.Set("X-SPIFFE-ID", agent.SPIFFEID)
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
 
 	s.log.Flow(logger.DirectionOutgoing, "Making delegated request to Document Service")
 	s.log.Info("Request details",

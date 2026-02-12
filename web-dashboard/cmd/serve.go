@@ -420,6 +420,21 @@ func (d *Dashboard) handleGetDocuments(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(documents)
 }
 
+func (d *Dashboard) getAccessToken(r *http.Request) string {
+	if !d.oidcEnabled {
+		return ""
+	}
+	cookie, err := r.Cookie("session_id")
+	if err != nil {
+		return ""
+	}
+	session := d.sessionStore.Get(cookie.Value)
+	if session == nil {
+		return ""
+	}
+	return session.AccessToken
+}
+
 func (d *Dashboard) handleDirectAccess(w http.ResponseWriter, r *http.Request) {
 	d.log.Info("Direct access request", "remote", r.RemoteAddr)
 	if r.Method != http.MethodPost {
@@ -468,7 +483,18 @@ func (d *Dashboard) handleDirectAccess(w http.ResponseWriter, r *http.Request) {
 	}
 	body, _ := json.Marshal(reqBody)
 	d.log.Info("Calling user service", "url", d.userServiceURL+"/access")
-	resp, err := d.httpClient.Post(d.userServiceURL+"/access", "application/json", bytes.NewReader(body))
+	outReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
+		d.userServiceURL+"/access", bytes.NewReader(body))
+	if err != nil {
+		d.log.Error("Failed to create request", "error", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+	outReq.Header.Set("Content-Type", "application/json")
+	if token := d.getAccessToken(r); token != "" {
+		outReq.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := d.httpClient.Do(outReq)
 	if err != nil {
 		d.log.Error("User service request failed", "error", err)
 		d.broadcastLog(LogEntry{
@@ -563,7 +589,17 @@ func (d *Dashboard) handleDelegatedAccess(w http.ResponseWriter, r *http.Request
 		body, _ := json.Marshal(agentReq)
 		url := fmt.Sprintf("%s/agents/%s/access", d.agentServiceURL, req.AgentID)
 		d.log.Info("Calling agent service directly (no user)", "url", url)
-		resp, err = d.httpClient.Post(url, "application/json", bytes.NewReader(body))
+		outReq, reqErr := http.NewRequestWithContext(r.Context(), http.MethodPost, url, bytes.NewReader(body))
+		if reqErr != nil {
+			d.log.Error("Failed to create request", "error", reqErr)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		outReq.Header.Set("Content-Type", "application/json")
+		if token := d.getAccessToken(r); token != "" {
+			outReq.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, err = d.httpClient.Do(outReq)
 	} else {
 		// Normal delegated access - go through user service
 		d.broadcastLog(LogEntry{
@@ -585,7 +621,18 @@ func (d *Dashboard) handleDelegatedAccess(w http.ResponseWriter, r *http.Request
 		}
 		body, _ := json.Marshal(reqBody)
 		d.log.Info("Calling user service for delegation", "url", d.userServiceURL+"/delegate")
-		resp, err = d.httpClient.Post(d.userServiceURL+"/delegate", "application/json", bytes.NewReader(body))
+		outReq, reqErr := http.NewRequestWithContext(r.Context(), http.MethodPost,
+			d.userServiceURL+"/delegate", bytes.NewReader(body))
+		if reqErr != nil {
+			d.log.Error("Failed to create request", "error", reqErr)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		outReq.Header.Set("Content-Type", "application/json")
+		if token := d.getAccessToken(r); token != "" {
+			outReq.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, err = d.httpClient.Do(outReq)
 	}
 
 	if err != nil {
@@ -814,7 +861,7 @@ func (d *Dashboard) handleCallback(w http.ResponseWriter, r *http.Request) {
 		"groups", claims.Groups)
 
 	// Create session
-	session := d.sessionStore.Create(claims.PreferredUsername, claims.Name, claims.Email, claims.Groups)
+	session := d.sessionStore.Create(claims.PreferredUsername, claims.Name, claims.Email, claims.Groups, token.AccessToken)
 
 	// Set session cookie
 	// Use SameSiteLaxMode to allow the cookie on top-level navigations
@@ -946,7 +993,18 @@ func (d *Dashboard) handleSummarize(w http.ResponseWriter, r *http.Request) {
 	body, _ := json.Marshal(summarizeReq)
 
 	d.log.Info("Calling summarizer service", "url", d.summarizerServiceURL+"/summarize")
-	resp, err := d.httpClient.Post(d.summarizerServiceURL+"/summarize", "application/json", bytes.NewReader(body))
+	outReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
+		d.summarizerServiceURL+"/summarize", bytes.NewReader(body))
+	if err != nil {
+		d.log.Error("Failed to create request", "error", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+	outReq.Header.Set("Content-Type", "application/json")
+	if token := d.getAccessToken(r); token != "" {
+		outReq.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := d.httpClient.Do(outReq)
 	if err != nil {
 		d.log.Error("Summarizer service request failed", "error", err)
 		d.broadcastLog(LogEntry{
@@ -1043,7 +1101,18 @@ func (d *Dashboard) handleReview(w http.ResponseWriter, r *http.Request) {
 	body, _ := json.Marshal(reviewReq)
 
 	d.log.Info("Calling reviewer service", "url", d.reviewerServiceURL+"/review")
-	resp, err := d.httpClient.Post(d.reviewerServiceURL+"/review", "application/json", bytes.NewReader(body))
+	outReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
+		d.reviewerServiceURL+"/review", bytes.NewReader(body))
+	if err != nil {
+		d.log.Error("Failed to create request", "error", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+	outReq.Header.Set("Content-Type", "application/json")
+	if token := d.getAccessToken(r); token != "" {
+		outReq.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := d.httpClient.Do(outReq)
 	if err != nil {
 		d.log.Error("Reviewer service request failed", "error", err)
 		d.broadcastLog(LogEntry{
