@@ -1,20 +1,28 @@
-# SPIFFE/SPIRE Zero Trust Demo Design Document
+# SPIFFE/SPIRE Zero Trust Demo — Architecture
 
-## Table of Contents
+> **Note**: This document was originally written as a pre-implementation
+> design blueprint. It has been updated to reflect the current state of
+> the project, including the AuthBridge OIDC overlay (Phase 8),
+> OpenTelemetry distributed tracing (Phase 9), and Kustomize-based
+> deployment. Some sections (demo scenarios, OPA policies, educational
+> features) describe the conceptual design that was implemented
+> faithfully.
 
-1. [Executive Summary](#executive-summary)
-2. [Architecture Overview](#architecture-overview)
-3. [Demo Scenario: Document Access System](#demo-scenario-document-access-system)
-4. [OPA Policy Design](#opa-policy-design)
-5. [Demo Flow Steps](#demo-flow-steps)
-6. [Component Specifications](#component-specifications)
-7. [Project Structure](#project-structure)
-8. [Deployment Approach](#deployment-approach)
-9. [Educational Features](#educational-features)
-10. [Key Concepts Explained](#key-concepts-explained)
-11. [Comparison Table: OAuth vs SPIFFE/SPIRE](#comparison-table-oauth-vs-spiffespire)
-12. [Next Steps](#next-steps)
-13. [Glossary](#glossary)
+## Table of contents
+
+1. [Executive summary](#executive-summary)
+1. [Architecture overview](#architecture-overview)
+1. [Deployment modes](#deployment-modes)
+1. [Demo scenario](#demo-scenario-document-access-system)
+1. [OPA policy design](#opa-policy-design)
+1. [Demo flow steps](#demo-flow-steps)
+1. [Component specifications](#component-specifications)
+1. [Project structure](#project-structure)
+1. [Deployment approach](#deployment-approach)
+1. [Educational features](#educational-features)
+1. [Key concepts explained](#key-concepts-explained)
+1. [Implementation phases](#implementation-phases)
+1. [Glossary](#glossary)
 
 ---
 
@@ -123,17 +131,20 @@ graph TB
 - Manages the trust bundle for the trust domain `spiffe://demo.example.com`
 - Handles SVID rotation (short-lived certificates: 1-hour TTL)
 
-**SPIFFE IDs Issued**:
+**SPIFFE IDs Issued** (one per service, not per user/agent):
 
-- `spiffe://demo.example.com/web-dashboard`
-- `spiffe://demo.example.com/user/alice`
-- `spiffe://demo.example.com/user/bob`
-- `spiffe://demo.example.com/user/carol`
-- `spiffe://demo.example.com/agent/gpt4`
-- `spiffe://demo.example.com/agent/claude`
-- `spiffe://demo.example.com/agent/summarizer`
-- `spiffe://demo.example.com/document-service`
-- `spiffe://demo.example.com/opa-service`
+- `spiffe://demo.example.com/service/web-dashboard`
+- `spiffe://demo.example.com/service/user-service`
+- `spiffe://demo.example.com/service/agent-service`
+- `spiffe://demo.example.com/service/document-service`
+- `spiffe://demo.example.com/service/opa-service`
+
+Users and agents are data entities within their respective services,
+not separate SPIFFE identities. Each service uses its single SPIFFE
+ID for all mTLS connections. User/agent identity is carried in request
+bodies and headers as `spiffe://demo.example.com/user/<name>` or
+`spiffe://demo.example.com/agent/<name>`, but these are logical
+identifiers, not X.509-backed SVIDs.
 
 #### 2. SPIRE Agent (DaemonSet)
 
@@ -152,55 +163,57 @@ graph TB
 
 **Role**: Educational UI for demonstrating the demo flow
 
-**SPIFFE ID**: `spiffe://demo.example.com/web-dashboard`
+**SPIFFE ID**: `spiffe://demo.example.com/service/web-dashboard`
 
 **Responsibilities**:
 
 - Provides interactive UI for selecting users, agents, and documents
 - Displays color-coded console output showing system activity
 - Visualizes permission matrices and policy evaluation
-- Shows real-time mTLS handshake details
-- Demonstrates SVID rotation countdown
+- Supports OIDC login via Keycloak (AuthBridge overlay)
+- Stores OIDC access token in session for Bearer token propagation
+- Propagates Bearer token on all outbound service requests
 
 **Technology**: Go web server, HTML/CSS/JS frontend, Server-Sent Events for real-time updates
 
 #### 4. User Service (Port 8082)
 
-**Role**: Simulated user workload making requests
+**Role**: User management and request routing
 
-**SPIFFE IDs**:
-
-- `spiffe://demo.example.com/user/alice`
-- `spiffe://demo.example.com/user/bob`
-- `spiffe://demo.example.com/user/carol`
+**SPIFFE ID**: `spiffe://demo.example.com/service/user-service`
 
 **Responsibilities**:
 
-- Receives user selection from Web Dashboard
-- Fetches SVID for selected user from SPIRE Agent
-- Makes direct document access requests (no agent)
-- Makes delegated requests on behalf of agents
-- Logs all mTLS connections with certificate details
+- Manages user data (alice, bob, carol) with department mappings
+- Handles direct document access requests (user → document-service)
+- Handles delegation requests (user → agent-service)
+- Forwards Bearer token on the delegation path for AuthBridge
+  token exchange
+- Communicates with all services via mTLS (no Envoy sidecar)
 
-**Key Feature**: Demonstrates that identity is tied to the workload, not a user input
+**Key Feature**: On the delegation path, the user-service passes
+the OIDC Bearer token through to agent-service, where the Envoy
+sidecar performs token exchange on the outbound hop to
+document-service.
 
 #### 5. Agent Service (Port 8083)
 
-**Role**: Simulated AI agent workload
+**Role**: AI agent management and delegated access
 
-**SPIFFE IDs**:
-
-- `spiffe://demo.example.com/agent/gpt4`
-- `spiffe://demo.example.com/agent/claude`
-- `spiffe://demo.example.com/agent/summarizer`
+**SPIFFE ID**: `spiffe://demo.example.com/service/agent-service`
 
 **Responsibilities**:
 
-- Receives agent selection and task from User Service
-- Fetches SVID for selected agent from SPIRE Agent
-- Makes document access requests to Document Service
+- Manages agent data (gpt4, claude, summarizer) with capabilities
+- Receives delegation requests from user-service
+- Makes delegated document access requests to document-service
 - Carries delegation context (which user authorized this request)
-- Logs policy evaluation results
+- Forwards Bearer token on outbound requests to document-service
+
+**AuthBridge sidecar**: In the authbridge overlay, agent-service has
+an Envoy sidecar with ext-proc that intercepts outbound requests to
+document-service. The ext-proc performs RFC 8693 token exchange,
+swapping the user's OIDC token for a document-service-scoped token.
 
 **Key Feature**: Cannot access documents without user delegation context
 
@@ -208,29 +221,34 @@ graph TB
 
 **Role**: Protected resource server with document access control
 
-**SPIFFE ID**: `spiffe://demo.example.com/document-service`
+**SPIFFE ID**: `spiffe://demo.example.com/service/document-service`
 
 **Responsibilities**:
 
 - Serves document access requests
-- Verifies caller SPIFFE ID from mTLS certificate
+- Verifies caller SPIFFE ID from mTLS certificate or
+  `X-SPIFFE-ID` header
+- Validates JWT tokens when AuthBridge is enabled (checks issuer,
+  audience, groups)
 - Queries OPA for access decision on each request
 - Returns document content or 403 Forbidden
 - Logs access attempts with policy decision
 
-**Documents**:
+**Documents** (by ID, not filename):
 
-- `eng-design-doc.md` (requires: Engineering department)
-- `finance-q4-report.pdf` (requires: Finance department)
-- `admin-credentials.txt` (requires: Admin department)
-- `hr-policies.pdf` (requires: HR department)
-- `public-readme.md` (requires: no restrictions)
+- DOC-001: Engineering Roadmap (engineering)
+- DOC-002: Q4 Financial Report (finance)
+- DOC-003: Admin Policies (admin)
+- DOC-004: HR Guidelines (hr)
+- DOC-005: Budget Projections (finance + engineering)
+- DOC-006: Compliance Audit (admin + finance)
+- DOC-007: All-Hands Summary (public)
 
 #### 7. OPA Service (Port 8085)
 
 **Role**: Centralized policy decision point
 
-**SPIFFE ID**: `spiffe://demo.example.com/opa-service`
+**SPIFFE ID**: `spiffe://demo.example.com/service/opa-service`
 
 **Responsibilities**:
 
@@ -244,7 +262,75 @@ graph TB
 
 ---
 
-## Demo Scenario: Document Access System
+## Deployment modes
+
+The project supports multiple deployment modes via Kustomize overlays
+(`deploy/k8s/overlays/`). Each overlay builds on the base manifests
+and adds or modifies configuration for different environments.
+
+### Base (mTLS only)
+
+All services authenticate via SPIFFE mTLS. No OIDC, no Envoy
+sidecars, no token exchange. This is the simplest deployment,
+suitable for demonstrating SPIFFE/SPIRE and OPA without external
+identity providers.
+
+**Overlays**: `local`, `mock`, `ghcr`
+
+### AuthBridge (mTLS + OIDC + token exchange)
+
+Adds Keycloak for user authentication (OIDC), an Envoy sidecar on
+agent-service with an ext-proc that performs RFC 8693 token exchange,
+and JWT validation in document-service. This demonstrates bridging
+human identity (OIDC) with workload identity (SPIFFE).
+
+```text
+┌──────────┐  OIDC  ┌──────────┐  mTLS  ┌──────────────────────┐
+│ Browser  │───────▶│ Dashboard│───────▶│    User Service      │
+└──────────┘        └──────────┘        └──────────┬───────────┘
+                                                   │ mTLS + Bearer
+                                        ┌──────────▼───────────┐
+                                        │    Agent Service     │
+                                        │  ┌─────────────────┐ │
+                                        │  │  Envoy sidecar  │ │
+                                        │  │  + ext-proc     │ │
+                                        │  └────────┬────────┘ │
+                                        └───────────┼──────────┘
+                                                    │ token exchange
+                                        ┌───────────▼──────────┐
+                                        │  Document Service    │
+                                        │  (JWT validation)    │
+                                        └──────────┬───────────┘
+                                                   │ mTLS
+                                        ┌──────────▼───────────┐
+                                        │    OPA Service       │
+                                        └──────────────────────┘
+```
+
+**Overlays**: `authbridge`, `authbridge-remote-kc`,
+`openshift-authbridge`
+
+### OpenTelemetry
+
+All deployment modes can optionally enable OTel distributed tracing.
+When enabled, services export traces via OTLP/gRPC to an
+OTel Collector, which forwards to Jaeger. The AuthBridge ext-proc
+also exports `token_exchange` and `jwt_validation` spans.
+
+**Configuration**: Set `SPIFFE_DEMO_OTEL_ENABLED=true` and
+`SPIFFE_DEMO_OTEL_COLLECTOR_ENDPOINT=otel-collector:4317` via
+environment variables or Kustomize patches.
+
+### AI agents (summarizer, reviewer)
+
+Adds real LLM-powered agent services (summarizer-service,
+reviewer-service) that call external LLM APIs to process documents.
+
+**Overlays**: `ai-agents`, `local-ai-agents`, `openshift-ai-agents`
+
+---
+
+## Demo scenario: document access system
 
 ### Overview
 
@@ -1007,23 +1093,23 @@ The Web Dashboard (accessible at `http://localhost:8080`) provides an interactiv
 
 📝 Registered workload: web-dashboard
    SPIFFE ID: spiffe://demo.example.com/web-dashboard
-   Selector: k8s:ns:demo, k8s:sa:web-dashboard
+   Selector: k8s:ns:spiffe-demo, k8s:sa:web-dashboard
 
 📝 Registered workload: user/alice
    SPIFFE ID: spiffe://demo.example.com/user/alice
-   Selector: k8s:ns:demo, k8s:sa:user-alice, k8s:pod-label:user:alice
+   Selector: k8s:ns:spiffe-demo, k8s:sa:user-alice, k8s:pod-label:user:alice
 
 📝 Registered workload: agent/gpt4
    SPIFFE ID: spiffe://demo.example.com/agent/gpt4
-   Selector: k8s:ns:demo, k8s:sa:agent-gpt4, k8s:pod-label:agent:gpt4
+   Selector: k8s:ns:spiffe-demo, k8s:sa:agent-gpt4, k8s:pod-label:agent:gpt4
 
 📝 Registered workload: document-service
    SPIFFE ID: spiffe://demo.example.com/document-service
-   Selector: k8s:ns:demo, k8s:sa:document-service
+   Selector: k8s:ns:spiffe-demo, k8s:sa:document-service
 
 📝 Registered workload: opa-service
    SPIFFE ID: spiffe://demo.example.com/opa-service
-   Selector: k8s:ns:demo, k8s:sa:opa-service
+   Selector: k8s:ns:spiffe-demo, k8s:sa:opa-service
 
 🟢 [SPIRE-AGENT] Starting SPIRE Agent DaemonSet...
 🟢 [SPIRE-AGENT] Connected to SPIRE Server at localhost:8081
@@ -1066,7 +1152,7 @@ The Web Dashboard (accessible at `http://localhost:8080`) provides an interactiv
 
 🟢 [SPIRE-AGENT] Received attestation request
 🟢 [SPIRE-AGENT] Checking pod metadata...
-    Namespace: demo
+    Namespace: spiffe-demo
     Service Account: user-alice
     Pod Label: user=alice
 🟢 [SPIRE-AGENT] Matched registration entry: user/alice
@@ -1191,7 +1277,7 @@ The Web Dashboard (accessible at `http://localhost:8080`) provides an interactiv
 
 🟢 [SPIRE-AGENT] Received attestation request
 🟢 [SPIRE-AGENT] Checking pod metadata...
-    Namespace: demo
+    Namespace: spiffe-demo
     Service Account: agent-gpt4
     Pod Label: agent=gpt4
 🟢 [SPIRE-AGENT] Matched registration entry: agent/gpt4
@@ -1564,1183 +1650,292 @@ The Web Dashboard (accessible at `http://localhost:8080`) provides an interactiv
 
 ---
 
-## Component Specifications
+## Component specifications
 
-### Web Dashboard Component
+All services follow the same pattern:
 
-**Technology Stack**:
-
-- **Backend**: Go 1.21+, standard library `net/http` package
-- **Frontend**: HTML5, vanilla JavaScript, CSS3 with **Red Hat Design System**
-- **Branding**: Red Hat fonts (Red Hat Display, Red Hat Text) and color palette
-- **Design Guidelines**: https://ux.redhat.com/ (Red Hat UX guidelines)
-- **Real-time Updates**: Server-Sent Events (SSE) via standard library
-- **SPIFFE Integration**: `github.com/spiffe/go-spiffe/v2/workloadapi`
-- **Configuration**: Cobra CLI with Viper for flags and config
-- **Logging**: Standard `log/slog` package with structured logging
-
-**Key Files**:
-
-```
-web-dashboard/
-├── main.go                 # HTTP server, SSE handling, Cobra root command
-├── cmd/
-│   ├── root.go             # Cobra root command definition
-│   └── serve.go            # Serve command
-├── config/
-│   ├── config.go           # Viper configuration management
-│   └── config.yaml         # Default configuration
-├── handlers/
-│   ├── index.go            # Serve dashboard UI
-│   ├── demo.go             # Handle demo flow requests
-│   └── events.go           # SSE event streaming
-├── templates/
-│   └── index.html          # Dashboard UI with Red Hat design
-├── static/
-│   ├── css/
-│   │   ├── redhat.css      # Red Hat Design System styles
-│   │   └── app.css         # Application-specific styles
-│   ├── fonts/              # Red Hat Display and Text fonts
-│   └── js/app.js           # Frontend logic
-└── logger/
-    └── logger.go           # slog wrapper with color attributes
-```
-
-**API Endpoints**:
-
-- `GET /` - Dashboard UI
-- `GET /events` - SSE stream for console output
-- `POST /api/access-direct` - Direct user access
-- `POST /api/access-delegated` - Delegated access
-- `GET /api/status` - Infrastructure status
-
-**Red Hat Design System Integration**:
-
-The web dashboard follows Red Hat UX guidelines (https://ux.redhat.com/):
-
-**Colors** (from Red Hat color palette):
-- Primary: `#EE0000` (Red Hat Red)
-- Accent: `#0066CC` (Red Hat Blue)
-- Success: `#3E8635` (Green)
-- Warning: `#F0AB00` (Gold)
-- Danger: `#C9190B` (Red)
-- Background: `#FFFFFF` (White) / `#151515` (Black for dark mode)
-- Text: `#151515` (Black) / `#FFFFFF` (White for dark mode)
-
-**Typography**:
-- Headings: **Red Hat Display** (from Red Hat font family)
-- Body text: **Red Hat Text** (from Red Hat font family)
-- Code/monospace: **Red Hat Mono** (from Red Hat font family)
-
-**Fonts** loaded from Red Hat CDN or self-hosted:
-```html
-<link rel="stylesheet" href="https://static.redhat.com/libs/redhat/redhat-font/2/webfonts/red-hat-font.css">
-```
-
-Or use `@font-face` with self-hosted fonts in `/static/fonts/`.
-
-**UI Components** (following Red Hat design patterns):
-- Buttons: Red Hat-styled buttons with proper padding and border-radius
-- Forms: Red Hat form inputs with consistent styling
-- Cards: Red Hat card components for permission matrices
-- Alerts: Red Hat alert styles for success/error messages
-- Navigation: Red Hat header/navigation patterns
-
-**Example CSS** (`static/css/redhat.css`):
-```css
-:root {
-    --rh-red: #EE0000;
-    --rh-blue: #0066CC;
-    --rh-green: #3E8635;
-    --rh-gold: #F0AB00;
-    --rh-black: #151515;
-    --rh-white: #FFFFFF;
-}
-
-body {
-    font-family: 'Red Hat Text', sans-serif;
-    color: var(--rh-black);
-    background-color: var(--rh-white);
-}
-
-h1, h2, h3, h4, h5, h6 {
-    font-family: 'Red Hat Display', sans-serif;
-    font-weight: 600;
-}
-
-code, pre {
-    font-family: 'Red Hat Mono', monospace;
-}
-
-.btn-primary {
-    background-color: var(--rh-red);
-    border-color: var(--rh-red);
-    color: var(--rh-white);
-    padding: 8px 16px;
-    border-radius: 3px;
-    font-family: 'Red Hat Text', sans-serif;
-}
-
-.btn-primary:hover {
-    background-color: #CC0000;
-}
-
-.alert-success {
-    background-color: #F3FAF2;
-    border-left: 4px solid var(--rh-green);
-    color: var(--rh-black);
-}
-
-.alert-danger {
-    background-color: #FDF3F3;
-    border-left: 4px solid var(--rh-red);
-    color: var(--rh-black);
-}
-```
-
-### User Service Component
-
-**Technology Stack**:
-
-- **Language**: Go 1.21+
+- **Language**: Go 1.22+
 - **HTTP Server**: Standard library `net/http`
-- **SPIFFE Integration**: `go-spiffe/v2/workloadapi`
-- **mTLS**: `go-spiffe/v2/spiffetls/tlsconfig`
-- **Configuration**: Cobra CLI with Viper
-- **Logging**: Standard `log/slog` package
+- **SPIFFE**: `pkg/spiffe/` shared workload client
+- **Configuration**: Cobra CLI + Viper (`pkg/config/`)
+- **Logging**: Custom `pkg/logger/` with color-coded slog output
+- **Metrics**: Prometheus via `pkg/metrics/`
+- **Tracing**: OpenTelemetry via `pkg/telemetry/`
 
-**Key Files**:
+Each service has `cmd/root.go` (CLI setup) and `cmd/serve.go` (HTTP
+server, handlers, business logic). Data is stored in-memory in
+`internal/store/`.
 
-```
-user-service/
-├── main.go                 # Service entry point
-├── cmd/
-│   └── root.go             # Cobra CLI commands
-├── config/
-│   ├── config.go           # Viper configuration
-│   └── config.yaml         # Default settings
-├── identity/
-│   └── svid.go             # SVID management
-├── delegation/
-│   └── handler.go          # Delegation logic
-└── client/
-    └── document.go         # Document service client
-```
+### API endpoints
 
-**Responsibilities**:
-
-- Fetch SVID for simulated user (alice, bob, carol)
-- Create mTLS connection to Document Service
-- Delegate to Agent Service with authorization token
-- Log all operations with structured slog logging
-
-### Agent Service Component
-
-**Technology Stack**:
-
-- **Language**: Go 1.21+
-- **HTTP Server**: Standard library `net/http`
-- **SPIFFE Integration**: `go-spiffe/v2/workloadapi`
-- **mTLS**: `go-spiffe/v2/spiffetls/tlsconfig`
-- **Configuration**: Cobra CLI with Viper
-- **Logging**: Standard `log/slog` package
-
-**Key Files**:
-
-```
-agent-service/
-├── main.go                 # Service entry point
-├── cmd/
-│   └── root.go             # Cobra CLI commands
-├── config/
-│   ├── config.go           # Viper configuration
-│   └── config.yaml         # Default settings
-├── identity/
-│   └── svid.go             # SVID management
-├── delegation/
-│   ├── validator.go        # Validate delegation token
-│   └── context.go          # Build delegation context
-└── client/
-    └── document.go         # Document service client
-```
-
-**Responsibilities**:
-
-- Accept delegation from User Service
-- Fetch SVID for selected agent (gpt4, claude, summarizer)
-- Make delegated requests to Document Service
-- Include delegation context in requests
-
-### Document Service Component
-
-**Technology Stack**:
-
-- **Language**: Go 1.21+
-- **HTTP Server**: Standard library `net/http`
-- **SPIFFE Integration**: `go-spiffe/v2/spiffetls/tlsconfig`
-- **OPA Client**: `github.com/open-policy-agent/opa/sdk`
-- **Configuration**: Cobra CLI with Viper
-- **Logging**: Standard `log/slog` package
-
-**Key Files**:
-
-```
-document-service/
-├── main.go                 # mTLS server
-├── cmd/
-│   └── root.go             # Cobra CLI commands
-├── config/
-│   ├── config.go           # Viper configuration
-│   └── config.yaml         # Default settings
-├── documents/
-│   ├── store.go            # Document storage (in-memory)
-│   └── data/               # Document files
-│       ├── eng-design-doc.md
-│       ├── finance-q4-report.pdf
-│       ├── admin-credentials.txt
-│       ├── hr-policies.pdf
-│       └── public-readme.md
-├── authz/
-│   ├── opa_client.go       # OPA integration
-│   └── decision.go         # Authorization decision
-└── handlers/
-    └── document.go         # Document request handler
-```
-
-**API Endpoints**:
-
-- `GET /documents/:id` - Access document (requires mTLS + OPA authz)
-
-**Authorization Flow**:
-
-1. Extract caller SPIFFE ID from mTLS certificate
-2. Parse delegation context from request headers (if present)
-3. Query OPA for authorization decision
-4. Return document or 403 Forbidden
-
-### OPA Service Component
-
-**Technology Stack**:
-
-- **OPA Server**: OPA v0.60+
-- **Policies**: Rego language
-- **API**: REST API on port 8085
-
-**Key Files**:
-
-```
-opa-service/
-├── policies/
-│   ├── user_permissions.rego
-│   ├── agent_capabilities.rego
-│   ├── document_access.rego
-│   └── document_access_test.rego
-└── data/
-    └── config.yaml         # OPA configuration
-```
-
-**API Endpoints**:
-
-- `POST /v1/data/demo/authorization/decision` - Policy evaluation
-
-**Configuration** (`config.yaml`):
-
-```yaml
-services:
-  - name: demo
-    url: http://localhost:8085
-
-bundles:
-  demo:
-    resource: /policies
-
-decision_logs:
-  console: true
-```
+| Service | Endpoint | Description |
+| ------- | -------- | ----------- |
+| web-dashboard | `GET /` | Dashboard UI |
+| web-dashboard | `GET /events` | SSE stream for real-time logs |
+| web-dashboard | `POST /api/access-direct` | Direct user access |
+| web-dashboard | `POST /api/access-delegated` | Delegated access via agent |
+| user-service | `GET /users` | List all users |
+| user-service | `POST /access` | Direct document access |
+| user-service | `POST /delegate` | Delegate to agent |
+| agent-service | `GET /agents` | List all agents |
+| agent-service | `POST /agents/{id}/access` | Delegated document access |
+| document-service | `GET /documents` | List all documents |
+| document-service | `POST /access` | Access document (mTLS + OPA) |
+| opa-service | `POST /v1/data/demo/authorization/decision` | Policy evaluation |
 
 ---
 
-## Project Structure
+## Project structure
 
-```
+```text
 zero-trust-agent-demo/
-├── README.md                          # Quick start guide
-├── DESIGN.md                          # This design document
 ├── go.mod                             # Go module definition
-├── go.sum
-├──deploy/
-│   ├── kind/
-│   │   ├── cluster-config.yaml        # Kind cluster configuration
-│   │   ├── spire-server.yaml          # SPIRE Server StatefulSet
-│   │   ├── spire-agent.yaml           # SPIRE Agent DaemonSet
-│   │   ├── registration-entries.sh    # Register workload identities
-│   │   ├── web-dashboard.yaml         # Web Dashboard deployment
-│   │   ├── user-service.yaml          # User Service deployment
-│   │   ├── agent-service.yaml         # Agent Service deployment
-│   │   ├── document-service.yaml      # Document Service deployment
-│   │   ├── opa-service.yaml           # OPA Service deployment
-│   │   ├── opa-policies-configmap.yaml # OPA policies ConfigMap
-│   │   └── port-forward.sh            # Port-forwarding script
-│   └── openshift/                     # (Optional) OpenShift manifests
-│       └── README.md
-├── web-dashboard/
+├── Makefile                           # Build automation
+├── CLAUDE.md                          # AI assistant project guide
+├── README.md                          # Quick start guide
+│
+├── pkg/                               # Shared Go packages
+│   ├── auth/                          # OIDC and session management
+│   │   ├── jwt.go                     # JWT validation
+│   │   ├── oidc.go                    # OIDC provider
+│   │   └── session.go                 # Session store (with AccessToken)
+│   ├── config/                        # Viper configuration helpers
+│   │   └── config.go
+│   ├── llm/                           # LLM provider integration
+│   │   ├── factory.go                 # Provider factory
+│   │   ├── openai_compat.go           # OpenAI-compatible client
+│   │   └── prompts.go                 # Prompt templates
+│   ├── logger/                        # Color-coded structured logger
+│   │   └── logger.go
+│   ├── metrics/                       # Prometheus metrics
+│   │   └── metrics.go
+│   ├── spiffe/                        # SPIFFE workload client
+│   │   └── workload.go
+│   ├── storage/                       # Document storage backends
+│   │   ├── s3.go
+│   │   └── storage.go
+│   └── telemetry/                     # OpenTelemetry support
+│       ├── middleware.go              # HTTP handler/transport wrappers
+│       ├── provider.go                # Tracer provider init
+│       └── spans.go                   # Custom span helpers & attributes
+│
+├── web-dashboard/                     # Dashboard service
 │   ├── main.go
+│   ├── Dockerfile
 │   ├── cmd/
-│   │   ├── root.go                    # Cobra root command
-│   │   └── serve.go                   # Serve command
-│   ├── config/
-│   │   ├── config.go                  # Viper configuration
-│   │   └── config.yaml                # Default settings
-│   ├── handlers/
-│   │   ├── index.go
-│   │   ├── demo.go
-│   │   └── events.go
-│   ├── templates/
-│   │   └── index.html                 # Red Hat Design System UI
-│   ├── static/
-│   │   ├── css/
-│   │   │   ├── redhat.css             # Red Hat styles
-│   │   │   └── app.css
-│   │   ├── fonts/                     # Red Hat fonts (Display, Text, Mono)
-│   │   └── js/
-│   │       └── app.js
-│   └── Dockerfile
-├── user-service/
+│   │   ├── root.go
+│   │   └── serve.go                   # HTTP server, OIDC, SSE, handlers
+│   └── internal/assets/               # Static files & templates
+│       ├── static/css/
+│       ├── static/js/
+│       └── templates/
+│
+├── user-service/                      # User management service
 │   ├── main.go
+│   ├── Dockerfile
 │   ├── cmd/
-│   │   └── root.go                    # Cobra CLI
-│   ├── config/
-│   │   ├── config.go                  # Viper config
-│   │   └── config.yaml
-│   ├── identity/
-│   │   └── svid.go
-│   ├── delegation/
-│   │   └── handler.go
-│   ├── client/
-│   │   └── document.go
-│   └── Dockerfile
-├── agent-service/
+│   │   ├── root.go
+│   │   └── serve.go                   # HTTP server, access & delegation
+│   └── internal/store/
+│       └── users.go                   # In-memory user store
+│
+├── agent-service/                     # Agent management service
 │   ├── main.go
+│   ├── Dockerfile
 │   ├── cmd/
-│   │   └── root.go                    # Cobra CLI
-│   ├── config/
-│   │   ├── config.go                  # Viper config
-│   │   └── config.yaml
-│   ├── identity/
-│   │   └── svid.go
-│   ├── delegation/
-│   │   ├── validator.go
-│   │   └── context.go
-│   ├── client/
-│   │   └── document.go
-│   └── Dockerfile
-├── document-service/
+│   │   ├── root.go
+│   │   └── serve.go                   # HTTP server, delegated access
+│   └── internal/store/
+│       └── agents.go                  # In-memory agent store
+│
+├── document-service/                  # Protected document service
 │   ├── main.go
+│   ├── Dockerfile
 │   ├── cmd/
-│   │   └── root.go                    # Cobra CLI
-│   ├── config/
-│   │   ├── config.go                  # Viper config
-│   │   └── config.yaml
-│   ├── documents/
-│   │   ├── store.go
-│   │   └── data/
-│   │       ├── eng-design-doc.md
-│   │       ├── finance-q4-report.pdf
-│   │       ├── admin-credentials.txt
-│   │       ├── hr-policies.pdf
-│   │       └── public-readme.md
-│   ├── authz/
-│   │   ├── opa_client.go
-│   │   └── decision.go
-│   ├── handlers/
-│   │   └── document.go
-│   └── Dockerfile
-├── opa-service/
-│   ├── policies/
-│   │   ├── user_permissions.rego
-│   │   ├── agent_capabilities.rego
-│   │   ├── document_access.rego
-│   │   └── document_access_test.rego
-│   ├── data/
-│   │   └── config.yaml
-│   └── Dockerfile
-├── pkg/
-│   ├── logger/
-│   │   └── logger.go                  # Shared slog-based logger with colors
-│   ├── config/
-│   │   └── config.go                  # Shared Viper config utilities
-│   └── testutil/
-│       └── helpers.go
-├── scripts/
-│   ├── deploy-local.sh                # Deploy to Kind cluster
-│   ├── teardown.sh                    # Cleanup
-│   └── test-policies.sh               # Run OPA tests
-└── docs/
-    ├── SPIFFE_BASICS.md               # SPIFFE/SPIRE primer
-    ├── OPA_POLICIES.md                # Policy writing guide
-    └── TROUBLESHOOTING.md             # Common issues
+│   │   ├── root.go
+│   │   ├── serve.go                   # HTTP server, JWT validation, OPA
+│   │   └── seed.go                    # Seed documents to S3
+│   └── internal/store/
+│       └── documents.go               # In-memory document store
+│
+├── opa-service/                       # OPA policy service
+│   ├── main.go
+│   ├── Dockerfile
+│   ├── cmd/
+│   │   ├── root.go
+│   │   └── serve.go
+│   └── policies/                      # Rego policy files
+│       └── delegation.rego
+│
+├── summarizer-service/                # LLM-powered summarizer agent
+├── reviewer-service/                  # LLM-powered reviewer agent
+│
+├── deploy/
+│   ├── kind/                          # Kind cluster config
+│   └── k8s/
+│       ├── base/                      # Base Kustomize manifests
+│       │   ├── kustomization.yaml
+│       │   ├── namespace.yaml
+│       │   ├── deployments.yaml
+│       │   ├── services.yaml
+│       │   ├── opa-policies-configmap.yaml
+│       │   ├── keycloak.yaml
+│       │   ├── otel-collector.yaml
+│       │   └── jaeger.yaml
+│       └── overlays/                  # Deployment variants
+│           ├── local/                 # Kind + mock SPIFFE
+│           ├── mock/                  # Mock mode
+│           ├── authbridge/            # Envoy sidecar + Keycloak
+│           ├── authbridge-remote-kc/  # Remote Keycloak instance
+│           ├── openshift/             # OpenShift base
+│           ├── openshift-authbridge/  # OpenShift + AuthBridge
+│           ├── ai-agents/             # LLM agent services
+│           └── ghcr/                  # GHCR images
+│
+├── scripts/                           # Helper scripts
+│   ├── setup-kind.sh
+│   ├── setup-spire.sh
+│   ├── build-images.sh
+│   ├── load-images.sh
+│   ├── run-local.sh
+│   └── port-forward.sh
+│
+└── docs/                              # Documentation
+    ├── ARCHITECTURE.md                # This document
+    ├── AUTHBRIDGE.md                  # AuthBridge integration guide
+    ├── SECURITY.md                    # Security documentation
+    ├── OPERATIONS.md                  # Operations runbook
+    ├── DEMO_GUIDE.md                  # Interactive demo guide
+    ├── adr/                           # Architecture Decision Records
+    └── bugs/                          # Bug reports
 ```
 
-### Go Dependencies
+### Go dependencies
 
-**File**: `go.mod`
+Key dependencies (see `go.mod` for full list):
 
-```go
-module github.com/redhat-et/zero-trust-agent-demo
+- `github.com/spf13/cobra` + `github.com/spf13/viper` — CLI and config
+- `github.com/spiffe/go-spiffe/v2` — SPIFFE workload API
+- `github.com/prometheus/client_golang` — Prometheus metrics
+- `go.opentelemetry.io/otel` — OpenTelemetry tracing
+- `github.com/coreos/go-oidc/v3` — OIDC provider
+- `golang.org/x/oauth2` — OAuth2 client
 
-go 1.21
+**Note**: Uses Go standard library for HTTP (`net/http`) and logging
+(`log/slog`). No third-party routers or logging libraries.
 
-require (
-    github.com/spiffe/go-spiffe/v2 v2.1.7
-    github.com/open-policy-agent/opa v0.60.0
-    github.com/spf13/cobra v1.8.0
-    github.com/spf13/viper v1.18.2
-    github.com/google/uuid v1.5.0
-)
-```
+### Key shared packages
 
-**Note**: Uses Go standard library for HTTP (`net/http`) and logging (`log/slog`). No third-party routers or logging libraries needed.
-
-### Key Shared Packages
-
-#### Structured Logger with Color Support (`pkg/logger/logger.go`)
-
-Uses standard `log/slog` with color attributes for educational console output:
-
-```go
-package logger
-
-import (
-    "context"
-    "log/slog"
-    "os"
-)
-
-// Color codes for terminal output
-const (
-    ColorReset   = "\033[0m"
-    ColorRed     = "\033[31m"
-    ColorGreen   = "\033[32m"
-    ColorYellow  = "\033[33m"
-    ColorBlue    = "\033[34m"
-    ColorMagenta = "\033[35m"
-    ColorCyan    = "\033[36m"
-)
-
-// Component color mapping
-var componentColors = map[string]string{
-    "SPIRE-SERVER":     ColorGreen,
-    "SPIRE-AGENT":      ColorGreen,
-    "USER-SERVICE":     ColorBlue,
-    "AGENT-SERVICE":    ColorBlue,
-    "DOCUMENT-SERVICE": ColorMagenta,
-    "OPA-SERVICE":      ColorYellow,
-    "OPA-EVAL":         ColorYellow,
-    "mTLS":             ColorCyan,
-}
-
-// ColorHandler wraps slog.Handler to add color to component names
-type ColorHandler struct {
-    slog.Handler
-}
-
-func (h *ColorHandler) Handle(ctx context.Context, r slog.Record) error {
-    // Extract component attribute and colorize it
-    r.Attrs(func(a slog.Attr) bool {
-        if a.Key == "component" {
-            component := a.Value.String()
-            if color, ok := componentColors[component]; ok {
-                // Replace component value with colored version
-                r.AddAttrs(slog.String("component", color+component+ColorReset))
-            }
-        }
-        return true
-    })
-    return h.Handler.Handle(ctx, r)
-}
-
-// NewLogger creates a structured logger with color support
-func NewLogger(component string) *slog.Logger {
-    handler := &ColorHandler{
-        Handler: slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-            Level: slog.LevelInfo,
-        }),
-    }
-    return slog.New(handler).With("component", component)
-}
-
-// Usage example:
-// logger := logger.NewLogger("USER-SERVICE")
-// logger.Info("Fetching SVID from SPIRE Agent", "spiffe_id", "spiffe://demo.example.com/user/alice")
-// Output: time=2026-01-20T14:30:00.000Z level=INFO component=USER-SERVICE msg="Fetching SVID from SPIRE Agent" spiffe_id=spiffe://demo.example.com/user/alice
-```
-
-#### Configuration Management (`pkg/config/config.go`)
-
-Uses Viper for configuration with Cobra integration:
-
-```go
-package config
-
-import (
-    "fmt"
-    "github.com/spf13/viper"
-)
-
-type Config struct {
-    Server   ServerConfig
-    SPIFFE   SPIFFEConfig
-    OPA      OPAConfig
-    Logging  LoggingConfig
-}
-
-type ServerConfig struct {
-    Host string
-    Port int
-}
-
-type SPIFFEConfig struct {
-    SocketPath  string
-    TrustDomain string
-}
-
-type OPAConfig struct {
-    URL string
-}
-
-type LoggingConfig struct {
-    Level  string
-    Format string // "text" or "json"
-}
-
-// LoadConfig loads configuration from file and environment variables
-func LoadConfig(cfgFile string) (*Config, error) {
-    if cfgFile != "" {
-        viper.SetConfigFile(cfgFile)
-    } else {
-        viper.SetConfigName("config")
-        viper.SetConfigType("yaml")
-        viper.AddConfigPath(".")
-        viper.AddConfigPath("/etc/spiffe-demo/")
-    }
-
-    // Environment variable support
-    viper.SetEnvPrefix("SPIFFE_DEMO")
-    viper.AutomaticEnv()
-
-    if err := viper.ReadInConfig(); err != nil {
-        return nil, fmt.Errorf("failed to read config: %w", err)
-    }
-
-    var cfg Config
-    if err := viper.Unmarshal(&cfg); err != nil {
-        return nil, fmt.Errorf("failed to unmarshal config: %w", err)
-    }
-
-    return &cfg, nil
-}
-```
-
-**Example config.yaml**:
-```yaml
-server:
-  host: "0.0.0.0"
-  port: 8080
-
-spiffe:
-  socket_path: "unix:///run/spire/sockets/agent.sock"
-  trust_domain: "demo.example.com"
-
-opa:
-  url: "http://opa-service:8085"
-
-logging:
-  level: "info"
-  format: "text"
-```
+| Package | Purpose |
+| ------- | ------- |
+| `pkg/config/` | Viper configuration with `CommonConfig` struct and `Load()` helper |
+| `pkg/logger/` | Color-coded structured logger wrapping `log/slog` with flow indicators |
+| `pkg/spiffe/` | SPIFFE workload client for mTLS (identity, HTTP server/client creation) |
+| `pkg/metrics/` | Prometheus counters and histograms (requests, delegations, SVID rotations) |
+| `pkg/telemetry/` | OTel tracer provider, HTTP middleware, transport wrapper, custom span helpers |
+| `pkg/auth/` | OIDC provider, JWT validation, session store with access token |
+| `pkg/llm/` | LLM provider factory for AI agent services (OpenAI-compatible) |
+| `pkg/storage/` | Document storage backends (S3 and mock) |
 
 ---
 
-## Deployment Approach
+## Deployment approach
 
-### Primary Deployment Target: Kind (Kubernetes in Docker)
+### Primary deployment target: Kind (Kubernetes in Docker)
 
-The demo is designed to run on a local laptop using **Kind** (Kubernetes in Docker). This provides a realistic Kubernetes environment without requiring cloud resources.
+The demo runs on a local laptop using **Kind** (Kubernetes in Docker).
+All services deploy to the `spiffe-demo` namespace. Deployment uses
+**Kustomize** overlays for different configurations.
 
 ### Prerequisites
 
 - **Docker Desktop** or Docker Engine (minimum 4GB memory allocated)
-- **Kind** v0.20.0+: `go install sigs.k8s.io/kind@latest`
-- **kubectl** v1.28+
-- **Go** 1.21+ (for building images)
-- **OPA CLI** (optional, for running policy tests): `https://www.openpolicyagent.org/docs/latest/#running-opa`
+- **Kind** v0.20.0+
+- **kubectl** v1.28+ (includes Kustomize)
+- **Go** 1.22+ (for building images)
 
-### Quick Start
+### Quick start
 
 ```bash
-# 1. Clone the repository
+# 1. Clone and build
 git clone https://github.com/redhat-et/zero-trust-agent-demo.git
 cd zero-trust-agent-demo
+make build
 
-# 2. Deploy to Kind cluster
-./scripts/deploy-local.sh
+# 2. Create Kind cluster and set up SPIRE
+./scripts/setup-kind.sh
+./scripts/setup-spire.sh
 
-# 3. Wait for all pods to be ready
-kubectl wait --for=condition=ready pod --all -n demo --timeout=300s
+# 3. Build and load images
+./scripts/build-images.sh
+./scripts/load-images.sh
 
-# 4. Access the dashboard
+# 4. Deploy (pick one overlay)
+kubectl apply -k deploy/k8s/overlays/local           # mTLS only
+kubectl apply -k deploy/k8s/overlays/authbridge       # mTLS + OIDC
+
+# 5. Port-forward
+./scripts/port-forward.sh
+
+# 6. Access the dashboard
 open http://localhost:8080
 ```
 
-### Kind Cluster Configuration
+### Kustomize overlays
 
-**File**: `deploy/kind/cluster-config.yaml`
+Deployment uses Kustomize with a base + overlays pattern:
+
+```text
+deploy/k8s/
+├── base/                    # Shared manifests (namespace, deployments, services)
+└── overlays/
+    ├── local/               # Kind + mock SPIFFE + local images
+    ├── authbridge/          # + Envoy sidecar, Keycloak, ext-proc
+    ├── authbridge-remote-kc/  # + remote Keycloak (no in-cluster)
+    ├── openshift/           # OpenShift-specific (routes, SCCs)
+    └── ...
+```
+
+Each overlay patches the base with environment-specific changes
+(image references, env vars, sidecar containers, etc.).
+
+### SPIRE infrastructure
+
+SPIRE Server and Agent are deployed via `scripts/setup-spire.sh`,
+which applies the manifests in `deploy/kind/` and registers workload
+entries. All services run in the `spiffe-demo` namespace.
+
+Registration entries use Kubernetes selectors (namespace + service
+account) to map pods to SPIFFE IDs:
 
 ```yaml
-kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-name: spiffe-demo
-nodes:
-  - role: control-plane
-    extraPortMappings:
-      # Web Dashboard
-      - containerPort: 30080
-        hostPort: 8080
-        protocol: TCP
-      # SPIRE Server (for debugging)
-      - containerPort: 30081
-        hostPort: 8081
-        protocol: TCP
+# Example registration (from setup-spire.sh)
+spire-server entry create \
+  -spiffeID spiffe://demo.example.com/service/agent-service \
+  -parentID spiffe://demo.example.com/spire/agent/k8s_psat/spiffe-demo \
+  -selector k8s:ns:spiffe-demo \
+  -selector k8s:sa:agent-service
 ```
 
-### SPIRE Server Deployment
-
-**File**: `deploy/kind/spire-server.yaml`
-
-```yaml
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: demo
-
----
-
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: spire-server
-  namespace: demo
-
----
-
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: spire-server-config
-  namespace: demo
-data:
-  server.conf: |
-    server {
-      bind_address = "0.0.0.0"
-      bind_port = "8081"
-      trust_domain = "demo.example.com"
-      data_dir = "/run/spire/data"
-      log_level = "INFO"
-    }
-
-    plugins {
-      DataStore "sql" {
-        plugin_data {
-          database_type = "sqlite3"
-          connection_string = "/run/spire/data/datastore.sqlite3"
-        }
-      }
-
-      NodeAttestor "k8s_psat" {
-        plugin_data {
-          clusters = {
-            "spiffe-demo" = {
-              service_account_allow_list = ["demo:spire-agent"]
-            }
-          }
-        }
-      }
-
-      KeyManager "memory" {
-        plugin_data = {}
-      }
-    }
-
----
-
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: spire-server
-  namespace: demo
-spec:
-  serviceName: spire-server
-  replicas: 1
-  selector:
-    matchLabels:
-      app: spire-server
-  template:
-    metadata:
-      labels:
-        app: spire-server
-    spec:
-      serviceAccountName: spire-server
-      containers:
-        - name: spire-server
-          image: ghcr.io/spiffe/spire-server:1.9.0
-          args:
-            - -config
-            - /run/spire/config/server.conf
-          ports:
-            - containerPort: 8081
-              name: grpc
-          volumeMounts:
-            - name: spire-config
-              mountPath: /run/spire/config
-              readOnly: true
-            - name: spire-data
-              mountPath: /run/spire/data
-      volumes:
-        - name: spire-config
-          configMap:
-            name: spire-server-config
-  volumeClaimTemplates:
-    - metadata:
-        name: spire-data
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        resources:
-          requests:
-            storage: 1Gi
-
----
-
-apiVersion: v1
-kind: Service
-metadata:
-  name: spire-server
-  namespace: demo
-spec:
-  selector:
-    app: spire-server
-  ports:
-    - port: 8081
-      targetPort: 8081
-  type: ClusterIP
-```
-
-### SPIRE Agent Deployment
-
-**File**: `deploy/kind/spire-agent.yaml`
-
-```yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: spire-agent
-  namespace: demo
-
----
-
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: spire-agent-config
-  namespace: demo
-data:
-  agent.conf: |
-    agent {
-      data_dir = "/run/spire"
-      log_level = "INFO"
-      server_address = "spire-server"
-      server_port = "8081"
-      trust_domain = "demo.example.com"
-    }
-
-    plugins {
-      NodeAttestor "k8s_psat" {
-        plugin_data {
-          cluster = "spiffe-demo"
-        }
-      }
-
-      KeyManager "memory" {
-        plugin_data {}
-      }
-
-      WorkloadAttestor "k8s" {
-        plugin_data {
-          skip_kubelet_verification = true
-        }
-      }
-    }
-
----
-
-apiVersion: apps/v1
-kind: DaemonSet
-metadata:
-  name: spire-agent
-  namespace: demo
-spec:
-  selector:
-    matchLabels:
-      app: spire-agent
-  template:
-    metadata:
-      labels:
-        app: spire-agent
-    spec:
-      hostPID: true
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
-      serviceAccountName: spire-agent
-      containers:
-        - name: spire-agent
-          image: ghcr.io/spiffe/spire-agent:1.9.0
-          args:
-            - -config
-            - /run/spire/config/agent.conf
-          volumeMounts:
-            - name: spire-config
-              mountPath: /run/spire/config
-              readOnly: true
-            - name: spire-agent-socket
-              mountPath: /run/spire/sockets
-            - name: k8s-certs
-              mountPath: /var/lib/kubelet/pki
-              readOnly: true
-          securityContext:
-            privileged: true
-      volumes:
-        - name: spire-config
-          configMap:
-            name: spire-agent-config
-        - name: spire-agent-socket
-          hostPath:
-            path: /run/spire/sockets
-            type: DirectoryOrCreate
-        - name: k8s-certs
-          hostPath:
-            path: /var/lib/kubelet/pki
-```
-
-### Workload Registration
-
-**File**: `deploy/kind/registration-entries.sh`
-
-```bash
-#!/bin/bash
-set -e
-
-NAMESPACE="demo"
-
-echo "Registering workload identities..."
-
-# Web Dashboard
-kubectl exec -n ${NAMESPACE} spire-server-0 -- \
-  /opt/spire/bin/spire-server entry create \
-    -spiffeID spiffe://demo.example.com/web-dashboard \
-    -parentID spiffe://demo.example.com/spire/agent/k8s_psat/spiffe-demo \
-    -selector k8s:ns:demo \
-    -selector k8s:sa:web-dashboard
-
-# User: Alice
-kubectl exec -n ${NAMESPACE} spire-server-0 -- \
-  /opt/spire/bin/spire-server entry create \
-    -spiffeID spiffe://demo.example.com/user/alice \
-    -parentID spiffe://demo.example.com/spire/agent/k8s_psat/spiffe-demo \
-    -selector k8s:ns:demo \
-    -selector k8s:sa:user-alice \
-    -selector k8s:pod-label:user:alice
-
-# User: Bob
-kubectl exec -n ${NAMESPACE} spire-server-0 -- \
-  /opt/spire/bin/spire-server entry create \
-    -spiffeID spiffe://demo.example.com/user/bob \
-    -parentID spiffe://demo.example.com/spire/agent/k8s_psat/spiffe-demo \
-    -selector k8s:ns:demo \
-    -selector k8s:sa:user-bob \
-    -selector k8s:pod-label:user:bob
-
-# User: Carol
-kubectl exec -n ${NAMESPACE} spire-server-0 -- \
-  /opt/spire/bin/spire-server entry create \
-    -spiffeID spiffe://demo.example.com/user/carol \
-    -parentID spiffe://demo.example.com/spire/agent/k8s_psat/spiffe-demo \
-    -selector k8s:ns:demo \
-    -selector k8s:sa:user-carol \
-    -selector k8s:pod-label:user:carol
-
-# Agent: GPT-4
-kubectl exec -n ${NAMESPACE} spire-server-0 -- \
-  /opt/spire/bin/spire-server entry create \
-    -spiffeID spiffe://demo.example.com/agent/gpt4 \
-    -parentID spiffe://demo.example.com/spire/agent/k8s_psat/spiffe-demo \
-    -selector k8s:ns:demo \
-    -selector k8s:sa:agent-gpt4 \
-    -selector k8s:pod-label:agent:gpt4
-
-# Agent: Claude
-kubectl exec -n ${NAMESPACE} spire-server-0 -- \
-  /opt/spire/bin/spire-server entry create \
-    -spiffeID spiffe://demo.example.com/agent/claude \
-    -parentID spiffe://demo.example.com/spire/agent/k8s_psat/spiffe-demo \
-    -selector k8s:ns:demo \
-    -selector k8s:sa:agent-claude \
-    -selector k8s:pod-label:agent:claude
-
-# Agent: Summarizer
-kubectl exec -n ${NAMESPACE} spire-server-0 -- \
-  /opt/spire/bin/spire-server entry create \
-    -spiffeID spiffe://demo.example.com/agent/summarizer \
-    -parentID spiffe://demo.example.com/spire/agent/k8s_psat/spiffe-demo \
-    -selector k8s:ns:demo \
-    -selector k8s:sa:agent-summarizer \
-    -selector k8s:pod-label:agent:summarizer
-
-# Document Service
-kubectl exec -n ${NAMESPACE} spire-server-0 -- \
-  /opt/spire/bin/spire-server entry create \
-    -spiffeID spiffe://demo.example.com/document-service \
-    -parentID spiffe://demo.example.com/spire/agent/k8s_psat/spiffe-demo \
-    -selector k8s:ns:demo \
-    -selector k8s:sa:document-service
-
-# OPA Service
-kubectl exec -n ${NAMESPACE} spire-server-0 -- \
-  /opt/spire/bin/spire-server entry create \
-    -spiffeID spiffe://demo.example.com/opa-service \
-    -parentID spiffe://demo.example.com/spire/agent/k8s_psat/spiffe-demo \
-    -selector k8s:ns:demo \
-    -selector k8s:sa:opa-service
-
-echo "Workload registration complete!"
-```
-
-### Deployment Script
-
-**File**: `scripts/deploy-local.sh`
-
-```bash
-#!/bin/bash
-set -e
-
-echo "🚀 Deploying SPIFFE/SPIRE Zero Trust Demo to Kind cluster..."
-
-# Create Kind cluster
-echo "📦 Creating Kind cluster..."
-kind create cluster --config deploy/kind/cluster-config.yaml
-
-# Build container images
-echo "🔨 Building container images..."
-docker build -t spiffe-demo/web-dashboard:latest ./web-dashboard
-docker build -t spiffe-demo/user-service:latest ./user-service
-docker build -t spiffe-demo/agent-service:latest ./agent-service
-docker build -t spiffe-demo/document-service:latest ./document-service
-docker build -t spiffe-demo/opa-service:latest ./opa-service
-
-# Load images into Kind cluster
-echo "📥 Loading images into Kind cluster..."
-kind load docker-image spiffe-demo/web-dashboard:latest --name spiffe-demo
-kind load docker-image spiffe-demo/user-service:latest --name spiffe-demo
-kind load docker-image spiffe-demo/agent-service:latest --name spiffe-demo
-kind load docker-image spiffe-demo/document-service:latest --name spiffe-demo
-kind load docker-image spiffe-demo/opa-service:latest --name spiffe-demo
-
-# Deploy SPIRE infrastructure
-echo "🔐 Deploying SPIRE Server and Agent..."
-kubectl apply -f deploy/kind/spire-server.yaml
-kubectl apply -f deploy/kind/spire-agent.yaml
-
-# Wait for SPIRE Server to be ready
-echo "⏳ Waiting for SPIRE Server..."
-kubectl wait --for=condition=ready pod -l app=spire-server -n demo --timeout=300s
-
-# Register workload identities
-echo "📝 Registering workload identities..."
-bash deploy/kind/registration-entries.sh
-
-# Deploy OPA policies
-echo "📋 Deploying OPA policies..."
-kubectl apply -f deploy/kind/opa-policies-configmap.yaml
-
-# Deploy application services
-echo "🎯 Deploying application services..."
-kubectl apply -f deploy/kind/opa-service.yaml
-kubectl apply -f deploy/kind/document-service.yaml
-kubectl apply -f deploy/kind/user-service.yaml
-kubectl apply -f deploy/kind/agent-service.yaml
-kubectl apply -f deploy/kind/web-dashboard.yaml
-
-# Wait for all pods
-echo "⏳ Waiting for all services to be ready..."
-kubectl wait --for=condition=ready pod --all -n demo --timeout=300s
-
-# Setup port forwarding
-echo "🌐 Setting up port forwarding..."
-kubectl port-forward -n demo svc/web-dashboard 8080:8080 &
-
-echo ""
-echo "✅ Deployment complete!"
-echo ""
-echo "🎉 Access the demo at: http://localhost:8080"
-echo ""
-echo "📊 Useful commands:"
-echo "  kubectl get pods -n demo              # Check pod status"
-echo "  kubectl logs -f -n demo <pod-name>    # View logs"
-echo "  kubectl exec -it -n demo spire-server-0 -- /opt/spire/bin/spire-server entry show  # View registrations"
-echo ""
-echo "🧹 To tear down: ./scripts/teardown.sh"
-```
-
-### Teardown Script
-
-**File**: `scripts/teardown.sh`
-
-```bash
-#!/bin/bash
-set -e
-
-echo "🧹 Tearing down SPIFFE/SPIRE demo..."
-
-# Kill port-forwarding
-pkill -f "kubectl port-forward" || true
-
-# Delete Kind cluster
-kind delete cluster --name spiffe-demo
-
-echo "✅ Teardown complete!"
-```
-
-### Application Deployment Example
-
-**File**: `deploy/kind/web-dashboard.yaml`
-
-```yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: web-dashboard
-  namespace: demo
-
----
-
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: web-dashboard
-  namespace: demo
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: web-dashboard
-  template:
-    metadata:
-      labels:
-        app: web-dashboard
-    spec:
-      serviceAccountName: web-dashboard
-      containers:
-        - name: web-dashboard
-          image: spiffe-demo/web-dashboard:latest
-          imagePullPolicy: Never
-          ports:
-            - containerPort: 8080
-          env:
-            - name: SPIFFE_ENDPOINT_SOCKET
-              value: "unix:///run/spire/sockets/agent.sock"
-            - name: USER_SERVICE_URL
-              value: "https://user-service:8082"
-            - name: AGENT_SERVICE_URL
-              value: "https://agent-service:8083"
-          volumeMounts:
-            - name: spire-agent-socket
-              mountPath: /run/spire/sockets
-              readOnly: true
-      volumes:
-        - name: spire-agent-socket
-          hostPath:
-            path: /run/spire/sockets
-
----
-
-apiVersion: v1
-kind: Service
-metadata:
-  name: web-dashboard
-  namespace: demo
-spec:
-  selector:
-    app: web-dashboard
-  ports:
-    - port: 8080
-      targetPort: 8080
-      nodePort: 30080
-  type: NodePort
-```
-
-### Verification Steps
+### Verification
 
 After deployment, verify the setup:
 
 ```bash
-# 1. Check all pods are running
-kubectl get pods -n demo
+# Check all pods are running
+kubectl get pods -n spiffe-demo
 
-# Expected output:
-# NAME                              READY   STATUS    RESTARTS   AGE
-# spire-server-0                    1/1     Running   0          2m
-# spire-agent-xxxxx                 1/1     Running   0          2m
-# web-dashboard-xxxxx               1/1     Running   0          1m
-# user-service-xxxxx                1/1     Running   0          1m
-# agent-service-xxxxx               1/1     Running   0          1m
-# document-service-xxxxx            1/1     Running   0          1m
-# opa-service-xxxxx                 1/1     Running   0          1m
-
-# 2. Verify SPIRE registration entries
-kubectl exec -n demo spire-server-0 -- \
+# Verify SPIRE registration entries
+kubectl exec -n spiffe-demo spire-server-0 -- \
   /opt/spire/bin/spire-server entry show
 
-# 3. Test OPA policies
-kubectl exec -n demo opa-service-xxxxx -- opa test /policies
-
-# 4. Access the dashboard
-curl http://localhost:8080
-```
-
-### Troubleshooting
-
-**Issue**: Pods stuck in `Pending` state
-
-**Solution**: Increase Docker Desktop memory allocation to at least 4GB
-
-**Issue**: SPIRE Agent can't connect to SPIRE Server
-
-**Solution**: Check SPIRE Server logs:
-
-```bash
-kubectl logs -n demo spire-server-0
-```
-
-**Issue**: mTLS handshake failures
-
-**Solution**: Verify workload registration:
-
-```bash
-kubectl exec -n demo spire-server-0 -- \
-  /opt/spire/bin/spire-server entry show -spiffeID spiffe://demo.example.com/user/alice
+# Access the dashboard
+open http://localhost:8080
 ```
 
 ---
 
-## Educational Features
+## Educational features
 
 ### Color-Coded Logging
 
@@ -3035,7 +2230,7 @@ How SPIRE determines a workload's identity without manual configuration:
 ┌─────────────────────────────────────────────────────────────┐
 │ 4. SPIRE Agent checks registration entries on SPIRE Server  │
 │    Match found:                                             │
-│    Selectors: k8s:ns:demo,                                  │
+│    Selectors: k8s:ns:spiffe-demo,                                  │
 |               k8s:sa:user-alice,                            │
 |               k8s:pod-label:user:alice                      │
 │    SPIFFE ID: spiffe://demo.example.com/user/alice          │
@@ -3196,161 +2391,34 @@ User → [OAuth] → Mobile App → [OAuth Token] → API Gateway → [SPIFFE mT
 
 ---
 
-## Next Steps
+## Implementation phases
 
-### 1. Using This Design to Build the Demo
+The project was built in phases, each tracked by an Architecture
+Decision Record (ADR) in `docs/adr/`:
 
-This design document serves as a complete blueprint for implementation. To build the actual demo:
+| Phase | Description | ADR |
+| ----- | ----------- | --- |
+| 1 | SPIFFE/SPIRE workload identity + mTLS | ADR-0001 |
+| 2 | Permission intersection + OPA delegation | ADR-0002 |
+| 3 | OPA policy evaluation service | ADR-0003 |
+| 4 | Kustomize deployment variants | ADR-0004 |
+| 5 | Separate health ports for mTLS | ADR-0005 |
+| 6 | S3 document storage | ADR-0006 |
+| 7 | AI agent services (summarizer, reviewer) | — |
+| 8 | AuthBridge overlay (OIDC + token exchange) | — |
+| 9A | OpenTelemetry SDK integration | ADR-0009 |
+| 9B | OTel Collector + Jaeger deployment | ADR-0009 |
+| 9C | AuthBridge ext-proc instrumentation | ADR-0009 |
+| 9D | Bearer token propagation | ADR-0009 |
 
-1. **Create Project Structure**
+### Future work
 
-   ```bash
-   mkdir -p zero-trust-agent-demo/{web-dashboard,user-service,agent-service,document-service,opa-service}
-   mkdir -p zero-trust-agent-demo/deploy/kind
-   mkdir -p zero-trust-agent-demo/scripts
-   cd zero-trust-agent-demo
-   go mod init github.com/redhat-et/zero-trust-agent-demo
-   ```
-
-2. **Implement Core Components** (Priority Order)
-   - **Week 1**: OPA policies + tests (policies/*.rego)
-   - **Week 2**: Document Service + OPA integration
-   - **Week 3**: User Service + Agent Service
-   - **Week 4**: Web Dashboard with SSE
-   - **Week 5**: SPIRE integration + Kind deployment manifests
-   - **Week 6**: Testing, documentation, polish
-
-3. **Reference Implementation**
-
-   **Go Standard Library Preference**:
-   - Use standard `net/http` package for HTTP servers (no Chi/Gin/Echo unless middleware becomes essential)
-   - Use standard `log/slog` for structured logging (no third-party logging libraries)
-   - Use standard library where possible; add external dependencies only when necessary
-
-   **Required External Libraries**:
-   - `github.com/spiffe/go-spiffe/v2` - SPIFFE/SPIRE integration (official library)
-   - `github.com/open-policy-agent/opa` - OPA policy evaluation
-   - `github.com/spf13/cobra` - CLI command structure
-   - `github.com/spf13/viper` - Configuration management (flags, env vars, config files)
-
-   **Design System**:
-   - Red Hat Design System guidelines: https://ux.redhat.com/
-   - Red Hat fonts: https://static.redhat.com/libs/redhat/redhat-font/
-   - Red Hat color palette (see Component Specifications section above)
-
-   **Code Examples**:
-   - Study `learn-oauth-go` codebase for educational UI patterns
-   - Use `go-spiffe` library examples: https://github.com/spiffe/go-spiffe
-   - Review OPA Go SDK docs: https://www.openpolicyagent.org/docs/latest/integration/#integrating-with-the-go-api
-   - Cobra CLI examples: https://github.com/spf13/cobra
-   - Viper configuration examples: https://github.com/spf13/viper
-
-### 2. Extension Possibilities
-
-Once the basic demo is working, consider these enhancements:
-
-#### A. Real LLM Integration
-
-Replace simulated agents with actual LLM API calls:
-
-- **GPT-4 Agent**: Call OpenAI API with document content
-- **Claude Agent**: Call Anthropic API
-- **Demonstrate**: How agent SPIFFE ID can be used for API rate limiting
-
-#### B. Advanced OPA Policies
-
-- **Time-based policies**: "Finance documents only accessible during business hours"
-- **Data classification**: "Sensitive documents require multi-factor approval"
-- **Attribute-based access control**: Policies based on document metadata
-
-#### C. Model Context Protocol (MCP) Integration
-
-- Add MCP server endpoints to Document Service
-- Demonstrate how SPIFFE IDs secure MCP tool invocations
-- Show policy enforcement for MCP resources
-
-#### D. Agent-to-Agent Delegation
-
-- Allow GPT-4 to delegate to Summarizer Agent
-- Multi-level permission reduction: User → Agent 1 → Agent 2
-- Delegation chain visualization
-
-#### E. Production Readiness Features
-
-- **Audit logging**: All access decisions logged to centralized system
-- **Observability**: Grafana dashboard showing mTLS connections, policy evaluations
-- **High availability**: Multi-replica SPIRE Server with PostgreSQL datastore
-- **External CA integration**: Use enterprise CA instead of SPIRE's built-in CA
-
-### 3. Production Considerations
-
-This demo is **educational**, not **production-ready**. For production deployment:
-
-#### Security Hardening
-
-- **SPIRE Server**: Use production-grade datastore (PostgreSQL, MySQL), not in-memory
-- **Node attestation**: Use hardware-backed attestation (TPM, AWS instance identity)
-- **mTLS certificates**: Consider shorter TTLs (15 minutes) with more frequent rotation
-- **OPA policies**: Load from external system (git repo), not ConfigMap
-- **Secrets**: Use Kubernetes secrets or Vault for sensitive configuration
-
-#### Scalability
-
-- **SPIRE Server**: Deploy as StatefulSet with 3+ replicas behind load balancer
-- **OPA**: Deploy OPA sidecar per service (instead of centralized)
-- **Caching**: Cache OPA decisions with short TTL to reduce policy evaluation overhead
-
-#### Observability
-
-- **Metrics**: Prometheus metrics for SVID issuance rate, mTLS errors, policy denials
-- **Tracing**: OpenTelemetry traces showing request flow through services
-- **Logging**: Structured JSON logs to centralized logging (Elasticsearch, Loki)
-
-#### Operational Excellence
-
-- **Disaster recovery**: Backup SPIRE Server datastore, test restore procedures
-- **Monitoring**: Alerts for SPIRE Server health, certificate expiration, policy failures
-- **Documentation**: Runbooks for common operational tasks
-
-### 4. Learning Path
-
-For someone new to SPIFFE/SPIRE and Zero Trust:
-
-1. **Week 1: Foundations**
-   - Read SPIFFE specification: https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE.md
-   - Complete SPIRE tutorials: https://spiffe.io/docs/latest/try/
-   - Learn OPA basics: https://www.openpolicyagent.org/docs/latest/
-
-2. **Week 2: Deploy This Demo**
-   - Follow deployment guide in this document
-   - Run through all demo scenarios
-   - Experiment with modifying OPA policies
-
-3. **Week 3: Extend the Demo**
-   - Add a new user (Dave) with custom permissions
-   - Add a new agent with specific capabilities
-   - Write additional OPA policy tests
-
-4. **Week 4: Integrate with Existing Systems**
-   - Deploy SPIRE in your development Kubernetes cluster
-   - Instrument one service to use SPIFFE identity
-   - Add OPA policy enforcement to one API endpoint
-
-### 5. Community Resources
-
-- **SPIFFE Slack**: https://slack.spiffe.io/
-- **OPA Slack**: https://slack.openpolicyagent.org/
-- **SPIFFE GitHub**: https://github.com/spiffe/spiffe
-- **SPIRE GitHub**: https://github.com/spiffe/spire
-- **OPA GitHub**: https://github.com/open-policy-agent/opa
-
-### 6. Feedback and Contributions
-
-This demo is designed to be educational. Contributions welcome:
-
-- **Report issues**: Documentation errors, unclear explanations
-- **Suggest scenarios**: Additional demo flows that illustrate Zero Trust principles
-- **Code contributions**: After implementation, PRs for bug fixes or enhancements
+- **OpenShift OTel deployment** (Phase 9E): Tempo or cluster-logging
+  as trace backend on OpenShift
+- **Dynamic agent registration API**: REST endpoint to add agents
+  without code changes
+- **MCP integration**: SPIFFE-secured Model Context Protocol endpoints
+- **Agent-to-agent delegation**: Multi-level permission reduction
 
 ---
 
@@ -3393,6 +2461,12 @@ This demo is designed to be educational. Contributions welcome:
 | **Service Account**         | Kubernetes identity for pods (used as workload selector in SPIRE)                               |
 | **ConfigMap**               | Kubernetes resource for storing configuration data (used for OPA policies)                      |
 | **SSE**                     | Server-Sent Events - HTTP-based protocol for server-to-client streaming (used for console logs) |
+| **AuthBridge**              | Envoy sidecar + ext-proc that bridges OIDC and SPIFFE identity via token exchange               |
+| **ext-proc**                | Envoy external processing filter — runs custom Go logic on HTTP requests                        |
+| **OIDC**                    | OpenID Connect - authentication layer on top of OAuth 2.0                                       |
+| **Token Exchange**          | RFC 8693 — exchanging one security token for another (e.g., OIDC token for service token)       |
+| **Kustomize**               | Kubernetes-native configuration management tool for manifest overlays                           |
+| **OTel**                    | OpenTelemetry - vendor-neutral observability framework for traces, metrics, logs                 |
 | **MCP**                     | Model Context Protocol - protocol for exposing resources/tools to LLMs                          |
 | **A2A**                     | Agent-to-Agent communication protocol                                                           |
 
@@ -3400,20 +2474,15 @@ This demo is designed to be educational. Contributions welcome:
 
 ## Summary
 
-This design document provides a complete blueprint for building a **SPIFFE/SPIRE Zero Trust demo** that educates developers about:
+This architecture demonstrates **Zero Trust security for AI agent
+systems** using:
 
-1. **Workload Identity**: How SPIFFE/SPIRE provides cryptographic identity for services
-2. **Zero Trust Architecture**: How to implement "never trust, always verify" with mTLS + OPA
-3. **AI Agent Security**: How to secure autonomous AI agents with permission intersection
-4. **Policy-Based Access Control**: How OPA enables fine-grained authorization decisions
+1. **SPIFFE/SPIRE** for cryptographic workload identity (mTLS)
+1. **OPA** for policy-based access control with permission intersection
+1. **AuthBridge** (Envoy + ext-proc) for bridging OIDC and SPIFFE
+   identity via RFC 8693 token exchange
+1. **OpenTelemetry** for distributed tracing across all services
 
-The demo is designed to be:
-
-- **Educational**: Clear visualizations, color-coded logs, step-by-step flow
-- **Practical**: Deployable on local laptop via Kind cluster
-- **Comprehensive**: Covers SPIRE setup, workload attestation, mTLS, and OPA policies
-- **Extensible**: Foundation for adding real LLM integration, MCP support, and production features
-
-By following this design, you'll create a hands-on demonstration that makes Zero Trust principles concrete and understandable, serving as a companion to the `learn-oauth-go` demo for developers building secure AI agent systems.
-
-**Ready to build? Start with implementing the OPA policies and tests—they're the heart of the Zero Trust authorization model.**
+The system enforces that AI agents can never exceed the permissions
+of either the delegating user or the agent's own capabilities, with
+every decision auditable through OTel traces and OPA policy logs.

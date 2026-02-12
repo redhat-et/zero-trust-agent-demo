@@ -1,8 +1,8 @@
-# ADR-0009: OpenTelemetry instrumentation and token exchange TUI
+# ADR-0009: OpenTelemetry instrumentation and token exchange visibility
 
 ## Status
 
-Proposed
+Accepted (Subphases A-D implemented)
 
 ## Date
 
@@ -46,8 +46,10 @@ in context.
 ## Decision
 
 We will add **OpenTelemetry distributed tracing** to all Go services
-and build a **bubbletea-based terminal UI** that renders token exchange
-flows as live sequence diagrams.
+and the AuthBridge ext-proc, with **Jaeger** as the trace visualization
+backend. The original plan included a bubbletea TUI (Subphase D), but
+this was replaced with **Bearer token propagation** to enable the
+ext-proc to perform token exchange on the delegation path.
 
 ### Why OpenTelemetry
 
@@ -58,22 +60,17 @@ flows as live sequence diagrams.
   Envoy without extra configuration
 - Positions this demo as a reference architecture, not a one-off hack
 
-### Why a TUI (not extending the web dashboard)
+### Why Jaeger (not a TUI)
 
-- The web dashboard is intentionally simple and should stay that way
-- A terminal UI impresses technical audiences — previous experience
-  with bubbletea/lipgloss TUIs at demos has shown strong impact
-- The TUI is a separate binary that can be used independently
-- It naturally complements `kubectl logs` and terminal workflows
-- It can be shipped as a single static Go binary
+The original plan called for a bubbletea-based TUI binary. During
+implementation, Jaeger proved sufficient for trace visualization:
 
-### Why bubbletea
-
-- Pure Go, compiles to a single binary
-- Elm architecture is well-suited for streaming trace data
-- lipgloss provides rich terminal styling without ncurses
-- Large ecosystem of community components (bubbles)
-- Aligns with the project's Go-first approach
+- Jaeger is already deployed as part of the OTel Collector pipeline
+- It provides trace search, filtering, and detail views out of the box
+- No custom binary to build, test, and maintain
+- Familiar to operators who use it in production
+- Subphase D effort was better spent on Bearer token propagation,
+  which was required for the ext-proc token exchange spans to fire
 
 ## Architecture overview
 
@@ -81,47 +78,62 @@ flows as live sequence diagrams.
 ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐
 │ user-svc │   │agent-svc │   │ doc-svc  │   │ opa-svc  │
 │  :8082   │   │  :8083   │   │  :8084   │   │  :8085   │
-└────┬─────┘   └────┬─────┘   └────┬─────┘   └────┬─────┘
-     │  OTLP/gRPC   │              │              │
-     └───────┬──────┴──────┬───────┴──────┬───────┘
+└────┬─────┘   └──┬───┬───┘   └────┬─────┘   └────┬─────┘
+     │            │   │            │              │
+     │     ┌──────┘   │            │              │
+     │     │ ext-proc │            │              │
+     │     │(sidecar) │            │              │
+     │     └──────┬───┘            │              │
+     │  OTLP/gRPC │                │              │
+     └───────┬────┴────────┬───────┴──────┬───────┘
              ▼             ▼              ▼
        ┌─────────────────────────────────────┐
        │       OpenTelemetry Collector       │
        │         (otel-collector)            │
-       └──────┬──────────┬──────────┬───────┘
-              │          │          │
-              ▼          ▼          ▼
-         ┌────────┐ ┌────────┐ ┌────────┐
-         │ Jaeger │ │ Tempo  │ │  TUI   │
-         │  (dev) │ │ (prod) │ │(OTLP)  │
-         └────────┘ └────────┘ └────────┘
+       └──────┬──────────────────────┬───────┘
+              │                      │
+              ▼                      ▼
+         ┌────────┐            ┌────────┐
+         │ Jaeger │            │ Tempo  │
+         │  (dev) │            │ (prod) │
+         └────────┘            └────────┘
 ```
 
 ### Trace structure
 
 A single delegated access request produces one trace with spans across
-services:
+services. Token exchange happens **only** on the agent-service's
+outbound path (agent-service → document-service), via the Envoy
+sidecar on agent-service:
 
 ```text
-[user-service] POST /delegate
-  ├─ [user-service] validate_user (alice)
-  ├─ [user-service] → agent-service POST /agents/gpt4/access
-  │   ├─ [envoy/ext-proc] token_exchange
-  │   │     span attrs: token.subject, token.aud.before, token.aud.after,
-  │   │                 exchange.grant_type (urn:ietf:params:oauth:grant-type:token-exchange)
-  │   ├─ [agent-service] validate_delegation
-  │   ├─ [agent-service] → document-service POST /access
-  │   │   ├─ [envoy/ext-proc] token_exchange
-  │   │   ├─ [document-service] jwt_validation
-  │   │   │     span attrs: jwt.issuer, jwt.azp, jwt.groups
-  │   │   ├─ [document-service] → opa-service POST /v1/data/...
-  │   │   │   └─ [opa-service] policy_evaluation
-  │   │   │         span attrs: decision, reason, caller_type
-  │   │   └─ [document-service] access_result
-  │   │         span attrs: document_id, allowed
-  │   └─ [agent-service] delegation_result
-  └─ [user-service] response
+[web-dashboard] POST /api/access-delegated
+  └─ [user-service] POST /delegate
+       ├─ [user-service] user.delegate
+       └─ [user-service] → agent-service POST /agents/gpt4/access
+            ├─ [agent-service] agent.delegated_access
+            └─ [agent-service] → document-service POST /access
+                 ├─ [authbridge-ext-proc] ext_proc.outbound
+                 │     span attrs: authbridge.action (token_exchanged)
+                 │     └─ [authbridge-ext-proc] token_exchange
+                 │           span attrs: token.subject, token.aud.before,
+                 │             token.aud.after, exchange.grant_type
+                 ├─ [document-service] doc.access
+                 │     ├─ [document-service] jwt_validation
+                 │     │     span attrs: jwt.issuer, jwt.azp, jwt.groups
+                 │     └─ [document-service] → opa-service POST /v1/data/...
+                 │          └─ [opa-service] policy.evaluate
+                 │                span attrs: decision, reason, caller_type
+                 └─ response
 ```
+
+Key architectural decision: the Envoy sidecar with ext-proc is
+deployed **only on agent-service**, not on user-service. The
+user-service communicates with agent-service via mTLS and passes the
+Bearer token in the HTTP header. The Envoy sidecar on agent-service
+intercepts the outbound request to document-service and exchanges the
+user's OIDC token for a document-service-scoped token. See the
+"Single-sidecar vs dual-sidecar" section below for rationale.
 
 ### Custom span attributes
 
@@ -135,53 +147,38 @@ rather than just generic HTTP spans:
 | `policy_evaluation` | `opa.decision`, `opa.reason`, `opa.caller_type`, `opa.effective_departments` |
 | `permission_intersection` | `user.departments`, `agent.capabilities`, `effective.departments` |
 
-### TUI design
+### Bearer token propagation (replaces TUI)
 
-The TUI has two main views:
+Instead of building a TUI, Subphase D implements Bearer token
+propagation so that the ext-proc can perform RFC 8693 token exchange.
+Without this, the ext-proc always saw `passthrough_no_token` because
+no service forwarded the OIDC access token.
 
-**Trace list view** — streams incoming traces in real time:
-
-```text
- ┌─ Token Exchange Monitor ─────────────────────────────────┐
- │                                                          │
- │  TRACE  alice → gpt4 → DOC-001    ✓ ALLOWED   120ms     │
- │  TRACE  bob → summarizer → DOC-002  ✓ ALLOWED   89ms    │
- │  TRACE  alice → gpt4 → DOC-004    ✗ DENIED    45ms      │
- │                                                          │
- │  ↑/↓ navigate   enter detail   q quit                    │
- └──────────────────────────────────────────────────────────┘
-```
-
-**Trace detail view** — sequence diagram with decoded tokens:
+**Token flow on the delegation path:**
 
 ```text
- ┌─ alice → gpt4 → DOC-001 ──────────────────────────────────┐
- │                                                            │
- │  user-svc    agent-svc    ext-proc    doc-svc    opa-svc   │
- │     │            │            │          │          │       │
- │     │──delegate──▶            │          │          │       │
- │     │            │──access───▶│          │          │       │
- │     │            │            │──token───▶          │       │
- │     │            │            │  exchange │          │      │
- │     │            │            │  aud: agent-svc     │      │
- │     │            │            │  → aud: doc-svc     │      │
- │     │            │            │          │──eval────▶│     │
- │     │            │            │          │  ALLOW   ◀│     │
- │     │            │            │          ◀───────────│     │
- │     │            ◀────────────│          │          │      │
- │     ◀────────────│            │          │          │      │
- │                                                            │
- │  Token details:                                            │
- │  ┌─ Before exchange ──────┐  ┌─ After exchange ─────────┐ │
- │  │ sub: agent/gpt4        │  │ sub: agent/gpt4          │ │
- │  │ aud: agent-service     │  │ aud: document-service    │ │
- │  │ iss: spire-server      │  │ iss: keycloak            │ │
- │  │ groups: [eng, finance] │  │ groups: [eng, finance]   │ │
- │  └────────────────────────┘  └──────────────────────────┘ │
- │                                                            │
- │  esc back   q quit                                         │
- └────────────────────────────────────────────────────────────┘
+Browser (Keycloak OIDC token in session)
+  → web-dashboard (extracts token, sets Authorization header)
+    → user-service (passes token through to agent-service)
+      → agent-service (passes token through)
+        → [Envoy sidecar intercepts outbound request]
+          → ext-proc exchanges token (RFC 8693)
+            → document-service (receives exchanged token, validates JWT)
 ```
+
+**Changes:**
+
+1. `pkg/auth/session.go` — store `AccessToken` in session
+1. `web-dashboard/cmd/serve.go` — save token at OIDC callback,
+   add `getAccessToken()` helper, convert 5 POST calls to set
+   `Authorization: Bearer` header
+1. `user-service/cmd/serve.go` — extract and forward Bearer token
+   on the delegation path (not on direct access)
+1. `agent-service/cmd/serve.go` — extract and forward Bearer token
+   on delegated document access
+
+**Mock mode:** when OIDC is disabled, no token is present. Services
+skip forwarding. The ext-proc logs `passthrough_no_token` as before.
 
 ## Scope of changes
 
@@ -204,15 +201,17 @@ The TUI has two main views:
      - document-service: JWT validation, OPA query
      - opa-service: policy evaluation, permission intersection
 
-1. **`cmd/token-viz/`** — new bubbletea TUI binary
-   - OTLP receiver (listens for traces from collector)
-   - Trace aggregation and filtering
-   - Sequence diagram renderer
-   - JWT decoder for token detail view
+1. **Bearer token propagation** (Subphase D, replaces TUI)
+   - `pkg/auth/session.go` — `AccessToken` field in session
+   - `web-dashboard/cmd/serve.go` — store token, propagate on
+     outbound requests
+   - `user-service/cmd/serve.go` — forward token on delegation path
+   - `agent-service/cmd/serve.go` — forward token on document access
 
 1. **`deploy/k8s/`** — OTel Collector deployment
    - Collector ConfigMap (receivers, processors, exporters)
    - Collector Deployment and Service
+   - Jaeger Deployment and Service
    - Overlay patches for OpenShift
 
 ### kagenti-extensions (separate repository)
@@ -326,40 +325,81 @@ users, not just this demo.
 
 ## Phased implementation plan
 
-### Subphase A: OTel SDK integration
+### Subphase A: OTel SDK integration (done)
 
-- Add `go.opentelemetry.io/otel` dependencies
-- Create `pkg/telemetry/` with tracer provider, middleware, and helpers
-- Instrument all four Go services (HTTP handlers + outbound clients)
-- Add custom security span attributes
-- Verify traces appear in stdout exporter
+- Added `go.opentelemetry.io/otel` dependencies
+- Created `pkg/telemetry/` with tracer provider (`provider.go`),
+  HTTP middleware (`middleware.go`), and custom span helpers
+  (`spans.go`)
+- Instrumented all five Go services (HTTP handlers + outbound clients)
+- Added custom security span attributes (`AttrUserID`, `AttrAgentID`,
+  `AttrDocumentID`, `AttrAccessGranted`, etc.)
+- Verified traces appear with OTLP exporter
 
-### Subphase B: collector and Jaeger
+### Subphase B: collector and Jaeger (done)
 
-- Deploy OTel Collector as a sidecar or standalone pod
-- Configure OTLP receiver and Jaeger exporter
-- Deploy Jaeger for visual trace inspection during development
-- Verify full trace propagation across all services including through
-  Envoy (W3C `traceparent` header)
+- Deployed OTel Collector as a standalone Deployment in `spiffe-demo`
+  namespace
+- Configured OTLP/gRPC receiver on port 4317 and Jaeger exporter
+- Deployed Jaeger all-in-one for trace visualization (port 16686)
+- Added manifests to `deploy/k8s/base/` (`otel-collector.yaml`,
+  `jaeger.yaml`)
+- Verified full trace propagation across all services including
+  through Envoy (W3C `traceparent` header preserved)
 
-### Subphase C: ext-proc instrumentation
+### Subphase C: ext-proc instrumentation (done)
 
-- Fork kagenti-extensions
-- Add OTel tracing to the Go ext-proc token exchange handler
-- Ensure trace context propagation from Envoy to ext-proc and back
-- Verify token exchange spans appear in Jaeger traces
-- Open PR against kagenti-extensions
+- Forked kagenti-extensions
+- Added OTel tracing to the Go ext-proc: `ext_proc.outbound` parent
+  span with `token_exchange` and `jwt_validation` child spans
+- Trace context propagation from Envoy to ext-proc via
+  `grpc-trace-bin` header
+- Token exchange span emits `token.subject`, `token.aud.before`,
+  `token.aud.after`, `exchange.grant_type` attributes
+- Discovered and fixed Envoy config bug: `request_headers_to_add`
+  at `virtual_hosts` level is invisible to ext-proc (see
+  `docs/bugs/envoy-ext-proc-direction-header-bug.md`)
+- Fix: Lua HTTP filter before ext-proc injects
+  `x-authbridge-direction: inbound` header
 
-### Subphase D: bubbletea TUI
+### Subphase D: Bearer token propagation (done, replaces TUI)
 
-- Build `cmd/token-viz/` binary
-- Implement OTLP receiver (gRPC server that accepts trace exports)
-- Build trace list view with real-time streaming
-- Build trace detail view with sequence diagram rendering
-- Add JWT decoding for token before/after comparison
-- Add lipgloss styling for terminal rendering
+The original plan for a bubbletea TUI was dropped in favor of Bearer
+token propagation — without it, the ext-proc never saw an
+`Authorization` header and always logged `passthrough_no_token`.
 
-### Subphase E: OpenShift deployment
+- Added `AccessToken` field to `pkg/auth/session.go`
+- Dashboard stores OIDC access token in session at callback
+- Dashboard sets `Authorization: Bearer` header on all outbound
+  requests
+- user-service forwards Bearer token on the delegation path
+  (not on direct access — direct access uses mTLS only)
+- agent-service forwards Bearer token on outbound document access
+- Envoy sidecar on agent-service intercepts the outbound request,
+  ext-proc performs RFC 8693 token exchange
+
+**Architectural decision — single-sidecar (agent-service only):**
+
+During implementation we briefly added an Envoy sidecar to
+user-service as well. This caused a double token exchange bug on
+the delegation path: user-service's ext-proc exchanged the token on
+outbound, then agent-service's ext-proc tried to exchange the
+already-exchanged token, and Keycloak rejected it (`client is not
+within the token audience`).
+
+Analysis showed that the user-service sidecar was unnecessary:
+
+- **Direct access** (user-service → document-service): authenticated
+  via mTLS + OPA policy. No OIDC token needed.
+- **Delegated access** (user-service → agent-service →
+  document-service): only the last hop (agent → document) needs
+  token exchange. user-service just passes the Bearer token through.
+
+The sidecar was reverted. The Envoy + ext-proc is deployed only on
+agent-service, where it intercepts the critical outbound hop to
+document-service.
+
+### Subphase E: OpenShift deployment (not started)
 
 - Create OTel Collector overlay for OpenShift
 - Configure Tempo or cluster-logging as trace backend
@@ -398,21 +438,26 @@ tail-based sampling in the collector to capture interesting traces
 
 ### Positive
 
-- **Visibility**: Token exchange flow becomes observable and demonstrable
+- **Visibility**: Token exchange flow is observable in Jaeger — traces
+  show `token_exchange` and `jwt_validation` spans with decoded
+  attributes
 - **Reference architecture**: Shows how OTel should be used in agentic
   security workflows
-- **Ecosystem integration**: Jaeger, Grafana, Tempo work out of the box
-- **Reusable instrumentation**: `pkg/telemetry/` is useful beyond the TUI
+- **Ecosystem integration**: Jaeger works out of the box; Tempo
+  available for production
+- **Reusable instrumentation**: `pkg/telemetry/` provides standard
+  helpers for any Go service
 - **kagenti benefit**: ext-proc tracing is valuable to the broader
-  kagenti community
-- **Demo impact**: TUI provides a compelling visual for technical audiences
+  kagenti community (PR submitted with bug fix)
+- **Bug discovery**: Found and documented Envoy `request_headers_to_add`
+  visibility bug — useful for anyone using ext-proc with direction
+  headers
 
 ### Negative
 
 - **Dependency increase**: OTel SDK adds several Go module dependencies
 - **Complexity**: Trace context propagation through Envoy and ext-proc
-  requires careful configuration
-- **Maintenance**: TUI is a new binary to build, test, and ship
+  requires careful attention to HTTP filter chain ordering
 - **Performance overhead**: Tracing adds small latency to every request
   (mitigated by sampling in production)
 
@@ -420,7 +465,7 @@ tail-based sampling in the collector to capture interesting traces
 
 - Existing Prometheus metrics remain unchanged
 - Structured logging continues to work alongside tracing
-- Web dashboard is not modified
+- Web dashboard is not modified (only backend token propagation added)
 
 ## Alternatives considered
 
@@ -460,7 +505,6 @@ tail-based sampling in the collector to capture interesting traces
 - [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/)
 - [W3C Trace Context](https://www.w3.org/TR/trace-context/)
 - [RFC 8693 — OAuth 2.0 Token Exchange](https://datatracker.ietf.org/doc/html/rfc8693)
-- [bubbletea](https://github.com/charmbracelet/bubbletea)
-- [lipgloss](https://github.com/charmbracelet/lipgloss)
 - [Jaeger](https://www.jaegertracing.io/)
+- [Envoy ext-proc direction header bug](../bugs/envoy-ext-proc-direction-header-bug.md)
 - [OpenShift distributed tracing](https://docs.openshift.com/container-platform/latest/observability/distr_tracing/distr_tracing_arch/distr-tracing-architecture.html)
