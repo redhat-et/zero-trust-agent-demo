@@ -19,6 +19,7 @@ import (
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/logger"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/metrics"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/spiffe"
+	"github.com/redhat-et/zero-trust-agent-demo/pkg/telemetry"
 )
 
 var serveCmd = &cobra.Command{
@@ -77,6 +78,18 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
+	// Initialize OpenTelemetry
+	ctx := context.Background()
+	otelShutdown, err := telemetry.Init(ctx, telemetry.Config{
+		ServiceName:       "opa-service",
+		Enabled:           cfg.OTel.Enabled,
+		CollectorEndpoint: cfg.OTel.CollectorEndpoint,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to init telemetry: %w", err)
+	}
+	defer otelShutdown(ctx)
+
 	// Set default policy directory
 	if cfg.PolicyDir == "" {
 		cfg.PolicyDir = "policies"
@@ -93,7 +106,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 	workloadClient := spiffe.NewWorkloadClient(spiffeCfg, log)
 
 	// Fetch identity from SPIRE Agent (unless in mock mode)
-	ctx := context.Background()
 	if !cfg.Service.MockSPIFFE {
 		identity, err := workloadClient.FetchIdentity(ctx)
 		if err != nil {
@@ -117,7 +129,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 	mux.HandleFunc("/v1/data/demo/authorization/management/decision", svc.handleManagementDecision)
 
 	// Wrap with SPIFFE identity middleware
-	handler := spiffe.IdentityMiddleware(cfg.Service.MockSPIFFE)(mux)
+	var handler http.Handler = spiffe.IdentityMiddleware(cfg.Service.MockSPIFFE)(mux)
+	if cfg.OTel.Enabled {
+		handler = telemetry.WrapHandler(handler, "opa-service")
+	}
 
 	server := workloadClient.CreateHTTPServer(cfg.Service.Addr(), handler)
 	server.ReadTimeout = 10 * time.Second
@@ -312,6 +327,12 @@ func (s *OPAService) handleDecision(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *OPAService) evaluate(ctx context.Context, input PolicyInput) (*PolicyDecision, error) {
+	ctx, span := telemetry.StartSpan(ctx, "policy.evaluate",
+		telemetry.AttrCallerSPIFFEID.String(input.CallerSPIFFEID),
+		telemetry.AttrDocumentID.String(input.DocumentID),
+	)
+	defer span.End()
+
 	start := time.Now()
 	evalLog := logger.New(logger.ComponentOPAEval)
 
@@ -390,6 +411,12 @@ func (s *OPAService) evaluate(ctx context.Context, input PolicyInput) (*PolicyDe
 		callerType = "delegated"
 	}
 	metrics.AuthorizationDecisions.WithLabelValues("opa-service", decisionLabel, callerType).Inc()
+
+	span.SetAttributes(
+		telemetry.AttrDecision.String(decisionLabel),
+		telemetry.AttrReason.String(decision.Reason),
+		telemetry.AttrCallerType.String(callerType),
+	)
 
 	return decision, nil
 }

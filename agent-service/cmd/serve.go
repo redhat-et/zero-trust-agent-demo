@@ -20,6 +20,7 @@ import (
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/logger"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/metrics"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/spiffe"
+	"github.com/redhat-et/zero-trust-agent-demo/pkg/telemetry"
 )
 
 var serveCmd = &cobra.Command{
@@ -63,6 +64,18 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
+	// Initialize OpenTelemetry
+	ctx := context.Background()
+	otelShutdown, err := telemetry.Init(ctx, telemetry.Config{
+		ServiceName:       "agent-service",
+		Enabled:           cfg.OTel.Enabled,
+		CollectorEndpoint: cfg.OTel.CollectorEndpoint,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to init telemetry: %w", err)
+	}
+	defer otelShutdown(ctx)
+
 	// Set defaults
 	if cfg.DocumentServiceURL == "" {
 		cfg.DocumentServiceURL = "http://localhost:8084"
@@ -79,7 +92,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 	workloadClient := spiffe.NewWorkloadClient(spiffeCfg, log)
 
 	// Fetch identity from SPIRE Agent (unless in mock mode)
-	ctx := context.Background()
 	if !cfg.Service.MockSPIFFE {
 		identity, err := workloadClient.FetchIdentity(ctx)
 		if err != nil {
@@ -92,6 +104,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Create mTLS HTTP client for outgoing requests
 	httpClient := workloadClient.CreateMTLSClient(10 * time.Second)
+	if cfg.OTel.Enabled {
+		httpClient.Transport = telemetry.WrapTransport(httpClient.Transport)
+	}
 
 	svc := &AgentService{
 		store:              store.NewAgentStore(cfg.SPIFFE.TrustDomain),
@@ -109,7 +124,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Wrap with SPIFFE identity middleware
 	// In plain HTTP mode (behind Envoy proxy), use header-based identity like mock mode
-	handler := spiffe.IdentityMiddleware(cfg.Service.MockSPIFFE || cfg.Service.ListenPlainHTTP)(mux)
+	var handler http.Handler = spiffe.IdentityMiddleware(cfg.Service.MockSPIFFE || cfg.Service.ListenPlainHTTP)(mux)
+	if cfg.OTel.Enabled {
+		handler = telemetry.WrapHandler(handler, "agent-service")
+	}
 
 	var server *http.Server
 	if cfg.Service.ListenPlainHTTP {
@@ -254,10 +272,17 @@ func (s *AgentService) handleDelegatedAccess(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	ctx, span := telemetry.StartSpan(r.Context(), "agent.delegated_access",
+		telemetry.AttrAgentID.String(agent.ID),
+		telemetry.AttrAgentSPIFFEID.String(agent.SPIFFEID),
+	)
+	defer span.End()
+
 	if req.UserSPIFFEID == "" {
 		s.log.Section("AUTONOMOUS AGENT ACCESS ATTEMPT")
 		s.log.Error("No user SPIFFE ID provided - agents cannot act autonomously")
 		s.log.Deny("Agent requests require user delegation context")
+		telemetry.SetSpanError(span, fmt.Errorf("autonomous agent access denied"))
 		metrics.AuthorizationDecisions.WithLabelValues("agent-service", "deny", "autonomous").Inc()
 
 		// Return a proper JSON response for the dashboard
@@ -271,6 +296,11 @@ func (s *AgentService) handleDelegatedAccess(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	span.SetAttributes(
+		telemetry.AttrUserSPIFFEID.String(req.UserSPIFFEID),
+		telemetry.AttrDocumentID.String(req.DocumentID),
+	)
+
 	s.log.Section("DELEGATED AGENT ACCESS")
 	s.log.Info("Agent accepting delegation",
 		"agent", agent.Name,
@@ -283,13 +313,16 @@ func (s *AgentService) handleDelegatedAccess(w http.ResponseWriter, r *http.Requ
 		"agent_spiffe_id", agent.SPIFFEID)
 
 	// Make delegated request to document service
-	result, err := s.accessDocumentDelegated(r.Context(), agent, req.UserSPIFFEID, req.DocumentID, req.UserDepartments)
+	result, err := s.accessDocumentDelegated(ctx, agent, req.UserSPIFFEID, req.DocumentID, req.UserDepartments)
 	if err != nil {
+		telemetry.SetSpanError(span, err)
 		s.log.Error("Delegated access failed", "error", err)
 		metrics.AuthorizationDecisions.WithLabelValues("agent-service", "error", "delegated").Inc()
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	span.SetAttributes(telemetry.AttrAccessGranted.Bool(result.Granted))
 
 	// Record metrics
 	decision := "allow"

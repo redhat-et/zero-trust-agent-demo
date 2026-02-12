@@ -31,6 +31,12 @@ type SPIFFEConfig struct {
 	TrustDomain string `mapstructure:"trust_domain"`
 }
 
+// OTelConfig holds OpenTelemetry configuration
+type OTelConfig struct {
+	Enabled           bool   `mapstructure:"enabled"`
+	CollectorEndpoint string `mapstructure:"collector_endpoint"`
+}
+
 // OPAConfig holds OPA service configuration
 type OPAConfig struct {
 	Host string `mapstructure:"host"`
@@ -58,6 +64,7 @@ type CommonConfig struct {
 	Service ServiceConfig `mapstructure:"service"`
 	SPIFFE  SPIFFEConfig  `mapstructure:"spiffe"`
 	OPA     OPAConfig     `mapstructure:"opa"`
+	OTel    OTelConfig    `mapstructure:"otel"`
 }
 
 // Addr returns the service listen address
@@ -132,6 +139,10 @@ func setDefaults(v *viper.Viper, serviceName string) {
 	v.SetDefault("opa.host", "localhost")
 	v.SetDefault("opa.port", 8085)
 
+	// OTel defaults
+	v.SetDefault("otel.enabled", false)
+	v.SetDefault("otel.collector_endpoint", "")
+
 	// Storage defaults (disabled by default for local development)
 	v.SetDefault("storage.enabled", false)
 	v.SetDefault("storage.bucket_host", "localhost")
@@ -173,8 +184,13 @@ func BindFlags(cmd *cobra.Command, v *viper.Viper) {
 	v.BindPFlag("service.mock_spiffe", cmd.PersistentFlags().Lookup("mock-spiffe"))
 	v.BindPFlag("service.listen_plain_http", cmd.PersistentFlags().Lookup("listen-plain-http"))
 	v.BindPFlag("service.log_level", cmd.PersistentFlags().Lookup("log-level"))
+	cmd.PersistentFlags().Bool("otel-enabled", false, "Enable OpenTelemetry tracing")
+	cmd.PersistentFlags().String("otel-collector-endpoint", "", "OpenTelemetry collector gRPC endpoint (e.g. localhost:4317)")
+
 	v.BindPFlag("opa.host", cmd.PersistentFlags().Lookup("opa-host"))
 	v.BindPFlag("opa.port", cmd.PersistentFlags().Lookup("opa-port"))
+	v.BindPFlag("otel.enabled", cmd.PersistentFlags().Lookup("otel-enabled"))
+	v.BindPFlag("otel.collector_endpoint", cmd.PersistentFlags().Lookup("otel-collector-endpoint"))
 }
 
 // GetServiceEndpoints returns the default service endpoints for local development

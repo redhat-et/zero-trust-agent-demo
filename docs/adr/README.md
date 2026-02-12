@@ -20,6 +20,8 @@ An Architecture Decision Record captures an important architectural decision mad
 | [0003](0003-opa-policy-evaluation.md) | Use OPA for Policy Evaluation | Accepted | 2026-01-20 |
 | [0004](0004-kustomize-deployment-variants.md) | Use Kustomize for Deployment Variants | Accepted | 2026-01-21 |
 | [0005](0005-separate-health-ports-mtls.md) | Separate Health Ports for mTLS Services | Accepted | 2026-01-22 |
+| [0006](0006-s3-document-storage.md) | S3 Document Storage | Accepted | 2026-01-27 |
+| [0009](0009-otel-token-viz.md) | OpenTelemetry Instrumentation and Token Exchange TUI | Proposed | 2026-02-10 |
 
 ## ADR Template
 
