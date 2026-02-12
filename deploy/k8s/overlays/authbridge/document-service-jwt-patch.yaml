@@ -20,3 +20,7 @@ spec:
               value: "document-service"
             - name: SPIFFE_DEMO_SERVICE_LISTEN_PLAIN_HTTP
               value: "true"
+            - name: SPIFFE_DEMO_OTEL_ENABLED
+              value: "true"
+            - name: SPIFFE_DEMO_OTEL_COLLECTOR_ENDPOINT
+              value: "otel-collector:4317"

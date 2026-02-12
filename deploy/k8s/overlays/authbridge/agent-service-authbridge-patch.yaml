@@ -29,9 +29,10 @@ spec:
               value: "15124"
             - name: PROXY_UID
               value: "1337"
-            # Exclude Keycloak port so client-registration can reach it directly
+            # Exclude Keycloak port so client-registration can reach it directly,
+            # and OTel collector port so traces can be exported
             - name: OUTBOUND_PORTS_EXCLUDE
-              value: "8080"
+              value: "8080,4317"
           resources:
             limits:
               cpu: 10m
@@ -48,6 +49,10 @@ spec:
               value: "true"
             - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
               value: "http://document-service:8084"
+            - name: SPIFFE_DEMO_OTEL_ENABLED
+              value: "true"
+            - name: SPIFFE_DEMO_OTEL_COLLECTOR_ENDPOINT
+              value: "otel-collector:4317"
         # spiffe-helper: fetches JWT SVID from SPIRE agent
         - name: spiffe-helper
           image: ghcr.io/spiffe/spiffe-helper:nightly
@@ -137,7 +142,7 @@ spec:
         # envoy-proxy: intercepts outbound traffic and exchanges tokens
         - name: envoy-proxy
           image: ghcr.io/kagenti/kagenti-extensions/envoy-with-processor:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Never
           securityContext:
             runAsUser: 1337
             runAsGroup: 1337
@@ -175,6 +180,10 @@ spec:
               value: "/shared/client-id.txt"
             - name: CLIENT_SECRET_FILE
               value: "/shared/client-secret.txt"
+            - name: OTEL_ENABLED
+              value: "true"
+            - name: OTEL_COLLECTOR_ENDPOINT
+              value: "otel-collector:4317"
           volumeMounts:
             - name: authbridge-envoy-config
               mountPath: /etc/envoy
