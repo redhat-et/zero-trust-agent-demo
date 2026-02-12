@@ -16,3 +16,7 @@ spec:
               value: "http://agent-service:8083"
             - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
               value: "http://document-service:8084"
+            - name: SPIFFE_DEMO_OTEL_ENABLED
+              value: "true"
+            - name: SPIFFE_DEMO_OTEL_COLLECTOR_ENDPOINT
+              value: "otel-collector:4317"

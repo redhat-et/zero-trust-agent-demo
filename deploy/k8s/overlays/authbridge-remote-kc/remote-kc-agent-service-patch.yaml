@@ -18,4 +18,4 @@ spec:
         - name: proxy-init
           env:
             - name: OUTBOUND_PORTS_EXCLUDE
-              value: "443"
+              value: "443,4317"

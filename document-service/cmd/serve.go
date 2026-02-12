@@ -24,6 +24,8 @@ import (
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/metrics"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/spiffe"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/storage"
+	"github.com/redhat-et/zero-trust-agent-demo/pkg/telemetry"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var serveCmd = &cobra.Command{
@@ -133,6 +135,18 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
+	// Initialize OpenTelemetry
+	ctx := context.Background()
+	otelShutdown, err := telemetry.Init(ctx, telemetry.Config{
+		ServiceName:       "document-service",
+		Enabled:           cfg.OTel.Enabled,
+		CollectorEndpoint: cfg.OTel.CollectorEndpoint,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to init telemetry: %w", err)
+	}
+	defer otelShutdown(ctx)
+
 	// Load OBC-style environment variables for storage
 	config.LoadStorageConfigFromEnv(&cfg.Storage)
 
@@ -147,7 +161,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 	workloadClient := spiffe.NewWorkloadClient(spiffeCfg, log)
 
 	// Fetch identity from SPIRE Agent (unless in mock mode)
-	ctx := context.Background()
 	if !cfg.Service.MockSPIFFE {
 		identity, err := workloadClient.FetchIdentity(ctx)
 		if err != nil {
@@ -195,6 +208,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Create mTLS HTTP client for OPA requests
 	opaClient := workloadClient.CreateMTLSClient(5 * time.Second)
+	if cfg.OTel.Enabled {
+		opaClient.Transport = telemetry.WrapTransport(opaClient.Transport)
+	}
 
 	// Determine OPA URL scheme based on mode
 	opaScheme := "http"
@@ -228,7 +244,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Wrap with SPIFFE identity middleware
 	// In plain HTTP mode (AuthBridge/Envoy), use header-based identity like mock mode
-	handler := spiffe.IdentityMiddleware(cfg.Service.MockSPIFFE || cfg.Service.ListenPlainHTTP)(mux)
+	var handler http.Handler = spiffe.IdentityMiddleware(cfg.Service.MockSPIFFE || cfg.Service.ListenPlainHTTP)(mux)
+	if cfg.OTel.Enabled {
+		handler = telemetry.WrapHandler(handler, "document-service")
+	}
 
 	// Create server: plain HTTP when behind Envoy proxy, mTLS otherwise
 	var server *http.Server
@@ -755,16 +774,29 @@ func (s *DocumentService) handleAccess(w http.ResponseWriter, r *http.Request) {
 
 	// Check for JWT access token (AuthBridge token exchange mode)
 	// JWT validation runs first because the caller SPIFFE ID may come from the JWT's azp claim
+	ctx := r.Context()
 	var jwtClaims *auth.AccessTokenClaims
 	if s.jwtValidator != nil {
 		if authHeader := r.Header.Get("Authorization"); strings.HasPrefix(authHeader, "Bearer ") {
+			var jwtSpan trace.Span
+			ctx, jwtSpan = telemetry.StartSpan(ctx, "jwt.validate")
+
 			tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
 			claims, jwtErr := s.jwtValidator.ValidateAccessToken(tokenStr)
 			if jwtErr != nil {
+				telemetry.SetSpanError(jwtSpan, jwtErr)
+				jwtSpan.End()
 				s.log.Error("JWT validation failed", "error", jwtErr)
 				jsonError(w, "JWT validation failed: "+jwtErr.Error(), http.StatusUnauthorized)
 				return
 			}
+			jwtSpan.SetAttributes(
+				telemetry.AttrJWTIssuer.String(claims.Issuer),
+				telemetry.AttrJWTAudience.String(claims.AuthorizedParty),
+			)
+			telemetry.SetSpanOK(jwtSpan)
+			jwtSpan.End()
+
 			jwtClaims = claims
 			s.log.Info("JWT validated successfully",
 				"sub", claims.Subject,
@@ -804,7 +836,7 @@ func (s *DocumentService) handleAccess(w http.ResponseWriter, r *http.Request) {
 		"jwt_authenticated", jwtClaims != nil)
 
 	// Get document metadata
-	meta, err := s.storage.GetMetadata(r.Context(), req.DocumentID)
+	meta, err := s.storage.GetMetadata(ctx, req.DocumentID)
 	if err != nil {
 		var notFound *storage.ErrNotFound
 		if errors.As(err, &notFound) {
@@ -825,7 +857,7 @@ func (s *DocumentService) handleAccess(w http.ResponseWriter, r *http.Request) {
 	if req.Delegation != nil && len(req.Delegation.UserDepartments) > 0 {
 		userDepts = req.Delegation.UserDepartments
 	}
-	allowed, reason, err := s.checkAuthorization(r.Context(), callerSPIFFEID, req.DocumentID, meta, req.Delegation, userDepts)
+	allowed, reason, err := s.checkAuthorization(ctx, callerSPIFFEID, req.DocumentID, meta, req.Delegation, userDepts)
 	if err != nil {
 		s.log.Error("Authorization check failed", "error", err)
 		jsonError(w, "Authorization failed", http.StatusInternalServerError)
@@ -855,7 +887,7 @@ func (s *DocumentService) handleAccess(w http.ResponseWriter, r *http.Request) {
 	s.log.Document(meta.ID, "Returning document content")
 
 	// Get content
-	content, err := s.storage.GetContent(r.Context(), req.DocumentID)
+	content, err := s.storage.GetContent(ctx, req.DocumentID)
 	if err != nil {
 		var notFound *storage.ErrNotFound
 		if errors.As(err, &notFound) {
@@ -901,6 +933,12 @@ func (s *DocumentService) handleAccess(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *DocumentService) checkAuthorization(ctx context.Context, callerSPIFFEID, documentID string, meta *storage.DocumentMetadata, delegation *Delegation, userDepartments []string) (bool, string, error) {
+	ctx, span := telemetry.StartSpan(ctx, "opa.authorize",
+		telemetry.AttrCallerSPIFFEID.String(callerSPIFFEID),
+		telemetry.AttrDocumentID.String(documentID),
+	)
+	defer span.End()
+
 	queryLog := logger.New(logger.ComponentOPAQuery)
 
 	// Build document metadata for OPA
@@ -957,6 +995,11 @@ func (s *DocumentService) checkAuthorization(ctx context.Context, callerSPIFFEID
 	if err := json.NewDecoder(resp.Body).Decode(&opaResp); err != nil {
 		return false, "", fmt.Errorf("failed to decode OPA response: %w", err)
 	}
+
+	span.SetAttributes(
+		telemetry.AttrDecision.String(fmt.Sprintf("%v", opaResp.Result.Allow)),
+		telemetry.AttrReason.String(opaResp.Result.Reason),
+	)
 
 	evalLog := logger.New(logger.ComponentOPAEval)
 	evalLog.Info("Policy evaluation complete",

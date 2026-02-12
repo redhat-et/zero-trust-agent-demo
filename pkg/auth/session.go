@@ -9,13 +9,14 @@ import (
 
 // Session represents an authenticated user session
 type Session struct {
-	ID        string
-	Username  string
-	Name      string
-	Email     string
-	Groups    []string
-	CreatedAt time.Time
-	ExpiresAt time.Time
+	ID          string
+	Username    string
+	Name        string
+	Email       string
+	Groups      []string
+	AccessToken string
+	CreatedAt   time.Time
+	ExpiresAt   time.Time
 }
 
 // SessionStore manages user sessions
@@ -36,19 +37,20 @@ func NewSessionStore(ttl time.Duration) *SessionStore {
 }
 
 // Create creates a new session
-func (s *SessionStore) Create(username, name, email string, groups []string) *Session {
+func (s *SessionStore) Create(username, name, email string, groups []string, accessToken string) *Session {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	id := generateSessionID()
 	session := &Session{
-		ID:        id,
-		Username:  username,
-		Name:      name,
-		Email:     email,
-		Groups:    groups,
-		CreatedAt: time.Now(),
-		ExpiresAt: time.Now().Add(s.ttl),
+		ID:          id,
+		Username:    username,
+		Name:        name,
+		Email:       email,
+		Groups:      groups,
+		AccessToken: accessToken,
+		CreatedAt:   time.Now(),
+		ExpiresAt:   time.Now().Add(s.ttl),
 	}
 	s.sessions[id] = session
 	return session

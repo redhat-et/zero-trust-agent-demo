@@ -10,6 +10,17 @@ resources:
   - authbridge-configmaps.yaml
   - authbridge-secrets.yaml
 
+images:
+  - name: ghcr.io/kagenti/kagenti-extensions/envoy-with-processor
+    newName: localhost/spiffe-demo/envoy-with-processor
+    newTag: latest
+  - name: jaeger
+    newName: jaegertracing/jaeger
+    newTag: "2.15.0"
+  - name: otel-collector
+    newName: otel/opentelemetry-collector-contrib
+    newTag: "0.120.0"
+
 patches:
   - path: agent-service-authbridge-patch.yaml
   - path: document-service-jwt-patch.yaml

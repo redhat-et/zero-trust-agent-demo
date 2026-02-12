@@ -19,6 +19,7 @@ import (
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/logger"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/metrics"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/spiffe"
+	"github.com/redhat-et/zero-trust-agent-demo/pkg/telemetry"
 	"github.com/redhat-et/zero-trust-agent-demo/user-service/internal/store"
 )
 
@@ -69,11 +70,31 @@ type UserService struct {
 	workloadClient     *spiffe.WorkloadClient
 }
 
+func extractBearerToken(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	if strings.HasPrefix(auth, "Bearer ") {
+		return strings.TrimPrefix(auth, "Bearer ")
+	}
+	return ""
+}
+
 func runServe(cmd *cobra.Command, args []string) error {
 	var cfg Config
 	if err := config.Load(v, &cfg); err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
+
+	// Initialize OpenTelemetry
+	ctx := context.Background()
+	otelShutdown, err := telemetry.Init(ctx, telemetry.Config{
+		ServiceName:       "user-service",
+		Enabled:           cfg.OTel.Enabled,
+		CollectorEndpoint: cfg.OTel.CollectorEndpoint,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to init telemetry: %w", err)
+	}
+	defer otelShutdown(ctx)
 
 	// Set defaults
 	if cfg.DocumentServiceURL == "" {
@@ -94,7 +115,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 	workloadClient := spiffe.NewWorkloadClient(spiffeCfg, log)
 
 	// Fetch identity from SPIRE Agent (unless in mock mode)
-	ctx := context.Background()
 	if !cfg.Service.MockSPIFFE {
 		identity, err := workloadClient.FetchIdentity(ctx)
 		if err != nil {
@@ -107,6 +127,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Create mTLS HTTP client for outgoing requests
 	httpClient := workloadClient.CreateMTLSClient(10 * time.Second)
+	if cfg.OTel.Enabled {
+		httpClient.Transport = telemetry.WrapTransport(httpClient.Transport)
+	}
 
 	svc := &UserService{
 		store:              store.NewUserStore(cfg.SPIFFE.TrustDomain),
@@ -126,7 +149,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 	mux.HandleFunc("/delegate", svc.handleDelegate)
 
 	// Wrap with SPIFFE identity middleware
-	handler := spiffe.IdentityMiddleware(cfg.Service.MockSPIFFE)(mux)
+	var handler http.Handler = spiffe.IdentityMiddleware(cfg.Service.MockSPIFFE)(mux)
+	if cfg.OTel.Enabled {
+		handler = telemetry.WrapHandler(handler, "user-service")
+	}
 
 	server := workloadClient.CreateHTTPServer(cfg.Service.Addr(), handler)
 	server.ReadTimeout = 10 * time.Second
@@ -252,6 +278,12 @@ func (s *UserService) handleDirectAccess(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	ctx, span := telemetry.StartSpan(r.Context(), "user.direct_access",
+		telemetry.AttrUserID.String(req.UserID),
+		telemetry.AttrDocumentID.String(req.DocumentID),
+	)
+	defer span.End()
+
 	s.log.Section("DIRECT USER ACCESS")
 	s.log.Info("User initiating direct access",
 		"user", user.Name,
@@ -259,12 +291,15 @@ func (s *UserService) handleDirectAccess(w http.ResponseWriter, r *http.Request)
 	s.log.SVID(user.SPIFFEID, "Using user SVID for authentication")
 
 	// Make request to document service
-	result, err := s.accessDocument(r.Context(), user.SPIFFEID, req.DocumentID, req.UserDepartments, nil)
+	result, err := s.accessDocument(ctx, user.SPIFFEID, req.DocumentID, req.UserDepartments, nil)
 	if err != nil {
+		telemetry.SetSpanError(span, err)
 		s.log.Error("Document access failed", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	span.SetAttributes(telemetry.AttrAccessGranted.Bool(result.Granted))
 
 	w.Header().Set("Content-Type", "application/json")
 	if !result.Granted {
@@ -293,6 +328,13 @@ func (s *UserService) handleDelegate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx, span := telemetry.StartSpan(r.Context(), "user.delegate",
+		telemetry.AttrUserID.String(req.UserID),
+		telemetry.AttrAgentID.String(req.AgentID),
+		telemetry.AttrDocumentID.String(req.DocumentID),
+	)
+	defer span.End()
+
 	s.log.Section("USER DELEGATION TO AGENT")
 	s.log.Info("User initiating delegation",
 		"user", user.Name,
@@ -301,13 +343,17 @@ func (s *UserService) handleDelegate(w http.ResponseWriter, r *http.Request) {
 	s.log.SVID(user.SPIFFEID, "User SVID for delegation context")
 
 	// Forward delegation request to agent service
-	result, err := s.delegateToAgent(r.Context(), user, req.AgentID, req.DocumentID, req.UserDepartments)
+	bearerToken := extractBearerToken(r)
+	result, err := s.delegateToAgent(ctx, user, req.AgentID, req.DocumentID, req.UserDepartments, bearerToken)
 	if err != nil {
+		telemetry.SetSpanError(span, err)
 		s.log.Error("Delegation failed", "error", err)
 		metrics.DelegationsTotal.WithLabelValues(req.UserID, req.AgentID, "error").Inc()
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	span.SetAttributes(telemetry.AttrAccessGranted.Bool(result.Granted))
 
 	// Record delegation metrics
 	delegationResult := "success"
@@ -400,7 +446,7 @@ func (s *UserService) accessDocument(ctx context.Context, spiffeID, documentID s
 	}, nil
 }
 
-func (s *UserService) delegateToAgent(ctx context.Context, user *store.User, agentID, documentID string, userDepartments []string) (*AccessResult, error) {
+func (s *UserService) delegateToAgent(ctx context.Context, user *store.User, agentID, documentID string, userDepartments []string, bearerToken string) (*AccessResult, error) {
 	reqBody := map[string]any{
 		"user_spiffe_id": user.SPIFFEID,
 		"document_id":    documentID,
@@ -421,6 +467,9 @@ func (s *UserService) delegateToAgent(ctx context.Context, user *store.User, age
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
 
 	s.log.Flow(logger.DirectionOutgoing, "Delegating to Agent Service")
 
