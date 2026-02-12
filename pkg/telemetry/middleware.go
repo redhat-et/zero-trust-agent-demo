@@ -7,8 +7,17 @@ import (
 )
 
 // WrapHandler wraps an http.Handler with OpenTelemetry instrumentation.
+// Health and readiness endpoints are excluded from tracing to reduce noise.
 func WrapHandler(handler http.Handler, serverName string) http.Handler {
-	return otelhttp.NewHandler(handler, serverName)
+	return otelhttp.NewHandler(handler, serverName,
+		otelhttp.WithFilter(func(r *http.Request) bool {
+			switch r.URL.Path {
+			case "/health", "/ready", "/healthz", "/readyz", "/metrics":
+				return false
+			}
+			return true
+		}),
+	)
 }
 
 // WrapTransport wraps an http.RoundTripper with OpenTelemetry instrumentation

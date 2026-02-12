@@ -7,6 +7,7 @@ metadata:
 resources:
   - ../../base
   - keycloak-nodeport.yaml
+  - jaeger-nodeport.yaml
 
 # Use local images (loaded into Kind with `kind load docker-image`)
 images:
@@ -25,6 +26,12 @@ images:
   - name: web-dashboard
     newName: localhost/spiffe-demo/web-dashboard
     newTag: latest
+  - name: jaeger
+    newName: jaegertracing/jaeger
+    newTag: "2.15.0"
+  - name: otel-collector
+    newName: otel/opentelemetry-collector-contrib
+    newTag: "0.120.0"
 
 patches:
   # Add mock mode config and probes to all deployments
@@ -56,6 +63,16 @@ patches:
             port: 8085
           initialDelaySeconds: 2
           periodSeconds: 5
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_OTEL_ENABLED
+          value: "true"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_OTEL_COLLECTOR_ENDPOINT
+          value: "otel-collector:4317"
 
   - target:
       kind: Deployment
@@ -90,6 +107,16 @@ patches:
             port: 8084
           initialDelaySeconds: 2
           periodSeconds: 5
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_OTEL_ENABLED
+          value: "true"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_OTEL_COLLECTOR_ENDPOINT
+          value: "otel-collector:4317"
 
   - target:
       kind: Deployment
@@ -129,6 +156,16 @@ patches:
             port: 8082
           initialDelaySeconds: 2
           periodSeconds: 5
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_OTEL_ENABLED
+          value: "true"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_OTEL_COLLECTOR_ENDPOINT
+          value: "otel-collector:4317"
 
   - target:
       kind: Deployment
@@ -163,6 +200,16 @@ patches:
             port: 8083
           initialDelaySeconds: 2
           periodSeconds: 5
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_OTEL_ENABLED
+          value: "true"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_OTEL_COLLECTOR_ENDPOINT
+          value: "otel-collector:4317"
 
   - target:
       kind: Deployment

@@ -10,6 +10,8 @@ resources:
   - services.yaml
   - deployments.yaml
   - keycloak.yaml
+  - jaeger.yaml
+  - otel-collector.yaml
 
 configMapGenerator:
     - name: keycloak-realm
