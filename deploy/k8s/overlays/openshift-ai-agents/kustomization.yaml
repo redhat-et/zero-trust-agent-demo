@@ -45,21 +45,21 @@ generatorOptions:
 # Services from ai-agents (still have simple image names)
 images:
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/agent-service
-  newTag: 5eb24d4
+  newTag: e3e36ea
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/document-service
-  newTag: 5eb24d4
+  newTag: e3e36ea
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/opa-service
-  newTag: 5eb24d4
+  newTag: e3e36ea
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/user-service
-  newTag: 5eb24d4
+  newTag: e3e36ea
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/web-dashboard
-  newTag: 5eb24d4
+  newTag: e3e36ea
 - name: reviewer-service
   newName: ghcr.io/redhat-et/zero-trust-agent-demo/reviewer-service
-  newTag: 5eb24d4
+  newTag: e3e36ea
 - name: summarizer-service
   newName: ghcr.io/redhat-et/zero-trust-agent-demo/summarizer-service
-  newTag: 5eb24d4
+  newTag: e3e36ea
 
   # Summarizer Service - Real SPIFFE with ghcr.io images
 
