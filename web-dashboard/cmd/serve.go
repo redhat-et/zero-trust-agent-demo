@@ -725,8 +725,20 @@ func (d *Dashboard) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"reviewer-service":   d.reviewerServiceURL + "/health",
 	}
 
+	// Forward JWT token for services behind AuthBridge (Envoy inbound
+	// interception rejects unauthenticated requests including health checks)
+	token := d.getAccessToken(r)
+
 	for name, url := range services {
-		resp, err := d.httpClient.Get(url)
+		outReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, url, nil)
+		if err != nil {
+			status["services"].(map[string]any)[name] = "offline"
+			continue
+		}
+		if token != "" {
+			outReq.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, err := d.httpClient.Do(outReq)
 		if err != nil {
 			status["services"].(map[string]any)[name] = "offline"
 		} else {
