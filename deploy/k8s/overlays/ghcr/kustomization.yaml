@@ -24,6 +24,12 @@ images:
   - name: web-dashboard
     newName: ghcr.io/redhat-et/zero-trust-agent-demo/web-dashboard
     newTag: latest
+  - name: jaeger
+    newName: jaegertracing/jaeger
+    newTag: "2.15.0"
+  - name: otel-collector
+    newName: otel/opentelemetry-collector-contrib
+    newTag: "0.120.0"
 
 patches:
   # OPA Service - Real SPIFFE with ghcr.io images
@@ -86,6 +92,16 @@ patches:
             port: 8185
           initialDelaySeconds: 5
           periodSeconds: 5
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_OTEL_ENABLED
+          value: "true"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_OTEL_COLLECTOR_ENDPOINT
+          value: "otel-collector:4317"
 
   # Document Service - Real SPIFFE with ghcr.io images
   - target:
@@ -147,6 +163,16 @@ patches:
             port: 8184
           initialDelaySeconds: 5
           periodSeconds: 5
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_OTEL_ENABLED
+          value: "true"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_OTEL_COLLECTOR_ENDPOINT
+          value: "otel-collector:4317"
 
   # User Service - Real SPIFFE with ghcr.io images
   - target:
@@ -218,6 +244,16 @@ patches:
             port: 8182
           initialDelaySeconds: 5
           periodSeconds: 5
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_OTEL_ENABLED
+          value: "true"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_OTEL_COLLECTOR_ENDPOINT
+          value: "otel-collector:4317"
 
   # Agent Service - Real SPIFFE with ghcr.io images
   - target:
@@ -284,6 +320,16 @@ patches:
             port: 8183
           initialDelaySeconds: 5
           periodSeconds: 5
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_OTEL_ENABLED
+          value: "true"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_OTEL_COLLECTOR_ENDPOINT
+          value: "otel-collector:4317"
 
   # Web Dashboard - Real SPIFFE with ghcr.io images
   - target:
@@ -347,3 +393,13 @@ patches:
             port: 8080
           initialDelaySeconds: 5
           periodSeconds: 5
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_OTEL_ENABLED
+          value: "true"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_OTEL_COLLECTOR_ENDPOINT
+          value: "otel-collector:4317"

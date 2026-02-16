@@ -8,6 +8,8 @@ metadata:
 resources:
   - ../ghcr
   - route.yaml
+  - jaeger-route.yaml
+  - otel-networkpolicy.yaml
 
 patches:
   # OpenShift requires privileged pod security level for CSI driver inline volumes

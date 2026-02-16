@@ -19,7 +19,7 @@ spec:
       initContainers:
         # proxy-init: sets up iptables to intercept outbound traffic
         - name: proxy-init
-          image: ghcr.io/kagenti/kagenti-extensions/proxy-init:latest
+          image: ghcr.io/kagenti/kagenti-extensions/proxy-init@sha256:401885edb969a53ef21f4ced1ba02e5141469fe0b32bb461ab4daec9d6a47cfe
           imagePullPolicy: IfNotPresent
           securityContext:
             capabilities:
@@ -37,9 +37,17 @@ spec:
               value: "15124"
             - name: PROXY_UID
               value: "1337"
-            # Exclude HTTPS port so client-registration can reach remote Keycloak
+            # Exclude HTTPS port so client-registration can reach remote Keycloak,
+            # and OTel collector port so traces can be exported
             - name: OUTBOUND_PORTS_EXCLUDE
-              value: "443"
+              value: "443,4317"
+            # Exclude app and health ports so kubelet probes and
+            # dashboard requests bypass Envoy inbound interception.
+            # Inbound JWT validation is not needed: callers already
+            # authenticate via OIDC, and security is enforced by OPA
+            # on the document-service side.
+            - name: INBOUND_PORTS_EXCLUDE
+              value: "8083,8183"
           resources:
             limits:
               cpu: 10m

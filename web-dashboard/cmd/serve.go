@@ -359,7 +359,16 @@ func (d *Dashboard) handleGetUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := d.httpClient.Get(d.userServiceURL + "/users")
+	outReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, d.userServiceURL+"/users", nil)
+	if err != nil {
+		d.log.Error("Failed to create request", "error", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+	if token := d.getAccessToken(r); token != "" {
+		outReq.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := d.httpClient.Do(outReq)
 	if err != nil {
 		d.log.Error("Failed to fetch users", "error", err)
 		http.Error(w, "Failed to fetch users", http.StatusServiceUnavailable)
@@ -382,7 +391,16 @@ func (d *Dashboard) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := d.httpClient.Get(d.agentServiceURL + "/agents")
+	outReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, d.agentServiceURL+"/agents", nil)
+	if err != nil {
+		d.log.Error("Failed to create request", "error", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+	if token := d.getAccessToken(r); token != "" {
+		outReq.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := d.httpClient.Do(outReq)
 	if err != nil {
 		d.log.Error("Failed to fetch agents", "error", err)
 		http.Error(w, "Failed to fetch agents", http.StatusServiceUnavailable)
@@ -405,7 +423,16 @@ func (d *Dashboard) handleGetDocuments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := d.httpClient.Get(d.documentServiceURL + "/documents")
+	outReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, d.documentServiceURL+"/documents", nil)
+	if err != nil {
+		d.log.Error("Failed to create request", "error", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+	if token := d.getAccessToken(r); token != "" {
+		outReq.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := d.httpClient.Do(outReq)
 	if err != nil {
 		d.log.Error("Failed to fetch documents", "error", err)
 		http.Error(w, "Failed to fetch documents", http.StatusServiceUnavailable)
@@ -698,8 +725,20 @@ func (d *Dashboard) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"reviewer-service":   d.reviewerServiceURL + "/health",
 	}
 
+	// Forward JWT token for services behind AuthBridge (Envoy inbound
+	// interception rejects unauthenticated requests including health checks)
+	token := d.getAccessToken(r)
+
 	for name, url := range services {
-		resp, err := d.httpClient.Get(url)
+		outReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, url, nil)
+		if err != nil {
+			status["services"].(map[string]any)[name] = "offline"
+			continue
+		}
+		if token != "" {
+			outReq.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, err := d.httpClient.Do(outReq)
 		if err != nil {
 			status["services"].(map[string]any)[name] = "offline"
 		} else {
