@@ -45,21 +45,21 @@ generatorOptions:
 # Services from ai-agents (still have simple image names)
 images:
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/agent-service
-  newTag: e2920fc
+  newTag: 5eb24d4
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/document-service
-  newTag: e2920fc
+  newTag: 5eb24d4
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/opa-service
-  newTag: e2920fc
+  newTag: 5eb24d4
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/user-service
-  newTag: e2920fc
+  newTag: 5eb24d4
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/web-dashboard
-  newTag: e2920fc
+  newTag: 5eb24d4
 - name: reviewer-service
   newName: ghcr.io/redhat-et/zero-trust-agent-demo/reviewer-service
-  newTag: e2920fc
+  newTag: 5eb24d4
 - name: summarizer-service
   newName: ghcr.io/redhat-et/zero-trust-agent-demo/summarizer-service
-  newTag: e2920fc
+  newTag: 5eb24d4
 
   # Summarizer Service - Real SPIFFE with ghcr.io images
 
@@ -136,6 +136,16 @@ patches:
           port: 8186
         initialDelaySeconds: 5
         periodSeconds: 5
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: SPIFFE_DEMO_OTEL_ENABLED
+        value: "true"
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: SPIFFE_DEMO_OTEL_COLLECTOR_ENDPOINT
+        value: "otel-collector:4317"
   target:
     kind: Deployment
     name: summarizer-service
@@ -205,6 +215,16 @@ patches:
           port: 8187
         initialDelaySeconds: 5
         periodSeconds: 5
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: SPIFFE_DEMO_OTEL_ENABLED
+        value: "true"
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: SPIFFE_DEMO_OTEL_COLLECTOR_ENDPOINT
+        value: "otel-collector:4317"
   target:
     kind: Deployment
     name: reviewer-service
