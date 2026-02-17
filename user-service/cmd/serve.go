@@ -248,11 +248,7 @@ func (s *UserService) handleUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, ok := s.store.Get(path)
-	if !ok {
-		http.Error(w, "User not found", http.StatusNotFound)
-		return
-	}
+	user := s.store.GetOrCreate(path, s.trustDomain)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(user)
@@ -271,12 +267,7 @@ func (s *UserService) handleDirectAccess(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	user, ok := s.store.Get(req.UserID)
-	if !ok {
-		s.log.Error("User not found", "user_id", req.UserID)
-		http.Error(w, "User not found", http.StatusNotFound)
-		return
-	}
+	user := s.store.GetOrCreate(req.UserID, s.trustDomain)
 
 	ctx, span := telemetry.StartSpan(r.Context(), "user.direct_access",
 		telemetry.AttrUserID.String(req.UserID),
@@ -321,12 +312,7 @@ func (s *UserService) handleDelegate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, ok := s.store.Get(req.UserID)
-	if !ok {
-		s.log.Error("User not found", "user_id", req.UserID)
-		http.Error(w, "User not found", http.StatusNotFound)
-		return
-	}
+	user := s.store.GetOrCreate(req.UserID, s.trustDomain)
 
 	ctx, span := telemetry.StartSpan(r.Context(), "user.delegate",
 		telemetry.AttrUserID.String(req.UserID),
