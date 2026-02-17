@@ -91,14 +91,89 @@ zero-trust-agent-demo/
 └── tmp/logs/             # Runtime logs (gitignored)
 ```
 
-## Build Commands
+## Makefile targets
 
-```bash
-make build          # Build all services to bin/
-make clean          # Remove build artifacts
-make run-local      # Build and run locally
-make test           # Run tests
-```
+Variables: `DEV_TAG` (default: git SHA), `REGISTRY` (default: `ghcr.io/redhat-et/zero-trust-agent-demo`),
+`CONTAINER_ENGINE` (default: `podman`).
+
+### Build and test
+
+| Target | Description |
+| ------ | ----------- |
+| `make build` | Build all services to `bin/` |
+| `make build-<svc>` | Build a specific service |
+| `make clean` | Remove build artifacts and `tmp/` |
+| `make test` | Run Go tests |
+| `make test-policies` | Run OPA Rego policy tests (requires `opa` CLI) |
+| `make fmt` | Format code |
+| `make vet` | Run `go vet` |
+| `make lint` | Run `golangci-lint` |
+| `make tidy` | Run `go mod tidy` |
+| `make deps` | Download Go module dependencies |
+| `make check-deps` | Verify required CLI tools are installed |
+
+### Local development
+
+| Target | Description |
+| ------ | ----------- |
+| `make run-local` | Build and run all services locally |
+| `make run-opa` | Run OPA service only |
+| `make run-document` | Run Document service only |
+| `make run-user` | Run User service only |
+| `make run-agent` | Run Agent service only |
+| `make run-summarizer` | Run Summarizer service only |
+| `make run-reviewer` | Run Reviewer service only |
+| `make run-dashboard` | Run Web Dashboard only |
+
+### Container images (Podman/Docker)
+
+| Target | Description |
+| ------ | ----------- |
+| `make podman-dev` | Build and push all images (linux/amd64) |
+| `make podman-dev-<svc>` | Build and push a specific service image |
+| `make podman-build-dev` | Build all images without pushing |
+| `make podman-build-dev-<svc>` | Build a specific service image without pushing |
+| `make podman-push-dev` | Push all dev images |
+| `make podman-push-dev-<svc>` | Push a specific service image |
+| `make docker-build` | Build Docker images (local, no registry push) |
+| `make docker-load` | Load images into Kind cluster |
+
+### Kind (local Kubernetes)
+
+| Target | Description |
+| ------ | ----------- |
+| `make setup-kind` | Create Kind cluster |
+| `make delete-kind` | Delete Kind cluster |
+| `make deploy-k8s` | Deploy to Kind (`overlays/local`) |
+| `make undeploy-k8s` | Remove from Kind |
+| `make port-forward` | Set up port forwards |
+
+### AuthBridge (Kind with Keycloak)
+
+| Target | Description |
+| ------ | ----------- |
+| `make deploy-authbridge` | Deploy AuthBridge overlay to Kind |
+| `make test-authbridge` | Run AuthBridge token exchange tests |
+| `make deploy-authbridge-remote-kc` | Deploy with remote Keycloak |
+| `make test-authbridge-remote-kc` | Test with remote Keycloak |
+
+### OpenShift deployment
+
+| Target | Description |
+| ------ | ----------- |
+| `make deploy-openshift` | Build, push, deploy to OpenShift (`overlays/openshift-ai-agents`) |
+| `make deploy-openshift-quick` | Update tags and deploy without rebuild |
+| `make deploy-openshift-authbridge` | Build, push, deploy AuthBridge to OpenShift |
+| `make deploy-openshift-authbridge-quick` | Update tags and deploy AuthBridge without rebuild |
+| `make test-openshift-authbridge` | Run AuthBridge tests on OpenShift |
+| `make restart-openshift` | Restart all deployments (pick up same-tag images) |
+
+### GHCR cleanup
+
+| Target | Description |
+| ------ | ----------- |
+| `make ghcr-list` | List recent image tags |
+| `make ghcr-cleanup` | Delete old images (keeps last 10, configurable via `KEEP_VERSIONS`) |
 
 ## Demo Scenario
 
@@ -179,9 +254,19 @@ Common flags:
 
 Edit `document-service/internal/store/documents.go` and `opa-service/policies/delegation.rego` (documents map).
 
-### Adding a New User/Agent
+### Adding a new user
 
-Edit respective files in `*-service/internal/store/` and corresponding Rego policy files.
+When OIDC/Keycloak is enabled, just add the user in Keycloak and assign groups.
+The user-service dynamically accepts any user ID and OPA uses JWT group claims
+for authorization. No code changes required.
+
+For local/mock mode (no Keycloak), add the user to `user-service/internal/store/users.go`
+and `opa-service/policies/user_permissions.rego` (fallback map).
+
+### Adding a new agent
+
+Edit `agent-service/internal/store/agents.go` and
+`opa-service/policies/agent_permissions.rego`.
 
 ### Modifying Policies
 
