@@ -45,6 +45,7 @@ type PolicyInput struct {
 	DocumentID       string           `json:"document_id"`
 	DocumentMetadata *DocumentMeta    `json:"document_metadata,omitempty"`
 	Delegation       *Delegation      `json:"delegation,omitempty"`
+	UserDepartments  []string         `json:"user_departments,omitempty"`
 }
 
 type DocumentMeta struct {
@@ -54,8 +55,9 @@ type DocumentMeta struct {
 }
 
 type Delegation struct {
-	UserSPIFFEID  string `json:"user_spiffe_id"`
-	AgentSPIFFEID string `json:"agent_spiffe_id"`
+	UserSPIFFEID    string   `json:"user_spiffe_id"`
+	AgentSPIFFEID   string   `json:"agent_spiffe_id"`
+	UserDepartments []string `json:"user_departments,omitempty"`
 }
 
 type PolicyDecision struct {
@@ -353,11 +355,18 @@ func (s *OPAService) evaluate(ctx context.Context, input PolicyInput) (*PolicyDe
 		}
 		inputMap["document_metadata"] = metaMap
 	}
+	if len(input.UserDepartments) > 0 {
+		inputMap["user_departments"] = input.UserDepartments
+	}
 	if input.Delegation != nil {
-		inputMap["delegation"] = map[string]any{
+		delegationMap := map[string]any{
 			"user_spiffe_id":  input.Delegation.UserSPIFFEID,
 			"agent_spiffe_id": input.Delegation.AgentSPIFFEID,
 		}
+		if len(input.Delegation.UserDepartments) > 0 {
+			delegationMap["user_departments"] = input.Delegation.UserDepartments
+		}
+		inputMap["delegation"] = delegationMap
 		evalLog.Info("Delegation context present",
 			"user", input.Delegation.UserSPIFFEID,
 			"agent", input.Delegation.AgentSPIFFEID)

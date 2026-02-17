@@ -54,7 +54,7 @@ jobs:
           images: ${{ env.IMAGE_PREFIX }}/${{ matrix.service }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,prefix=sha-,format=short
+            type=sha,prefix=,format=short
 
       - name: Build and push
         uses: docker/build-push-action@v5

@@ -1,5 +1,7 @@
 package store
 
+import "strings"
+
 // User represents a user in the system
 type User struct {
 	ID          string   `json:"id"`
@@ -50,6 +52,22 @@ func (s *UserStore) loadSampleUsers(trustDomain string) {
 func (s *UserStore) Get(id string) (*User, bool) {
 	user, ok := s.users[id]
 	return user, ok
+}
+
+// GetOrCreate retrieves a user by ID, or creates a dynamic user if not found.
+// This supports users defined externally (e.g., in Keycloak) without requiring
+// hardcoded entries. The dynamic user gets a deterministic SPIFFE ID and no
+// hardcoded departments — authorization relies on JWT claims from the IdP.
+func (s *UserStore) GetOrCreate(id, trustDomain string) *User {
+	if user, ok := s.users[id]; ok {
+		return user
+	}
+	return &User{
+		ID:          id,
+		Name:        strings.Title(id), //nolint:staticcheck // simple title-casing for display
+		Departments: nil,
+		SPIFFEID:    "spiffe://" + trustDomain + "/user/" + id,
+	}
 }
 
 // List returns all users
