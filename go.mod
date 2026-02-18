@@ -3,6 +3,7 @@ module github.com/redhat-et/zero-trust-agent-demo
 go 1.24.6
 
 require (
+	github.com/a2aproject/a2a-go v0.3.6
 	github.com/anthropics/anthropic-sdk-go v1.20.0
 	github.com/aws/aws-sdk-go-v2 v1.41.1
 	github.com/aws/aws-sdk-go-v2/config v1.32.7
