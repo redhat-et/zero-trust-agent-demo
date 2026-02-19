@@ -5,8 +5,9 @@ This document describes the security model, threat analysis, and trust boundarie
 ## Overview
 
 This demo implements a Zero Trust security model where:
+
 - Every workload has a cryptographic identity (SPIFFE ID)
-- All service-to-service communication is mutually authenticated (mTLS)
+- Every service-to-service call carries verified workload identity (mTLS or signed JWT)
 - Authorization decisions are policy-driven (OPA)
 - AI agents operate under the principle of least privilege
 
@@ -25,9 +26,9 @@ This demo implements a Zero Trust security model where:
 
 | Actor | Capability | Mitigations |
 |-------|-----------|-------------|
-| Compromised container | Network access, local filesystem | mTLS prevents impersonation, SVID bound to workload |
+| Compromised container | Network access, local filesystem | Workload identity (mTLS or JWT) prevents impersonation, SVID bound to workload |
 | Malicious insider | Valid credentials | Permission intersection limits blast radius |
-| Network attacker | Traffic interception | mTLS encryption, certificate validation |
+| Network attacker | Traffic interception | mTLS encryption or JWT signing, certificate/token validation |
 | Rogue AI agent | Attempts autonomous access | Agents require valid user delegation |
 
 ### Attack Vectors
@@ -89,8 +90,8 @@ This demo implements a Zero Trust security model where:
 └─────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Trust Boundary 2                              │
-│            Service-to-Service Communication                      │
+│                    Trust Boundary 2a                              │
+│          Service-to-Service Communication (mTLS mode)            │
 │                                                                  │
 │  ┌─────────────┐         mTLS          ┌─────────────┐          │
 │  │user-service │◄─────────────────────►│doc-service  │          │
@@ -98,6 +99,22 @@ This demo implements a Zero Trust security model where:
 │  └─────────────┘                       └─────────────┘          │
 │                                                                  │
 │  Each service validates peer's SPIFFE ID before accepting       │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│                    Trust Boundary 2b                              │
+│        Service-to-Service Communication (AuthBridge mode)        │
+│                                                                  │
+│  ┌─────────────┐  ┌───────┐  HTTP+JWT  ┌─────────────┐          │
+│  │ app process │──│ envoy │───────────►│doc-service  │          │
+│  └─────────────┘  └───┬───┘            └─────────────┘          │
+│                       │ token exchange                           │
+│                  ┌────▼─────┐                                    │
+│                  │ Keycloak │                                    │
+│                  └──────────┘                                    │
+│                                                                  │
+│  Envoy exchanges JWT SVID for Keycloak access token on every    │
+│  outbound call; doc-service validates the signed JWT             │
 └─────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────┐
@@ -173,16 +190,44 @@ spec:
               app: opa-service
 ```
 
-### Communication Matrix
+### Communication matrix
 
-| Source | Destination | Port | Protocol |
-|--------|-------------|------|----------|
-| web-dashboard | user-service | 8082 | HTTPS (mTLS) |
-| web-dashboard | agent-service | 8083 | HTTPS (mTLS) |
-| user-service | document-service | 8084 | HTTPS (mTLS) |
-| agent-service | document-service | 8084 | HTTPS (mTLS) |
-| document-service | opa-service | 8085 | HTTPS (mTLS) |
-| all services | SPIRE Agent | /tmp/spire-agent/public/api.sock | Unix socket |
+The identity mechanism depends on deployment mode. In both cases,
+every service-to-service call carries cryptographic identity proof.
+
+| Source | Destination | mTLS mode | AuthBridge mode |
+| ------ | ----------- | --------- | --------------- |
+| dashboard | user-service | HTTPS (mTLS) | HTTP + JWT (envoy) |
+| user-service | agent-service | HTTPS (mTLS) | HTTP + JWT (envoy) |
+| user-service | document-service | HTTPS (mTLS) | HTTP + JWT (envoy) |
+| agent-service | document-service | HTTPS (mTLS) | HTTP + JWT (envoy) |
+| agent-service | AI agents (A2A) | HTTPS (mTLS) | HTTP (direct) |
+| AI agents | document-service | HTTPS (mTLS) | HTTP + JWT (envoy) |
+| document-service | opa-service | HTTPS (mTLS) | HTTP + JWT (envoy) |
+| all services | SPIRE Agent | Unix socket | Unix socket |
+
+### Deployment modes and identity mechanisms
+
+The demo supports three deployment modes, each providing workload
+identity through a different mechanism:
+
+**Mock mode** (local development): Services trust the `X-SPIFFE-ID`
+header directly. No cryptographic verification. Suitable only for
+local development and demos.
+
+**mTLS mode** (SPIRE): Each service gets an X.509 SVID from SPIRE.
+All service-to-service calls use mutual TLS -- the peer certificate
+contains the SPIFFE ID, which is verified against the trust bundle
+on every connection.
+
+**AuthBridge mode** (Keycloak + SPIRE): Each service pod includes an
+envoy sidecar that intercepts outbound HTTP calls. The sidecar
+exchanges the service's JWT SVID (obtained from SPIRE via
+spiffe-helper) for a Keycloak-signed access token using OAuth 2.0
+token exchange. The destination service (document-service) validates
+the JWT signature and extracts the caller identity. This mode is
+designed for OpenShift deployments where a central identity provider
+(Keycloak) manages service credentials.
 
 ## Secret Management
 

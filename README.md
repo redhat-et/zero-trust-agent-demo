@@ -91,7 +91,7 @@ See [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) for all deployment options includin
 ## Zero Trust Principles
 
 1. **Cryptographic Workload Identity**: SPIFFE IDs backed by X.509 certificates
-2. **Mutual TLS (mTLS)**: All service-to-service communication is mutually authenticated
+2. **Verified Workload Identity**: Every service-to-service call carries cryptographic identity proof (mTLS or signed JWT)
 3. **Policy-Based Access Control**: OPA evaluates Rego policies on every request
 4. **Permission Intersection**: Agent access = User permissions ∩ Agent capabilities
 5. **Agents Cannot Act Autonomously**: Agents MUST have user delegation context

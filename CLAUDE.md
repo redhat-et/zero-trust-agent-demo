@@ -325,7 +325,7 @@ kubectl apply -k deploy/k8s/overlays/local
 ## Zero Trust Principles Demonstrated
 
 1. **Cryptographic Workload Identity** - SPIFFE IDs backed by X.509 certificates
-2. **Mutual TLS** - All service-to-service communication authenticated
+2. **Verified Workload Identity** - Every service-to-service call carries cryptographic identity proof (mTLS or signed JWT)
 3. **Policy-Based Access Control** - OPA evaluates every request
 4. **Permission Intersection** - Agents limited by both user AND agent permissions
 5. **No Autonomous Agent Access** - Agents require user delegation context

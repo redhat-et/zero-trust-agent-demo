@@ -43,7 +43,7 @@ This demo application demonstrates **Zero Trust security principles** for AI age
 
 1. **Cryptographic Workload Identity**: SPIFFE IDs that are cryptographically verifiable, not shared secrets
 2. **Workload Attestation**: Identity derived from platform metadata (Kubernetes), not configuration files
-3. **Mutual TLS (mTLS) Everywhere**: All service-to-service communication uses mutual authentication
+3. **Verified Workload Identity**: Every service-to-service call carries cryptographic identity proof (mTLS or signed JWT)
 4. **Policy Composition**: Agent effective permissions = User permissions ∩ Agent capabilities
 5. **Least Privilege for Agents**: AI agents operate with reduced permissions compared to delegating users
 6. **Zero Trust "Never Trust, Always Verify"**: Continuous verification on every request
