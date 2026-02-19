@@ -100,12 +100,12 @@ replacements:
       name: oidc-urls
 images:
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/agent-service
-  newTag: d597411
+  newTag: 5c63968
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/document-service
-  newTag: d597411
+  newTag: 5c63968
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/opa-service
-  newTag: 65dc424-dirty
+  newTag: 5c63968
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/user-service
-  newTag: 65dc424-dirty
+  newTag: 5c63968
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/web-dashboard
-  newTag: d597411
+  newTag: 5c63968

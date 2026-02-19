@@ -183,3 +183,6 @@ patches:
       - op: replace
         path: /spec/ports/0/name
         value: mtls
+
+  # Enable A2A agent discovery on agent-service
+  - path: agent-service-discovery-patch.yaml

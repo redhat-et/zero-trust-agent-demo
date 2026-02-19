@@ -1,0 +1,99 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: spiffe-demo-mock-ai-agents
+
+# Extends mock overlay with AI agent services (mock SPIFFE, no CSI driver)
+resources:
+  - ../mock
+  - ../ai-agents
+
+# Add local images for AI agent services
+images:
+  - name: summarizer-service
+    newName: localhost/spiffe-demo/summarizer-service
+    newTag: latest
+  - name: reviewer-service
+    newName: localhost/spiffe-demo/reviewer-service
+    newTag: latest
+
+patches:
+  # Summarizer Service - mock SPIFFE with local images
+  - target:
+      kind: Deployment
+      name: summarizer-service
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_SERVICE_MOCK_SPIFFE
+          value: "true"
+      - op: add
+        path: /spec/template/spec/containers/0/livenessProbe
+        value:
+          httpGet:
+            path: /health
+            port: 8086
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      - op: add
+        path: /spec/template/spec/containers/0/readinessProbe
+        value:
+          httpGet:
+            path: /health
+            port: 8086
+          initialDelaySeconds: 2
+          periodSeconds: 5
+
+  # Reviewer Service - mock SPIFFE with local images
+  - target:
+      kind: Deployment
+      name: reviewer-service
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_SERVICE_MOCK_SPIFFE
+          value: "true"
+      - op: add
+        path: /spec/template/spec/containers/0/livenessProbe
+        value:
+          httpGet:
+            path: /health
+            port: 8087
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      - op: add
+        path: /spec/template/spec/containers/0/readinessProbe
+        value:
+          httpGet:
+            path: /health
+            port: 8087
+          initialDelaySeconds: 2
+          periodSeconds: 5
+
+  # Add AI agent service URLs to web-dashboard
+  - target:
+      kind: Deployment
+      name: web-dashboard
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_SUMMARIZER_SERVICE_URL
+          value: "http://summarizer-service:8086"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_REVIEWER_SERVICE_URL
+          value: "http://reviewer-service:8087"
+
+  # Enable A2A agent discovery on agent-service (http scheme for mock mode)
+  - path: agent-service-discovery-patch.yaml

@@ -11,3 +11,4 @@ resources:
   - deployments.yaml
   - services.yaml
   - llm-configmap.yaml
+  - agent-service-discovery-rbac.yaml
