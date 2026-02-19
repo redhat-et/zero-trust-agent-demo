@@ -141,7 +141,7 @@ func (c *A2AClient) parseMessage(msg *a2a.Message) (*InvokeResult, error) {
 func extractTextFromParts(parts []a2a.Part) string {
 	var texts []string
 	for _, part := range parts {
-		if tp, ok := part.(*a2a.TextPart); ok && tp.Text != "" {
+		if tp, ok := part.(a2a.TextPart); ok && tp.Text != "" {
 			texts = append(texts, tp.Text)
 		}
 	}

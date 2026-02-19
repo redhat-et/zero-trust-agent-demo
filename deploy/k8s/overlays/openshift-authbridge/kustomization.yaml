@@ -33,6 +33,7 @@ patches:
 - path: dashboard-authbridge-patch.yaml
 - path: user-service-authbridge-patch.yaml
 - path: ai-agents-authbridge-patch.yaml
+- path: agent-service-discovery-scheme-patch.yaml
 
 # Inject values from settings.yaml into the right resources.
 # The settings ConfigMap is annotated with local-config and will not
@@ -100,12 +101,12 @@ replacements:
       name: oidc-urls
 images:
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/agent-service
-  newTag: 5c63968
+  newTag: be64dd8-dirty
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/document-service
-  newTag: 5c63968
+  newTag: be64dd8-dirty
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/opa-service
-  newTag: 5c63968
+  newTag: be64dd8-dirty
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/user-service
-  newTag: 5c63968
+  newTag: be64dd8-dirty
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/web-dashboard
-  newTag: 5c63968
+  newTag: be64dd8-dirty

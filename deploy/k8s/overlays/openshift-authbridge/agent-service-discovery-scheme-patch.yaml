@@ -1,0 +1,16 @@
+# Override discovery scheme to http for AuthBridge mode.
+# In AuthBridge mode, services listen on plain HTTP internally
+# (envoy sidecars handle mTLS externally).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-service
+  namespace: spiffe-demo
+spec:
+  template:
+    spec:
+      containers:
+        - name: agent-service
+          env:
+            - name: SPIFFE_DEMO_DISCOVERY_SCHEME
+              value: "http"

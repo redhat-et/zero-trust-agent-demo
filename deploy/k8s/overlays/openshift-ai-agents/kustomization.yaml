@@ -23,6 +23,7 @@ metadata:
 resources:
 - ../openshift-oidc
 - ../ai-agents
+- agent-service-scc.yaml
   # Note: llm-secret.yaml must be created from template and applied separately
 
 # Override the LLM configmap with LiteLLM settings
@@ -45,21 +46,21 @@ generatorOptions:
 # Services from ai-agents (still have simple image names)
 images:
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/agent-service
-  newTag: e3e36ea
+  newTag: be64dd8-dirty
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/document-service
-  newTag: e3e36ea
+  newTag: be64dd8-dirty
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/opa-service
-  newTag: e3e36ea
+  newTag: be64dd8-dirty
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/user-service
-  newTag: e3e36ea
+  newTag: be64dd8-dirty
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/web-dashboard
-  newTag: e3e36ea
+  newTag: be64dd8-dirty
 - name: reviewer-service
   newName: ghcr.io/redhat-et/zero-trust-agent-demo/reviewer-service
-  newTag: e3e36ea
+  newTag: be64dd8-dirty
 - name: summarizer-service
   newName: ghcr.io/redhat-et/zero-trust-agent-demo/summarizer-service
-  newTag: e3e36ea
+  newTag: be64dd8-dirty
 
   # Summarizer Service - Real SPIFFE with ghcr.io images
 
@@ -256,3 +257,5 @@ patches:
   target:
     kind: Service
     name: reviewer-service
+# Enable A2A agent discovery on agent-service
+- path: agent-service-discovery-patch.yaml

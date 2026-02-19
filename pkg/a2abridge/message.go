@@ -22,7 +22,7 @@ func ExtractDelegationContext(msg *a2a.Message) (*DelegationContext, error) {
 	}
 
 	for _, part := range msg.Parts {
-		dp, ok := part.(*a2a.DataPart)
+		dp, ok := part.(a2a.DataPart)
 		if !ok {
 			continue
 		}
