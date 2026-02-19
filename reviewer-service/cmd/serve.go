@@ -12,9 +12,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/a2aproject/a2a-go/a2a"
+	"github.com/a2aproject/a2a-go/a2asrv"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
 
+	"github.com/redhat-et/zero-trust-agent-demo/pkg/a2abridge"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/config"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/llm"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/logger"
@@ -181,6 +184,35 @@ func runServe(cmd *cobra.Command, args []string) error {
 	mux.HandleFunc("/health", svc.handleHealth)
 	mux.HandleFunc("/review", svc.handleReview)
 
+	// A2A agent card and JSON-RPC endpoint
+	agentURL := fmt.Sprintf("http://localhost:%d", cfg.Service.Port)
+	card := a2abridge.BuildAgentCard(a2abridge.AgentCardParams{
+		Name:        "Reviewer Agent",
+		Description: "Specialized agent for reviewing documents for compliance, security, and quality",
+		Version:     "1.0.0",
+		URL:         agentURL,
+		Skills: []a2a.AgentSkill{
+			{
+				ID:          "document-review",
+				Name:        "Document Review",
+				Description: "Reviews documents for compliance, security, and general quality",
+				Tags:        []string{"engineering", "finance", "admin", "hr"},
+				Examples:    []string{"Review DOC-001", "Compliance review of DOC-006"},
+			},
+		},
+	})
+
+	a2aExecutor := &a2abridge.DelegatedExecutor{
+		Log:           log,
+		FetchDocument: svc.fetchDocumentForA2A,
+		ProcessLLM:    svc.reviewDocument,
+	}
+	a2aHandler := a2asrv.NewHandler(a2aExecutor)
+	jsonrpcHandler := a2asrv.NewJSONRPCHandler(a2aHandler)
+	mux.Handle("GET /.well-known/agent-card.json", a2asrv.NewStaticAgentCardHandler(card))
+	mux.Handle("POST /a2a", jsonrpcHandler)
+	mux.Handle("POST /{$}", jsonrpcHandler) // Kagenti sends JSON-RPC to root path
+
 	// Wrap with SPIFFE identity middleware
 	handler := spiffe.IdentityMiddleware(cfg.Service.MockSPIFFE)(mux)
 
@@ -215,6 +247,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	log.Info("Agent SPIFFE ID", "id", agentSPIFFEID)
 	log.Info("Document service", "url", cfg.DocumentServiceURL)
 	log.Info("mTLS mode", "enabled", !cfg.Service.MockSPIFFE)
+	log.Info("A2A endpoint", "url", agentURL+"/a2a")
+	log.Info("A2A agent card", "url", agentURL+"/.well-known/agent-card.json")
 	if llmProvider != nil {
 		log.Info("LLM enabled", "provider", llmProvider.ProviderName(), "model", llmProvider.Model())
 	}
@@ -438,6 +472,42 @@ func (s *ReviewerService) fetchDocumentWithDelegation(ctx context.Context, req R
 	}
 
 	return result, nil
+}
+
+// fetchDocumentForA2A adapts fetchDocumentWithDelegation for the A2A executor.
+func (s *ReviewerService) fetchDocumentForA2A(ctx context.Context, dc *a2abridge.DelegationContext) (map[string]any, error) {
+	return s.fetchDocumentWithDelegation(ctx, ReviewRequest{
+		DocumentID:      dc.DocumentID,
+		UserSPIFFEID:    dc.UserSPIFFEID,
+		UserDepartments: dc.UserDepartments,
+		ReviewType:      dc.ReviewType,
+	})
+}
+
+// reviewDocument generates a review for the given document using the LLM.
+func (s *ReviewerService) reviewDocument(ctx context.Context, dc *a2abridge.DelegationContext, title, content string) (string, error) {
+	reviewType := dc.ReviewType
+	if reviewType == "" {
+		reviewType = "general"
+	}
+
+	if s.llmProvider != nil {
+		s.log.Info("Generating review with LLM (A2A)", "document", title, "review_type", reviewType)
+		systemPrompt := llm.GetReviewerPrompt(reviewType)
+		userPrompt := llm.FormatReviewRequest(title, content, reviewType)
+		result, err := s.llmProvider.Complete(ctx, systemPrompt, userPrompt)
+		if err != nil {
+			return "", fmt.Errorf("LLM request failed: %w", err)
+		}
+		s.log.Success("Review generated successfully (A2A)")
+		return result, nil
+	}
+
+	reviewTypeLabel := reviewType
+	if len(reviewTypeLabel) > 0 {
+		reviewTypeLabel = strings.ToUpper(reviewTypeLabel[:1]) + reviewTypeLabel[1:]
+	}
+	return fmt.Sprintf("## %s Review\n\n**Document:** %s\n\nThis is a mock review. Configure LLM_API_KEY to enable real AI reviews.\n\n### Document Preview\n\n%s", reviewTypeLabel, title, truncate(content, 500)), nil
 }
 
 func truncate(s string, maxLen int) string {

@@ -1,0 +1,18 @@
+# Grant the agent-service ServiceAccount the privileged SCC.
+# Required because agent-service uses:
+#   - spc_t SELinux type (for SPIRE CSI driver)
+#   - CSI volumes (spire-agent-socket)
+#   - AuthBridge envoy-proxy init container (runs as root with NET_ADMIN)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agent-service-scc-privileged
+  namespace: spiffe-demo
+subjects:
+  - kind: ServiceAccount
+    name: agent-service
+    namespace: spiffe-demo
+roleRef:
+  kind: ClusterRole
+  name: system:openshift:scc:privileged
+  apiGroup: rbac.authorization.k8s.io

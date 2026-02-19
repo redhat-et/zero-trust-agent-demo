@@ -11,9 +11,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/a2aproject/a2a-go/a2a"
+	"github.com/a2aproject/a2a-go/a2asrv"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
 
+	"github.com/redhat-et/zero-trust-agent-demo/pkg/a2abridge"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/config"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/llm"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/logger"
@@ -177,6 +180,35 @@ func runServe(cmd *cobra.Command, args []string) error {
 	mux.HandleFunc("/health", svc.handleHealth)
 	mux.HandleFunc("/summarize", svc.handleSummarize)
 
+	// A2A agent card and JSON-RPC endpoint
+	agentURL := fmt.Sprintf("http://localhost:%d", cfg.Service.Port)
+	card := a2abridge.BuildAgentCard(a2abridge.AgentCardParams{
+		Name:        "Summarizer Agent",
+		Description: "Specialized agent for summarizing documents with AI",
+		Version:     "1.0.0",
+		URL:         agentURL,
+		Skills: []a2a.AgentSkill{
+			{
+				ID:          "document-summarization",
+				Name:        "Document Summarization",
+				Description: "Summarizes documents with AI",
+				Tags:        []string{"finance"},
+				Examples:    []string{"Summarize DOC-002"},
+			},
+		},
+	})
+
+	executor := &a2abridge.DelegatedExecutor{
+		Log:           log,
+		FetchDocument: svc.fetchDocumentForA2A,
+		ProcessLLM:    svc.summarizeDocument,
+	}
+	a2aHandler := a2asrv.NewHandler(executor)
+	jsonrpcHandler := a2asrv.NewJSONRPCHandler(a2aHandler)
+	mux.Handle("GET /.well-known/agent-card.json", a2asrv.NewStaticAgentCardHandler(card))
+	mux.Handle("POST /a2a", jsonrpcHandler)
+	mux.Handle("POST /{$}", jsonrpcHandler) // Kagenti sends JSON-RPC to root path
+
 	// Wrap with SPIFFE identity middleware
 	handler := spiffe.IdentityMiddleware(cfg.Service.MockSPIFFE)(mux)
 
@@ -211,6 +243,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	log.Info("Agent SPIFFE ID", "id", agentSPIFFEID)
 	log.Info("Document service", "url", cfg.DocumentServiceURL)
 	log.Info("mTLS mode", "enabled", !cfg.Service.MockSPIFFE)
+	log.Info("A2A endpoint", "url", agentURL+"/a2a")
+	log.Info("A2A agent card", "url", agentURL+"/.well-known/agent-card.json")
 	if llmProvider != nil {
 		log.Info("LLM enabled", "provider", llmProvider.ProviderName(), "model", llmProvider.Model())
 	}
@@ -413,6 +447,30 @@ func (s *SummarizerService) fetchDocumentWithDelegation(ctx context.Context, req
 	}
 
 	return result, nil
+}
+
+// fetchDocumentForA2A adapts fetchDocumentWithDelegation for the A2A executor.
+func (s *SummarizerService) fetchDocumentForA2A(ctx context.Context, dc *a2abridge.DelegationContext) (map[string]any, error) {
+	return s.fetchDocumentWithDelegation(ctx, SummarizeRequest{
+		DocumentID:      dc.DocumentID,
+		UserSPIFFEID:    dc.UserSPIFFEID,
+		UserDepartments: dc.UserDepartments,
+	})
+}
+
+// summarizeDocument generates a summary for the given document using the LLM.
+func (s *SummarizerService) summarizeDocument(ctx context.Context, _ *a2abridge.DelegationContext, title, content string) (string, error) {
+	if s.llmProvider != nil {
+		s.log.Info("Generating summary with LLM (A2A)", "document", title)
+		userPrompt := llm.FormatSummaryRequest(title, content)
+		result, err := s.llmProvider.Complete(ctx, llm.SummarizerSystemPrompt, userPrompt)
+		if err != nil {
+			return "", fmt.Errorf("LLM request failed: %w", err)
+		}
+		s.log.Success("Summary generated successfully (A2A)")
+		return result, nil
+	}
+	return fmt.Sprintf("## Summary\n\n**Document:** %s\n\nThis is a mock summary. Configure LLM_API_KEY to enable real AI summarization.\n\n### Document Preview\n\n%s", title, truncate(content, 500)), nil
 }
 
 func truncate(s string, maxLen int) string {

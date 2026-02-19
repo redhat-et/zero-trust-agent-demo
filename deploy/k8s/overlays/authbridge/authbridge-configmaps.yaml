@@ -79,6 +79,7 @@ data:
                       prefix: "/"
                     route:
                       cluster: original_destination
+                      timeout: 120s
               http_filters:
               - name: envoy.filters.http.ext_proc
                 typed_config:

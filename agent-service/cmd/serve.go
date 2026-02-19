@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/redhat-et/zero-trust-agent-demo/agent-service/internal/store"
+	"github.com/redhat-et/zero-trust-agent-demo/pkg/a2abridge"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/config"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/logger"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/metrics"
@@ -33,12 +34,24 @@ var serveCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(serveCmd)
 	serveCmd.Flags().String("document-service-url", "http://localhost:8084", "Document service URL")
+	serveCmd.Flags().Bool("enable-discovery", false, "Enable Kubernetes-based A2A agent discovery")
+	serveCmd.Flags().String("discovery-namespace", "spiffe-demo", "Namespace to discover A2A agents in")
+	serveCmd.Flags().Duration("discovery-interval", 30*time.Second, "Interval between discovery scans")
+	serveCmd.Flags().String("discovery-scheme", "https", "URL scheme for discovered agents (http or https)")
 	v.BindPFlag("document_service_url", serveCmd.Flags().Lookup("document-service-url"))
+	v.BindPFlag("enable_discovery", serveCmd.Flags().Lookup("enable-discovery"))
+	v.BindPFlag("discovery_namespace", serveCmd.Flags().Lookup("discovery-namespace"))
+	v.BindPFlag("discovery_interval", serveCmd.Flags().Lookup("discovery-interval"))
+	v.BindPFlag("discovery_scheme", serveCmd.Flags().Lookup("discovery-scheme"))
 }
 
 type Config struct {
 	config.CommonConfig `mapstructure:",squash"`
-	DocumentServiceURL  string `mapstructure:"document_service_url"`
+	DocumentServiceURL  string        `mapstructure:"document_service_url"`
+	EnableDiscovery     bool          `mapstructure:"enable_discovery"`
+	DiscoveryNamespace  string        `mapstructure:"discovery_namespace"`
+	DiscoveryInterval   time.Duration `mapstructure:"discovery_interval"`
+	DiscoveryScheme     string        `mapstructure:"discovery_scheme"`
 }
 
 // DelegatedAccessRequest represents a request from a user to access a document via agent
@@ -56,6 +69,7 @@ type AgentService struct {
 	log                *logger.Logger
 	trustDomain        string
 	workloadClient     *spiffe.WorkloadClient
+	a2aClient          *a2abridge.A2AClient
 }
 
 func extractBearerToken(r *http.Request) string {
@@ -111,10 +125,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create mTLS HTTP client for outgoing requests
-	httpClient := workloadClient.CreateMTLSClient(10 * time.Second)
+	// Timeout must be long enough for A2A agent invocations that include LLM calls
+	httpClient := workloadClient.CreateMTLSClient(120 * time.Second)
 	if cfg.OTel.Enabled {
 		httpClient.Transport = telemetry.WrapTransport(httpClient.Transport)
 	}
+
+	a2aClient := a2abridge.NewA2AClient(httpClient, log.Logger)
 
 	svc := &AgentService{
 		store:              store.NewAgentStore(cfg.SPIFFE.TrustDomain),
@@ -123,6 +140,24 @@ func runServe(cmd *cobra.Command, args []string) error {
 		log:                log,
 		trustDomain:        cfg.SPIFFE.TrustDomain,
 		workloadClient:     workloadClient,
+		a2aClient:          a2aClient,
+	}
+
+	// Start A2A agent discovery loop if enabled
+	if cfg.EnableDiscovery {
+		discovery, err := a2abridge.NewAgentDiscovery(
+			a2abridge.DiscoveryConfig{
+				Namespace:   cfg.DiscoveryNamespace,
+				TrustDomain: cfg.SPIFFE.TrustDomain,
+				Scheme:      cfg.DiscoveryScheme,
+			},
+			httpClient,
+			log.Logger,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to initialize agent discovery: %w", err)
+		}
+		go svc.runDiscoveryLoop(ctx, discovery, cfg.DiscoveryInterval)
 	}
 
 	mux := http.NewServeMux()
@@ -144,7 +179,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		server = workloadClient.CreateHTTPServer(cfg.Service.Addr(), handler)
 	}
 	server.ReadTimeout = 10 * time.Second
-	server.WriteTimeout = 30 * time.Second
+	server.WriteTimeout = 120 * time.Second
 
 	// Graceful shutdown
 	done := make(chan bool)
@@ -174,6 +209,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 	log.Info("Loaded agents", "count", len(svc.store.List()))
 	log.Info("mTLS mode", "enabled", !cfg.Service.MockSPIFFE && !cfg.Service.ListenPlainHTTP)
 	log.Info("Plain HTTP mode", "enabled", cfg.Service.ListenPlainHTTP)
+	log.Info("A2A agent discovery", "enabled", cfg.EnableDiscovery)
+	if cfg.EnableDiscovery {
+		log.Info("Discovery config",
+			"namespace", cfg.DiscoveryNamespace,
+			"interval", cfg.DiscoveryInterval,
+			"scheme", cfg.DiscoveryScheme)
+	}
 
 	for _, agent := range svc.store.List() {
 		log.Info("Registered agent",
@@ -266,6 +308,16 @@ func (s *AgentService) handleAgentRoutes(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		s.handleDelegatedAccess(w, r, agent)
+		return
+	}
+
+	if parts[1] == "invoke" {
+		// POST /agents/{id}/invoke
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		s.handleInvoke(w, r, agent)
 		return
 	}
 
@@ -440,4 +492,178 @@ func (s *AgentService) accessDocumentDelegated(ctx context.Context, agent *store
 		Agent:    agent.ID,
 		User:     userName,
 	}, nil
+}
+
+// InvokeRequest represents a request to invoke an A2A agent with delegation context.
+type InvokeRequest struct {
+	UserSPIFFEID    string   `json:"user_spiffe_id"`
+	DocumentID      string   `json:"document_id"`
+	UserDepartments []string `json:"user_departments,omitempty"`
+	ReviewType      string   `json:"review_type,omitempty"`
+}
+
+// InvokeResponse represents the response from an A2A agent invocation.
+type InvokeResponse struct {
+	Granted bool   `json:"granted"`
+	Reason  string `json:"reason,omitempty"`
+	Agent   string `json:"agent"`
+	User    string `json:"user,omitempty"`
+	Result  string `json:"result,omitempty"`
+	State   string `json:"state,omitempty"`
+}
+
+func (s *AgentService) handleInvoke(w http.ResponseWriter, r *http.Request, agent *store.Agent) {
+	var req InvokeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.log.Error("Invalid request body", "error", err)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Only A2A agents can be invoked
+	if agent.A2AURL == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]any{
+			"granted": false,
+			"reason":  "Agent does not support A2A invocation",
+			"agent":   agent.ID,
+		})
+		return
+	}
+
+	if req.UserSPIFFEID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]any{
+			"granted": false,
+			"reason":  "Agent requests require user delegation context",
+			"agent":   agent.ID,
+		})
+		return
+	}
+
+	ctx := r.Context()
+
+	s.log.Section("A2A AGENT INVOCATION")
+	s.log.Info("Invoking A2A agent",
+		"agent", agent.Name,
+		"a2a_url", agent.A2AURL,
+		"document_id", req.DocumentID,
+		"user_spiffe_id", req.UserSPIFFEID)
+
+	// First check OPA authorization via document-service
+	bearerToken := extractBearerToken(r)
+	accessResult, err := s.accessDocumentDelegated(ctx, agent, req.UserSPIFFEID, req.DocumentID, req.UserDepartments, bearerToken)
+	if err != nil {
+		s.log.Error("Authorization check failed", "error", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if !accessResult.Granted {
+		s.log.Deny("A2A invocation denied - authorization failed")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(&InvokeResponse{
+			Granted: false,
+			Reason:  accessResult.Reason,
+			Agent:   agent.ID,
+			User:    accessResult.User,
+		})
+		return
+	}
+
+	// Authorization passed - invoke the A2A agent
+	s.log.Success("Authorization granted, forwarding to A2A agent")
+
+	invokeResult, err := s.a2aClient.Invoke(ctx, &a2abridge.InvokeRequest{
+		AgentURL:        agent.A2AURL,
+		Card:            agent.AgentCard,
+		DocumentID:      req.DocumentID,
+		UserSPIFFEID:    req.UserSPIFFEID,
+		UserDepartments: req.UserDepartments,
+		ReviewType:      req.ReviewType,
+	})
+	if err != nil {
+		s.log.Error("A2A invocation failed", "error", err)
+		http.Error(w, fmt.Sprintf("A2A invocation failed: %v", err), http.StatusBadGateway)
+		return
+	}
+
+	userParts := strings.Split(req.UserSPIFFEID, "/")
+	userName := userParts[len(userParts)-1]
+
+	s.log.Success("A2A agent invocation completed",
+		"agent", agent.Name,
+		"state", invokeResult.State)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(&InvokeResponse{
+		Granted: true,
+		Reason:  "A2A invocation completed",
+		Agent:   agent.ID,
+		User:    userName,
+		Result:  invokeResult.Text,
+		State:   invokeResult.State,
+	})
+}
+
+// runDiscoveryLoop periodically discovers A2A agents from Kubernetes.
+func (s *AgentService) runDiscoveryLoop(ctx context.Context, discovery *a2abridge.AgentDiscovery, interval time.Duration) {
+	s.log.Info("Starting A2A agent discovery loop", "interval", interval)
+
+	// Run immediately on startup
+	s.discoverAgents(ctx, discovery)
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			s.log.Info("Stopping A2A agent discovery loop")
+			return
+		case <-ticker.C:
+			s.discoverAgents(ctx, discovery)
+		}
+	}
+}
+
+func (s *AgentService) discoverAgents(ctx context.Context, discovery *a2abridge.AgentDiscovery) {
+	agents, err := discovery.Discover(ctx)
+	if err != nil {
+		s.log.Error("Agent discovery failed", "error", err)
+		return
+	}
+
+	// Track which discovered agents are still present
+	foundIDs := make(map[string]bool)
+
+	for _, discovered := range agents {
+		foundIDs[discovered.ID] = true
+		s.store.Register(&store.Agent{
+			ID:           discovered.ID,
+			Name:         discovered.Name,
+			Capabilities: discovered.Capabilities,
+			SPIFFEID:     discovered.SPIFFEID,
+			Description:  discovered.Description,
+			Source:       store.SourceDiscovered,
+			A2AURL:       discovered.A2AURL,
+			AgentCard:    discovered.Card,
+		})
+		s.log.Info("Registered discovered agent",
+			"id", discovered.ID,
+			"name", discovered.Name,
+			"capabilities", discovered.Capabilities,
+			"a2a_url", discovered.A2AURL)
+	}
+
+	// Remove previously discovered agents that no longer exist
+	for _, id := range s.store.DiscoveredIDs() {
+		if !foundIDs[id] {
+			s.store.Remove(id)
+			s.log.Info("Removed stale discovered agent", "id", id)
+		}
+	}
 }

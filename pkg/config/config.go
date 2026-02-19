@@ -155,6 +155,16 @@ func setDefaults(v *viper.Viper, serviceName string) {
 
 // Load reads the configuration from file and environment
 func Load(v *viper.Viper, cfg any) error {
+	// Support standard PORT/HOST env vars used by container platforms (e.g. Kagenti)
+	if portStr := os.Getenv("PORT"); portStr != "" {
+		if port, err := strconv.Atoi(portStr); err == nil {
+			v.Set("service.port", port)
+		}
+	}
+	if host := os.Getenv("HOST"); host != "" {
+		v.Set("service.host", host)
+	}
+
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
 			return fmt.Errorf("failed to read config file: %w", err)
