@@ -125,7 +125,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create mTLS HTTP client for outgoing requests
-	httpClient := workloadClient.CreateMTLSClient(10 * time.Second)
+	// Timeout must be long enough for A2A agent invocations that include LLM calls
+	httpClient := workloadClient.CreateMTLSClient(120 * time.Second)
 	if cfg.OTel.Enabled {
 		httpClient.Transport = telemetry.WrapTransport(httpClient.Transport)
 	}
@@ -178,7 +179,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		server = workloadClient.CreateHTTPServer(cfg.Service.Addr(), handler)
 	}
 	server.ReadTimeout = 10 * time.Second
-	server.WriteTimeout = 30 * time.Second
+	server.WriteTimeout = 120 * time.Second
 
 	// Graceful shutdown
 	done := make(chan bool)
