@@ -15,25 +15,26 @@ This demo implements a Zero Trust security model where:
 
 ### Assets Protected
 
-| Asset | Sensitivity | Protection Mechanism |
-|-------|-------------|---------------------|
-| Documents (DOC-001 to DOC-007) | Varies by department | OPA policy + mTLS |
-| User delegation tokens | High | Short-lived, cryptographically bound |
-| SPIFFE SVIDs | Critical | X.509 certificates, 1-hour TTL |
-| OPA policies | High | ConfigMap, GitOps controlled |
+| Asset                          | Sensitivity          | Protection Mechanism                 |
+| ------------------------------ | -------------------- | ------------------------------------ |
+| Documents (DOC-001 to DOC-007) | Varies by department | OPA policy + mTLS                    |
+| User delegation tokens         | High                 | Short-lived, cryptographically bound |
+| SPIFFE SVIDs                   | Critical             | X.509 certificates, 1-hour TTL       |
+| OPA policies                   | High                 | ConfigMap, GitOps controlled         |
 
 ### Threat Actors
 
-| Actor | Capability | Mitigations |
-|-------|-----------|-------------|
+| Actor                 | Capability                       | Mitigations                                                                    |
+| --------------------- | -------------------------------- | ------------------------------------------------------------------------------ |
 | Compromised container | Network access, local filesystem | Workload identity (mTLS or JWT) prevents impersonation, SVID bound to workload |
-| Malicious insider | Valid credentials | Permission intersection limits blast radius |
-| Network attacker | Traffic interception | mTLS encryption or JWT signing, certificate/token validation |
-| Rogue AI agent | Attempts autonomous access | Agents require valid user delegation |
+| Malicious insider     | Valid credentials                | Permission intersection limits blast radius                                    |
+| Network attacker      | Traffic interception             | mTLS encryption or JWT signing, certificate/token validation                   |
+| Rogue AI agent        | Attempts autonomous access       | Agents require valid user delegation                                           |
 
 ### Attack Vectors
 
 #### 1. SVID Theft
+
 **Threat**: Attacker extracts SVID from compromised pod.
 
 **Mitigations**:
@@ -43,6 +44,7 @@ This demo implements a Zero Trust security model where:
 - Network policies limit lateral movement
 
 #### 2. Delegation Token Forgery
+
 **Threat**: Attacker creates fake delegation to bypass authorization.
 
 **Mitigations**:
@@ -51,6 +53,7 @@ This demo implements a Zero Trust security model where:
 - Delegation requires both user AND agent to have permissions
 
 #### 3. Policy Bypass
+
 **Threat**: Attacker modifies OPA policies to grant unauthorized access.
 
 **Mitigations**:
@@ -60,6 +63,7 @@ This demo implements a Zero Trust security model where:
 - Audit logging of policy evaluation
 
 #### 4. Agent Autonomy Attack
+
 **Threat**: AI agent attempts to access documents without user delegation.
 
 **Mitigations**:
@@ -69,63 +73,63 @@ This demo implements a Zero Trust security model where:
 
 ## Trust Boundaries
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
-│                        Trust Domain                              │
-│                   spiffe://demo.example.com                      │
-│                                                                  │
+│                        Trust Domain                             │
+│                   spiffe://demo.example.com                     │
+│                                                                 │
 │  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐       │
 │  │ SPIRE Server │    │ SPIRE Agent  │    │ SPIRE Agent  │       │
 │  │   (Root CA)  │◄───│   (Node 1)   │    │   (Node 2)   │       │
 │  └──────────────┘    └──────────────┘    └──────────────┘       │
-│         │                   │                   │                │
+│         │                   │                   │               │
 │         │            ┌──────┴──────┐     ┌──────┴──────┐        │
 │         │            │  Workloads  │     │  Workloads  │        │
 │         │            └─────────────┘     └─────────────┘        │
-│         │                                                        │
+│         │                                                       │
 │  ┌──────┴─────────────────────────────────────────────────────┐ │
-│  │                    Trust Boundary 1                         │ │
+│  │                    Trust Boundary 1                        │ │
 │  │  All SVIDs issued by this SPIRE server are trusted         │ │
-│  └─────────────────────────────────────────────────────────────┘ │
+│  └────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Trust Boundary 2a                              │
-│          Service-to-Service Communication (mTLS mode)            │
-│                                                                  │
+│                    Trust Boundary 2a                            │
+│          Service-to-Service Communication (mTLS mode)           │
+│                                                                 │
 │  ┌─────────────┐         mTLS          ┌─────────────┐          │
 │  │user-service │◄─────────────────────►│doc-service  │          │
 │  │             │    Mutual Auth        │             │          │
 │  └─────────────┘                       └─────────────┘          │
-│                                                                  │
+│                                                                 │
 │  Each service validates peer's SPIFFE ID before accepting       │
 └─────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Trust Boundary 2b                              │
-│        Service-to-Service Communication (AuthBridge mode)        │
-│                                                                  │
+│                    Trust Boundary 2b                            │
+│        Service-to-Service Communication (AuthBridge mode)       │
+│                                                                 │
 │  ┌─────────────┐  ┌───────┐  HTTP+JWT  ┌─────────────┐          │
 │  │ app process │──│ envoy │───────────►│doc-service  │          │
 │  └─────────────┘  └───┬───┘            └─────────────┘          │
-│                       │ token exchange                           │
-│                  ┌────▼─────┐                                    │
-│                  │ Keycloak │                                    │
-│                  └──────────┘                                    │
-│                                                                  │
+│                       │ token exchange                          │
+│                  ┌────▼─────┐                                   │
+│                  │ Keycloak │                                   │
+│                  └──────────┘                                   │
+│                                                                 │
 │  Envoy exchanges JWT SVID for Keycloak access token on every    │
-│  outbound call; doc-service validates the signed JWT             │
+│  outbound call; doc-service validates the signed JWT            │
 └─────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Trust Boundary 3                              │
-│                  Policy Evaluation                               │
-│                                                                  │
+│                    Trust Boundary 3                             │
+│                  Policy Evaluation                              │
+│                                                                 │
 │  ┌─────────────┐        Query          ┌─────────────┐          │
 │  │doc-service  │──────────────────────►│opa-service  │          │
 │  │             │◄──────────────────────│             │          │
 │  └─────────────┘       Decision        └─────────────┘          │
-│                                                                  │
+│                                                                 │
 │  OPA is the single source of truth for authorization            │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -134,21 +138,22 @@ This demo implements a Zero Trust security model where:
 
 All identities follow the SPIFFE ID format:
 
-```
+```text
 spiffe://<trust-domain>/<path>
 ```
 
 ### Trust Domain
+
 - **Production**: `demo.example.com`
 - **Development**: `demo.example.com` (same for consistency)
 
 ### Path Conventions
 
-| Entity Type | Format | Example |
-|------------|--------|---------|
-| Services | `/service/<name>` | `spiffe://demo.example.com/service/user-service` |
-| Users | `/user/<username>` | `spiffe://demo.example.com/user/alice` |
-| AI Agents | `/agent/<agent-name>` | `spiffe://demo.example.com/agent/gpt4` |
+| Entity Type | Format                | Example                                          |
+| ----------- | --------------------- | ------------------------------------------------ |
+| Services    | `/service/<name>`     | `spiffe://demo.example.com/service/user-service` |
+| Users       | `/user/<username>`    | `spiffe://demo.example.com/user/alice`           |
+| AI Agents   | `/agent/<agent-name>` | `spiffe://demo.example.com/agent/gpt4`           |
 
 ### Registration Entries
 
@@ -195,16 +200,16 @@ spec:
 The identity mechanism depends on deployment mode. In both cases,
 every service-to-service call carries cryptographic identity proof.
 
-| Source | Destination | mTLS mode | AuthBridge mode |
-| ------ | ----------- | --------- | --------------- |
-| dashboard | user-service | HTTPS (mTLS) | HTTP + JWT (envoy) |
-| user-service | agent-service | HTTPS (mTLS) | HTTP + JWT (envoy) |
-| user-service | document-service | HTTPS (mTLS) | HTTP + JWT (envoy) |
-| agent-service | document-service | HTTPS (mTLS) | HTTP + JWT (envoy) |
-| agent-service | AI agents (A2A) | HTTPS (mTLS) | HTTP (direct) |
-| AI agents | document-service | HTTPS (mTLS) | HTTP + JWT (envoy) |
-| document-service | opa-service | HTTPS (mTLS) | HTTP + JWT (envoy) |
-| all services | SPIRE Agent | Unix socket | Unix socket |
+| Source           | Destination      | mTLS mode    | AuthBridge mode    |
+| ---------------- | ---------------- | ------------ | ------------------ |
+| dashboard        | user-service     | HTTPS (mTLS) | HTTP + JWT (envoy) |
+| user-service     | agent-service    | HTTPS (mTLS) | HTTP + JWT (envoy) |
+| user-service     | document-service | HTTPS (mTLS) | HTTP + JWT (envoy) |
+| agent-service    | document-service | HTTPS (mTLS) | HTTP + JWT (envoy) |
+| agent-service    | AI agents (A2A)  | HTTPS (mTLS) | HTTP (direct)      |
+| AI agents        | document-service | HTTPS (mTLS) | HTTP + JWT (envoy) |
+| document-service | opa-service      | HTTPS (mTLS) | HTTP + JWT (envoy) |
+| all services     | SPIRE Agent      | Unix socket  | Unix socket        |
 
 ### Deployment modes and identity mechanisms
 
@@ -233,11 +238,11 @@ designed for OpenShift deployments where a central identity provider
 
 ### Secrets in This Demo
 
-| Secret | Storage | Rotation |
-|--------|---------|----------|
-| SPIFFE SVIDs | In-memory only | Automatic (1-hour TTL) |
-| SPIRE Server CA | SPIRE data directory | Manual (yearly) |
-| SPIRE Agent tokens | Kubernetes Secret | On agent restart |
+| Secret             | Storage              | Rotation               |
+| ------------------ | -------------------- | ---------------------- |
+| SPIFFE SVIDs       | In-memory only       | Automatic (1-hour TTL) |
+| SPIRE Server CA    | SPIRE data directory | Manual (yearly)        |
+| SPIRE Agent tokens | Kubernetes Secret    | On agent restart       |
 
 ### Production Recommendations
 
@@ -286,6 +291,7 @@ Monitor for:
 ### Response Procedures
 
 #### 1. Compromised Workload
+
 ```bash
 # Isolate the pod
 kubectl label pod <pod-name> -n spiffe-demo quarantine=true
@@ -298,6 +304,7 @@ kubectl delete pod <pod-name> -n spiffe-demo
 ```
 
 #### 2. Suspected Policy Tampering
+
 ```bash
 # Check policy ConfigMap history
 kubectl rollout history configmap/opa-policies -n spiffe-demo
@@ -310,6 +317,7 @@ kubectl rollout restart deployment/opa-service -n spiffe-demo
 ```
 
 #### 3. SPIRE Server Compromise
+
 ```bash
 # This is a critical incident - rotate everything
 
@@ -327,12 +335,12 @@ kubectl rollout restart daemonset/spire-agent -n spire
 
 This demo architecture supports:
 
-| Framework | Relevant Controls |
-|-----------|-------------------|
-| **SOC 2** | CC6.1 (Logical Access), CC6.7 (Encryption) |
-| **PCI DSS** | 7.1 (Access Control), 8.3 (Strong Auth) |
-| **NIST 800-207** | Zero Trust Architecture principles |
-| **FedRAMP** | AC-17 (Remote Access), IA-2 (Identification) |
+| Framework        | Relevant Controls                            |
+| ---------------- | -------------------------------------------- |
+| **SOC 2**        | CC6.1 (Logical Access), CC6.7 (Encryption)   |
+| **PCI DSS**      | 7.1 (Access Control), 8.3 (Strong Auth)      |
+| **NIST 800-207** | Zero Trust Architecture principles           |
+| **FedRAMP**      | AC-17 (Remote Access), IA-2 (Identification) |
 
 ## References
 
