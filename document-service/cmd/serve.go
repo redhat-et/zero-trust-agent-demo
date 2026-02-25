@@ -396,7 +396,9 @@ func (s *DocumentService) handleListDocuments(w http.ResponseWriter, r *http.Req
 }
 
 func (s *DocumentService) handleGetDocument(w http.ResponseWriter, r *http.Request, docID string) {
-	meta, err := s.storage.GetMetadata(r.Context(), docID)
+	ctx := r.Context()
+
+	meta, err := s.storage.GetMetadata(ctx, docID)
 	if err != nil {
 		var notFound *storage.ErrNotFound
 		if errors.As(err, &notFound) {
@@ -408,8 +410,113 @@ func (s *DocumentService) handleGetDocument(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// When an Authorization header is present and JWT validation is configured,
+	// validate the token and evaluate OPA policy before returning content.
+	// This is the AuthBridge sidecar path: the ext-proc has already performed
+	// token exchange, so the token carries sub=user and azp=agent.
+	authHeader := r.Header.Get("Authorization")
+	if s.jwtValidator != nil && strings.HasPrefix(authHeader, "Bearer ") {
+		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+		claims, jwtErr := s.jwtValidator.ValidateAccessToken(tokenStr)
+		if jwtErr != nil {
+			s.log.Error("JWT validation failed on GET", "error", jwtErr)
+			jsonError(w, "JWT validation failed: "+jwtErr.Error(), http.StatusUnauthorized)
+			return
+		}
+
+		s.log.Info("JWT validated on GET",
+			"sub", claims.Subject,
+			"azp", claims.AuthorizedParty,
+			"groups", claims.Groups)
+
+		// Build delegation from JWT claims for OPA evaluation.
+		// When sub is a valid SPIFFE ID (e.g., from mTLS), use sub=user and azp=agent.
+		// When sub is a Keycloak UUID (from client_credentials grant), fall back to
+		// X-Delegation-User and X-Delegation-Agent request headers. These are set by
+		// the upstream agent-service and forwarded transparently through the A2A chain
+		// by the DelegationTransport in pkg/a2abridge.
+		var delegation *Delegation
+		callerSPIFFEID := claims.AuthorizedParty
+		userDepts := claims.Groups
+
+		if claims.Subject != "" && claims.AuthorizedParty != "" && claims.Subject != claims.AuthorizedParty {
+			if strings.HasPrefix(claims.Subject, "spiffe://") {
+				// JWT sub is a SPIFFE ID — use claims directly
+				delegation = &Delegation{
+					UserSPIFFEID:    claims.Subject,
+					AgentSPIFFEID:   claims.AuthorizedParty,
+					UserDepartments: claims.Groups,
+				}
+			} else if delegUser := r.Header.Get("X-Delegation-User"); delegUser != "" {
+				// JWT sub is a Keycloak UUID — use delegation headers
+				delegAgent := r.Header.Get("X-Delegation-Agent")
+				if delegAgent == "" {
+					delegAgent = claims.AuthorizedParty
+				}
+				delegation = &Delegation{
+					UserSPIFFEID:    delegUser,
+					AgentSPIFFEID:   delegAgent,
+					UserDepartments: claims.Groups,
+				}
+				s.log.Info("Using delegation headers for OPA evaluation",
+					"x_delegation_user", delegUser,
+					"x_delegation_agent", delegAgent)
+			}
+		}
+
+		allowed, reason, opaErr := s.checkAuthorization(ctx, callerSPIFFEID, docID, meta, delegation, userDepts)
+		if opaErr != nil {
+			s.log.Error("Authorization check failed on GET", "error", opaErr)
+			jsonError(w, "Authorization failed", http.StatusInternalServerError)
+			return
+		}
+		if !allowed {
+			s.log.Deny(reason)
+			metrics.AuthorizationDecisions.WithLabelValues("document-service", "deny", "get").Inc()
+			jsonError(w, "Access denied: "+reason, http.StatusForbidden)
+			return
+		}
+
+		s.log.Allow(reason)
+		metrics.AuthorizationDecisions.WithLabelValues("document-service", "allow", "get").Inc()
+	}
+
+	// Return document with full content
+	content, err := s.storage.GetContent(ctx, docID)
+	if err != nil {
+		var notFound *storage.ErrNotFound
+		if errors.As(err, &notFound) {
+			// No content stored — return metadata-only response
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"document": meta,
+			})
+			return
+		}
+		s.log.Error("Failed to get document content", "error", err)
+		jsonError(w, "Failed to get document content", http.StatusInternalServerError)
+		return
+	}
+	defer content.Close()
+
+	contentBytes, err := io.ReadAll(content)
+	if err != nil {
+		s.log.Error("Failed to read document content", "error", err)
+		jsonError(w, "Failed to read content", http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(meta)
+	json.NewEncoder(w).Encode(map[string]any{
+		"document": map[string]any{
+			"id":                   meta.ID,
+			"title":                meta.Title,
+			"sensitivity":          meta.Sensitivity,
+			"required_department":  meta.RequiredDepartment,
+			"required_departments": meta.RequiredDepartments,
+			"content":              string(contentBytes),
+		},
+	})
 }
 
 func (s *DocumentService) handleDocumentContent(w http.ResponseWriter, r *http.Request, docID string) {
