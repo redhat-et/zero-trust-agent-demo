@@ -1,0 +1,21 @@
+# Enable A2A agent discovery on agent-service (Kind variant with http scheme)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-service
+  namespace: spiffe-demo
+spec:
+  template:
+    spec:
+      serviceAccountName: agent-service
+      containers:
+        - name: agent-service
+          env:
+            - name: SPIFFE_DEMO_ENABLE_DISCOVERY
+              value: "true"
+            - name: SPIFFE_DEMO_DISCOVERY_NAMESPACE
+              value: "spiffe-demo"
+            - name: SPIFFE_DEMO_DISCOVERY_INTERVAL
+              value: "30s"
+            - name: SPIFFE_DEMO_DISCOVERY_SCHEME
+              value: "http"

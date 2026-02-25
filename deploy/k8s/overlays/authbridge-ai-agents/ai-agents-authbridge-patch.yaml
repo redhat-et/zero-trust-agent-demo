@@ -1,0 +1,37 @@
+# Override AI agent services for AuthBridge mode.
+# In AuthBridge mode, agent-service runs plain HTTP (envoy handles mTLS),
+# so AI agents must also use plain HTTP for both:
+#   - Their own listener (mock SPIFFE = no mTLS)
+#   - Document-service URL (http:// instead of https://)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: summarizer-service
+  namespace: spiffe-demo
+spec:
+  template:
+    spec:
+      containers:
+        - name: summarizer-service
+          env:
+            - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
+              value: "http://document-service:8080"
+            - name: SPIFFE_DEMO_SERVICE_MOCK_SPIFFE
+              value: "true"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reviewer-service
+  namespace: spiffe-demo
+spec:
+  template:
+    spec:
+      containers:
+        - name: reviewer-service
+          env:
+            - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
+              value: "http://document-service:8080"
+            - name: SPIFFE_DEMO_SERVICE_MOCK_SPIFFE
+              value: "true"
