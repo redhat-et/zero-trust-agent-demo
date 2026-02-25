@@ -16,9 +16,8 @@ var (
 
 var rootCmd = &cobra.Command{
 	Use:   "reviewer-service",
-	Short: "Reviewer Agent Service for SPIFFE/SPIRE Zero Trust Demo",
-	Long: `Reviewer Agent Service provides document review capabilities
-using Claude AI with SPIFFE workload identity and delegated access.`,
+	Short: "Reviewer Agent Service",
+	Long:  `Reviewer Agent Service provides document review using AI.`,
 }
 
 func Execute() {

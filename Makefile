@@ -1,5 +1,6 @@
-.PHONY: all build test clean run-local run-kind setup-kind deploy-k8s docker-build docker-load help \
-	deploy-openshift-authbridge deploy-openshift-authbridge-quick test-openshift-authbridge
+.PHONY: all build test clean run-kind setup-kind deploy-k8s docker-build docker-load help \
+	deploy-openshift-authbridge deploy-openshift-authbridge-quick test-openshift-authbridge \
+	deploy-authbridge-ai-agents deploy-authbridge-ai-agents-remote-kc test-authbridge-ai-agents
 
 # Variables
 BINARY_DIR := bin
@@ -83,11 +84,6 @@ clean:
 	@echo "=== Cleaning ==="
 	rm -rf $(BINARY_DIR)
 	rm -rf tmp/
-
-# Run services locally (development mode)
-run-local: build
-	@echo "=== Starting services locally ==="
-	@./scripts/run-local.sh
 
 # Run individual service locally
 run-opa:
@@ -275,6 +271,19 @@ test-authbridge-remote-kc:
 	KEYCLOAK_URL=https://keycloak.example.com \
 		./scripts/test-authbridge.sh
 
+# AuthBridge with AI agents (Kind + Keycloak + summarizer/reviewer)
+deploy-authbridge-ai-agents:
+	@echo "=== Deploying AuthBridge with AI agents ==="
+	./scripts/setup-authbridge.sh ai-agents
+
+deploy-authbridge-ai-agents-remote-kc:
+	@echo "=== Deploying AuthBridge with AI agents (remote Keycloak) ==="
+	./scripts/setup-authbridge.sh ai-agents-remote-kc
+
+test-authbridge-ai-agents:
+	@echo "=== Running AuthBridge AI agents tests ==="
+	./scripts/test-authbridge.sh
+
 # AuthBridge on OpenShift (remote Keycloak via OpenShift Route)
 deploy-openshift-authbridge: check-deps podman-dev
 	@echo "=== Deploying AuthBridge to OpenShift with tag $(DEV_TAG) ==="
@@ -338,7 +347,6 @@ help:
 	@echo "  make clean          - Remove build artifacts"
 	@echo ""
 	@echo "Local development:"
-	@echo "  make run-local      - Run all services locally"
 	@echo "  make run-opa        - Run OPA service"
 	@echo "  make run-document   - Run Document service"
 	@echo "  make run-user       - Run User service"
@@ -361,6 +369,11 @@ help:
 	@echo "  make test-authbridge              - Run AuthBridge token exchange tests"
 	@echo "  make deploy-authbridge-remote-kc  - Deploy with remote Keycloak"
 	@echo "  make test-authbridge-remote-kc    - Test with remote Keycloak"
+	@echo ""
+	@echo "AuthBridge with AI agents:"
+	@echo "  make deploy-authbridge-ai-agents            - Deploy AuthBridge + AI agents to Kind"
+	@echo "  make deploy-authbridge-ai-agents-remote-kc  - Deploy with remote Keycloak"
+	@echo "  make test-authbridge-ai-agents              - Run AuthBridge AI agents tests"
 	@echo ""
 	@echo "AuthBridge on OpenShift:"
 	@echo "  make deploy-openshift-authbridge        - Build, push, deploy AuthBridge to OpenShift"

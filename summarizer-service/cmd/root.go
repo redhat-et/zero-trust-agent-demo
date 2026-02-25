@@ -16,9 +16,8 @@ var (
 
 var rootCmd = &cobra.Command{
 	Use:   "summarizer-service",
-	Short: "Summarizer Agent Service for SPIFFE/SPIRE Zero Trust Demo",
-	Long: `Summarizer Agent Service provides document summarization capabilities
-using Claude AI with SPIFFE workload identity and delegated access.`,
+	Short: "Summarizer Agent Service",
+	Long:  `Summarizer Agent Service provides document summarization using AI.`,
 }
 
 func Execute() {

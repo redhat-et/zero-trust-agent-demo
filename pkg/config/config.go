@@ -102,30 +102,12 @@ func setDefaults(v *viper.Viper, serviceName string) {
 	v.SetDefault("service.listen_plain_http", false)
 	v.SetDefault("service.log_level", "info")
 
-	// Port defaults based on service name
-	// Health ports are main port + 100 for plain HTTP health checks
+	// Port defaults: AI agent services use Kagenti convention (8000/8100),
+	// all other infrastructure services use 8080/8180.
 	switch serviceName {
-	case "web-dashboard":
-		v.SetDefault("service.port", 8080)
-		v.SetDefault("service.health_port", 8180)
-	case "user-service":
-		v.SetDefault("service.port", 8082)
-		v.SetDefault("service.health_port", 8182)
-	case "agent-service":
-		v.SetDefault("service.port", 8083)
-		v.SetDefault("service.health_port", 8183)
-	case "document-service":
-		v.SetDefault("service.port", 8084)
-		v.SetDefault("service.health_port", 8184)
-	case "opa-service":
-		v.SetDefault("service.port", 8085)
-		v.SetDefault("service.health_port", 8185)
-	case "summarizer-service":
-		v.SetDefault("service.port", 8086)
-		v.SetDefault("service.health_port", 8186)
-	case "reviewer-service":
-		v.SetDefault("service.port", 8087)
-		v.SetDefault("service.health_port", 8187)
+	case "summarizer-service", "reviewer-service":
+		v.SetDefault("service.port", 8000)
+		v.SetDefault("service.health_port", 8100)
 	default:
 		v.SetDefault("service.port", 8080)
 		v.SetDefault("service.health_port", 8180)
@@ -137,7 +119,7 @@ func setDefaults(v *viper.Viper, serviceName string) {
 
 	// OPA defaults
 	v.SetDefault("opa.host", "localhost")
-	v.SetDefault("opa.port", 8085)
+	v.SetDefault("opa.port", 8080)
 
 	// OTel defaults
 	v.SetDefault("otel.enabled", false)
@@ -207,12 +189,12 @@ func BindFlags(cmd *cobra.Command, v *viper.Viper) {
 func GetServiceEndpoints() map[string]string {
 	return map[string]string{
 		"dashboard":   "http://localhost:8080",
-		"user":        "http://localhost:8082",
-		"agent":       "http://localhost:8083",
-		"document":    "http://localhost:8084",
-		"opa":         "http://localhost:8085",
-		"summarizer":  "http://localhost:8086",
-		"reviewer":    "http://localhost:8087",
+		"user":        "http://localhost:8080",
+		"agent":       "http://localhost:8080",
+		"document":    "http://localhost:8080",
+		"opa":         "http://localhost:8080",
+		"summarizer":  "http://localhost:8000",
+		"reviewer":    "http://localhost:8000",
 		"spire-agent": "unix:///run/spire/sockets/agent.sock",
 	}
 }

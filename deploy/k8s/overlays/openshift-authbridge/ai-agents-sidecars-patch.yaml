@@ -42,7 +42,7 @@ spec:
             # agent-service bypasses envoy (agent-service's own envoy
             # already added the JWT on the outbound side).
             - name: INBOUND_PORTS_EXCLUDE
-              value: "8086,8186"
+              value: "8000,8100"
           resources:
             limits:
               cpu: 10m
@@ -146,7 +146,7 @@ spec:
             - name: svid-output
               mountPath: /opt
         - name: envoy-proxy
-          image: ghcr.io/kagenti/kagenti-extensions/envoy-with-processor:latest
+          image: ghcr.io/pavelanni/kagenti-extensions/envoy-with-processor:latest
           imagePullPolicy: IfNotPresent
           securityContext:
             runAsUser: 1337
@@ -247,7 +247,7 @@ spec:
             - name: OUTBOUND_PORTS_EXCLUDE
               value: "443,4317"
             - name: INBOUND_PORTS_EXCLUDE
-              value: "8087,8187"
+              value: "8000,8100"
           resources:
             limits:
               cpu: 10m
@@ -351,7 +351,7 @@ spec:
             - name: svid-output
               mountPath: /opt
         - name: envoy-proxy
-          image: ghcr.io/kagenti/kagenti-extensions/envoy-with-processor:latest
+          image: ghcr.io/pavelanni/kagenti-extensions/envoy-with-processor:latest
           imagePullPolicy: IfNotPresent
           securityContext:
             runAsUser: 1337

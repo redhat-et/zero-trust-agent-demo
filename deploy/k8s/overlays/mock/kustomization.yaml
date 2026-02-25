@@ -52,7 +52,7 @@ patches:
         value:
           httpGet:
             path: /health
-            port: 8085
+            port: 8180
           initialDelaySeconds: 5
           periodSeconds: 10
       - op: add
@@ -60,7 +60,7 @@ patches:
         value:
           httpGet:
             path: /health
-            port: 8085
+            port: 8180
           initialDelaySeconds: 2
           periodSeconds: 5
       - op: add
@@ -96,7 +96,7 @@ patches:
         value:
           httpGet:
             path: /health
-            port: 8084
+            port: 8180
           initialDelaySeconds: 5
           periodSeconds: 10
       - op: add
@@ -104,7 +104,7 @@ patches:
         value:
           httpGet:
             path: /health
-            port: 8084
+            port: 8180
           initialDelaySeconds: 2
           periodSeconds: 5
       - op: add
@@ -134,18 +134,18 @@ patches:
         path: /spec/template/spec/containers/0/env/-
         value:
           name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
-          value: "http://document-service:8084"
+          value: "http://document-service:8080"
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value:
           name: SPIFFE_DEMO_AGENT_SERVICE_URL
-          value: "http://agent-service:8083"
+          value: "http://agent-service:8080"
       - op: add
         path: /spec/template/spec/containers/0/livenessProbe
         value:
           httpGet:
             path: /health
-            port: 8082
+            port: 8180
           initialDelaySeconds: 5
           periodSeconds: 10
       - op: add
@@ -153,7 +153,7 @@ patches:
         value:
           httpGet:
             path: /health
-            port: 8082
+            port: 8180
           initialDelaySeconds: 2
           periodSeconds: 5
       - op: add
@@ -183,13 +183,13 @@ patches:
         path: /spec/template/spec/containers/0/env/-
         value:
           name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
-          value: "http://document-service:8084"
+          value: "http://document-service:8080"
       - op: add
         path: /spec/template/spec/containers/0/livenessProbe
         value:
           httpGet:
             path: /health
-            port: 8083
+            port: 8180
           initialDelaySeconds: 5
           periodSeconds: 10
       - op: add
@@ -197,7 +197,7 @@ patches:
         value:
           httpGet:
             path: /health
-            port: 8083
+            port: 8180
           initialDelaySeconds: 2
           periodSeconds: 5
       - op: add
@@ -227,17 +227,17 @@ patches:
         path: /spec/template/spec/containers/0/env/-
         value:
           name: SPIFFE_DEMO_USER_SERVICE_URL
-          value: "http://user-service:8082"
+          value: "http://user-service:8080"
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value:
           name: SPIFFE_DEMO_AGENT_SERVICE_URL
-          value: "http://agent-service:8083"
+          value: "http://agent-service:8080"
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value:
           name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
-          value: "http://document-service:8084"
+          value: "http://document-service:8080"
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value:

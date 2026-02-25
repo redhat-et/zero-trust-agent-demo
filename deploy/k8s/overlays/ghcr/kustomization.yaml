@@ -209,12 +209,12 @@ patches:
         path: /spec/template/spec/containers/0/env/-
         value:
           name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
-          value: "https://document-service:8084"
+          value: "https://document-service:8080"
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value:
           name: SPIFFE_DEMO_AGENT_SERVICE_URL
-          value: "https://agent-service:8083"
+          value: "https://agent-service:8080"
       - op: add
         path: /spec/template/spec/containers/0/volumeMounts
         value:
@@ -290,7 +290,7 @@ patches:
         path: /spec/template/spec/containers/0/env/-
         value:
           name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
-          value: "https://document-service:8084"
+          value: "https://document-service:8080"
       - op: add
         path: /spec/template/spec/containers/0/volumeMounts
         value:
@@ -353,17 +353,17 @@ patches:
         path: /spec/template/spec/containers/0/env/-
         value:
           name: SPIFFE_DEMO_USER_SERVICE_URL
-          value: "https://user-service:8082"
+          value: "https://user-service:8080"
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value:
           name: SPIFFE_DEMO_AGENT_SERVICE_URL
-          value: "https://agent-service:8083"
+          value: "https://agent-service:8080"
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value:
           name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
-          value: "https://document-service:8084"
+          value: "https://document-service:8080"
       - op: add
         path: /spec/template/spec/containers/0/volumeMounts
         value:

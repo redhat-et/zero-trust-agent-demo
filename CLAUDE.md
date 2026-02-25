@@ -15,27 +15,29 @@ This ensures agents can never exceed the permissions of either the user OR the a
 
 ## Architecture
 
-```
+```text
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
 │  Web Dashboard  │────▶│  User Service   │────▶│ Agent Service   │
-│    :8080        │     │    :8082        │     │    :8083        │
+│    :8080        │     │    :8080        │     │    :8080        │
 └─────────────────┘     └─────────────────┘     └────────┬────────┘
                                                          │
                         ┌─────────────────┐     ┌────────▼────────┐
                         │   OPA Service   │◀────│Document Service │
-                        │    :8085        │     │    :8084        │
+                        │    :8080        │     │    :8080        │
                         └─────────────────┘     └─────────────────┘
 ```
 
 ### Services
 
-| Service          | Port | Description                                |
-| ---------------- | ---- | ------------------------------------------ |
-| web-dashboard    | 8080 | Interactive UI for demo                    |
-| user-service     | 8082 | User management, direct access, delegation |
-| agent-service    | 8083 | AI agent management, delegated access      |
-| document-service | 8084 | Protected documents with OPA authorization |
-| opa-service      | 8085 | Policy evaluation engine (Rego policies)   |
+| Service            | Port | Health | Description                                |
+| ------------------ | ---- | ------ | ------------------------------------------ |
+| web-dashboard      | 8080 | 8180   | Interactive UI for demo                    |
+| user-service       | 8080 | 8180   | User management, direct access, delegation |
+| agent-service      | 8080 | 8180   | AI agent management, delegated access      |
+| document-service   | 8080 | 8180   | Protected documents with OPA authorization |
+| opa-service        | 8080 | 8180   | Policy evaluation engine (Rego policies)   |
+| summarizer-service | 8000 | 8100   | AI document summarization (A2A agent)      |
+| reviewer-service   | 8000 | 8100   | AI document review (A2A agent)             |
 
 ## Quick Start
 
@@ -43,14 +45,14 @@ This ensures agents can never exceed the permissions of either the user OR the a
 # Build all services
 make build
 
-# Run locally (all services)
-./scripts/run-local.sh
+# Run a single service locally (e.g., document-service)
+make run-document
+
+# Deploy to Kind cluster
+make setup-kind && make deploy-k8s
 
 # Open dashboard
 open http://localhost:8080
-
-# Watch logs
-tail -f tmp/logs/*.log
 ```
 
 ## Project Structure
@@ -116,7 +118,6 @@ Variables: `DEV_TAG` (default: git SHA), `REGISTRY` (default: `ghcr.io/redhat-et
 
 | Target | Description |
 | ------ | ----------- |
-| `make run-local` | Build and run all services locally |
 | `make run-opa` | Run OPA service only |
 | `make run-document` | Run Document service only |
 | `make run-user` | Run User service only |
@@ -156,6 +157,9 @@ Variables: `DEV_TAG` (default: git SHA), `REGISTRY` (default: `ghcr.io/redhat-et
 | `make test-authbridge` | Run AuthBridge token exchange tests |
 | `make deploy-authbridge-remote-kc` | Deploy with remote Keycloak |
 | `make test-authbridge-remote-kc` | Test with remote Keycloak |
+| `make deploy-authbridge-ai-agents` | Deploy AuthBridge + AI agents to Kind |
+| `make deploy-authbridge-ai-agents-remote-kc` | Deploy with remote Keycloak |
+| `make test-authbridge-ai-agents` | Run AuthBridge AI agents tests |
 
 ### OpenShift deployment
 
@@ -214,7 +218,7 @@ Policies are in `opa-service/policies/`:
 ### Policy Evaluation Endpoint
 
 ```bash
-curl -X POST http://localhost:8085/v1/data/demo/authorization/decision \
+curl -X POST http://localhost:8080/v1/data/demo/authorization/decision \
   -H "Content-Type: application/json" \
   -d '{
     "input": {
@@ -287,7 +291,7 @@ All services use the shared logger from `pkg/logger/`. Components are color-code
 ## Testing Endpoints
 
 ```bash
-# Health checks
+# Health checks (via port-forward: local ports map to cluster port 8080)
 curl http://localhost:8082/health  # user-service
 curl http://localhost:8083/health  # agent-service
 curl http://localhost:8084/health  # document-service
@@ -308,6 +312,10 @@ curl -X POST http://localhost:8083/agents/gpt4/access \
   -H "Content-Type: application/json" \
   -d '{"document_id": "DOC-001", "user_spiffe_id": "spiffe://demo.example.com/user/alice"}'
 ```
+
+Note: All infrastructure services listen on port 8080 inside the cluster.
+The `port-forward.sh` script maps them to different local ports (8082-8085)
+for CLI testing convenience.
 
 ## Kubernetes Deployment
 

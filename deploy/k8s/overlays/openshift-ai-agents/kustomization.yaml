@@ -78,7 +78,7 @@ patches:
     - op: add
       path: /spec/template/spec/containers/0/ports/-
       value:
-        containerPort: 8186
+        containerPort: 8100
         name: health
     - op: replace
       path: /spec/template/spec/containers/0/ports/0/name
@@ -87,7 +87,7 @@ patches:
       path: /spec/template/spec/containers/0/env/-
       value:
         name: SPIFFE_DEMO_SERVICE_HEALTH_PORT
-        value: "8186"
+        value: "8100"
     - op: add
       path: /spec/template/spec/containers/0/env/-
       value:
@@ -102,7 +102,7 @@ patches:
       path: /spec/template/spec/containers/0/env/1
       value:
         name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
-        value: "https://document-service:8084"
+        value: "https://document-service:8080"
     - op: add
       path: /spec/template/spec/containers/0/securityContext
       value:
@@ -126,7 +126,7 @@ patches:
       value:
         httpGet:
           path: /health
-          port: 8186
+          port: 8100
         initialDelaySeconds: 10
         periodSeconds: 10
     - op: add
@@ -134,7 +134,7 @@ patches:
       value:
         httpGet:
           path: /ready
-          port: 8186
+          port: 8100
         initialDelaySeconds: 5
         periodSeconds: 5
     - op: add
@@ -157,7 +157,7 @@ patches:
     - op: add
       path: /spec/template/spec/containers/0/ports/-
       value:
-        containerPort: 8187
+        containerPort: 8100
         name: health
     - op: replace
       path: /spec/template/spec/containers/0/ports/0/name
@@ -166,7 +166,7 @@ patches:
       path: /spec/template/spec/containers/0/env/-
       value:
         name: SPIFFE_DEMO_SERVICE_HEALTH_PORT
-        value: "8187"
+        value: "8100"
     - op: add
       path: /spec/template/spec/containers/0/env/-
       value:
@@ -181,7 +181,7 @@ patches:
       path: /spec/template/spec/containers/0/env/1
       value:
         name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
-        value: "https://document-service:8084"
+        value: "https://document-service:8080"
     - op: add
       path: /spec/template/spec/containers/0/securityContext
       value:
@@ -205,7 +205,7 @@ patches:
       value:
         httpGet:
           path: /health
-          port: 8187
+          port: 8100
         initialDelaySeconds: 10
         periodSeconds: 10
     - op: add
@@ -213,7 +213,7 @@ patches:
       value:
         httpGet:
           path: /ready
-          port: 8187
+          port: 8100
         initialDelaySeconds: 5
         periodSeconds: 5
     - op: add
@@ -234,12 +234,12 @@ patches:
       path: /spec/template/spec/containers/0/env/-
       value:
         name: SPIFFE_DEMO_SUMMARIZER_SERVICE_URL
-        value: "https://summarizer-service:8086"
+        value: "https://summarizer-service:8000"
     - op: add
       path: /spec/template/spec/containers/0/env/-
       value:
         name: SPIFFE_DEMO_REVIEWER_SERVICE_URL
-        value: "https://reviewer-service:8087"
+        value: "https://reviewer-service:8000"
   target:
     kind: Deployment
     name: web-dashboard

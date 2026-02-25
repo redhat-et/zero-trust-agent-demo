@@ -16,10 +16,7 @@ spec:
           image: ghcr.io/kagenti/kagenti-extensions/proxy-init:latest
           imagePullPolicy: IfNotPresent
           securityContext:
-            capabilities:
-              add:
-                - NET_ADMIN
-                - NET_RAW
+            privileged: true
             runAsNonRoot: false
             runAsUser: 0
           env:
@@ -33,6 +30,10 @@ spec:
             # and OTel collector port so traces can be exported
             - name: OUTBOUND_PORTS_EXCLUDE
               value: "8080,4317"
+            # Exclude app and health ports so kubelet probes and
+            # dashboard requests bypass Envoy inbound interception.
+            - name: INBOUND_PORTS_EXCLUDE
+              value: "8080,8180"
           resources:
             limits:
               cpu: 10m
@@ -48,7 +49,7 @@ spec:
             - name: SPIFFE_DEMO_SERVICE_LISTEN_PLAIN_HTTP
               value: "true"
             - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
-              value: "http://document-service:8084"
+              value: "http://document-service:8080"
             - name: SPIFFE_DEMO_OTEL_ENABLED
               value: "true"
             - name: SPIFFE_DEMO_OTEL_COLLECTOR_ENDPOINT
@@ -141,8 +142,8 @@ spec:
               mountPath: /opt
         # envoy-proxy: intercepts outbound traffic and exchanges tokens
         - name: envoy-proxy
-          image: ghcr.io/kagenti/kagenti-extensions/envoy-with-processor:latest
-          imagePullPolicy: Never
+          image: ghcr.io/pavelanni/kagenti-extensions/envoy-with-processor:latest
+          imagePullPolicy: IfNotPresent
           securityContext:
             runAsUser: 1337
             runAsGroup: 1337

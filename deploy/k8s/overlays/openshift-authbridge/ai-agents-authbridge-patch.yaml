@@ -16,7 +16,7 @@ spec:
         - name: summarizer-service
           env:
             - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
-              value: "http://document-service:8084"
+              value: "http://document-service:8080"
             - name: SPIFFE_DEMO_SERVICE_MOCK_SPIFFE
               value: "true"
 ---
@@ -32,6 +32,6 @@ spec:
         - name: reviewer-service
           env:
             - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
-              value: "http://document-service:8084"
+              value: "http://document-service:8080"
             - name: SPIFFE_DEMO_SERVICE_MOCK_SPIFFE
               value: "true"

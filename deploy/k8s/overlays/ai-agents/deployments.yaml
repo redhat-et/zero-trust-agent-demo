@@ -33,14 +33,14 @@ spec:
               cpu: 500m
               memory: 512Mi
           ports:
-            - containerPort: 8086
+            - containerPort: 8000
           args:
             - serve
           env:
             - name: SPIFFE_DEMO_SERVICE_PORT
-              value: "8086"
+              value: "8000"
             - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
-              value: "http://document-service:8084"
+              value: "http://document-service:8080"
           envFrom:
             - configMapRef:
                 name: llm-config
@@ -81,14 +81,14 @@ spec:
               cpu: 500m
               memory: 512Mi
           ports:
-            - containerPort: 8087
+            - containerPort: 8000
           args:
             - serve
           env:
             - name: SPIFFE_DEMO_SERVICE_PORT
-              value: "8087"
+              value: "8000"
             - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
-              value: "http://document-service:8084"
+              value: "http://document-service:8080"
           envFrom:
             - configMapRef:
                 name: llm-config

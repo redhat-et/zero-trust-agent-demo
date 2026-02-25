@@ -11,8 +11,8 @@ spec:
   selector:
     app: opa-service
   ports:
-    - port: 8085
-      targetPort: 8085
+    - port: 8080
+      targetPort: 8080
 ---
 apiVersion: v1
 kind: Service
@@ -24,8 +24,8 @@ spec:
   selector:
     app: document-service
   ports:
-    - port: 8084
-      targetPort: 8084
+    - port: 8080
+      targetPort: 8080
 ---
 apiVersion: v1
 kind: Service
@@ -37,8 +37,8 @@ spec:
   selector:
     app: user-service
   ports:
-    - port: 8082
-      targetPort: 8082
+    - port: 8080
+      targetPort: 8080
 ---
 apiVersion: v1
 kind: Service
@@ -50,8 +50,8 @@ spec:
   selector:
     app: agent-service
   ports:
-    - port: 8083
-      targetPort: 8083
+    - port: 8080
+      targetPort: 8080
 ---
 apiVersion: v1
 kind: Service

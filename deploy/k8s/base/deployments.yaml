@@ -29,13 +29,13 @@ spec:
               cpu: 500m
               memory: 512Mi
           ports:
-            - containerPort: 8085
+            - containerPort: 8080
           args:
             - serve
             - --policy-dir=/policies
           env:
             - name: SPIFFE_DEMO_SERVICE_PORT
-              value: "8085"
+              value: "8080"
           volumeMounts:
             - name: policies
               mountPath: /policies
@@ -95,16 +95,16 @@ spec:
               cpu: 500m
               memory: 512Mi
           ports:
-            - containerPort: 8084
+            - containerPort: 8080
           args:
             - serve
           env:
             - name: SPIFFE_DEMO_SERVICE_PORT
-              value: "8084"
+              value: "8080"
             - name: SPIFFE_DEMO_OPA_HOST
               value: "opa-service"
             - name: SPIFFE_DEMO_OPA_PORT
-              value: "8085"
+              value: "8080"
             - name: SPIFFE_DEMO_STORAGE_ENABLED
               value: "true"
           envFrom:
@@ -143,12 +143,12 @@ spec:
               cpu: 500m
               memory: 512Mi
           ports:
-            - containerPort: 8082
+            - containerPort: 8080
           args:
             - serve
           env:
             - name: SPIFFE_DEMO_SERVICE_PORT
-              value: "8082"
+              value: "8080"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -178,12 +178,12 @@ spec:
               cpu: 500m
               memory: 512Mi
           ports:
-            - containerPort: 8083
+            - containerPort: 8080
           args:
             - serve
           env:
             - name: SPIFFE_DEMO_SERVICE_PORT
-              value: "8083"
+              value: "8080"
 ---
 apiVersion: apps/v1
 kind: Deployment

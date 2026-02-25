@@ -33,11 +33,11 @@ var serveCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(serveCmd)
-	serveCmd.Flags().String("user-service-url", "http://localhost:8082", "User service URL")
-	serveCmd.Flags().String("agent-service-url", "http://localhost:8083", "Agent service URL")
-	serveCmd.Flags().String("document-service-url", "http://localhost:8084", "Document service URL")
-	serveCmd.Flags().String("summarizer-service-url", "http://localhost:8086", "Summarizer service URL")
-	serveCmd.Flags().String("reviewer-service-url", "http://localhost:8087", "Reviewer service URL")
+	serveCmd.Flags().String("user-service-url", "http://localhost:8080", "User service URL")
+	serveCmd.Flags().String("agent-service-url", "http://localhost:8080", "Agent service URL")
+	serveCmd.Flags().String("document-service-url", "http://localhost:8080", "Document service URL")
+	serveCmd.Flags().String("summarizer-service-url", "http://localhost:8000", "Summarizer service URL")
+	serveCmd.Flags().String("reviewer-service-url", "http://localhost:8000", "Reviewer service URL")
 	serveCmd.Flags().Bool("oidc-enabled", false, "Enable OIDC authentication")
 	serveCmd.Flags().String("oidc-issuer-url", "http://localhost:8180/realms/spiffe-demo", "OIDC issuer URL")
 	serveCmd.Flags().String("oidc-client-id", "spiffe-demo-dashboard", "OIDC client ID")
@@ -102,19 +102,19 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Set defaults
 	if cfg.UserServiceURL == "" {
-		cfg.UserServiceURL = "http://localhost:8082"
+		cfg.UserServiceURL = "http://localhost:8080"
 	}
 	if cfg.AgentServiceURL == "" {
-		cfg.AgentServiceURL = "http://localhost:8083"
+		cfg.AgentServiceURL = "http://localhost:8080"
 	}
 	if cfg.DocumentServiceURL == "" {
-		cfg.DocumentServiceURL = "http://localhost:8084"
+		cfg.DocumentServiceURL = "http://localhost:8080"
 	}
 	if cfg.SummarizerServiceURL == "" {
-		cfg.SummarizerServiceURL = "http://localhost:8086"
+		cfg.SummarizerServiceURL = "http://localhost:8000"
 	}
 	if cfg.ReviewerServiceURL == "" {
-		cfg.ReviewerServiceURL = "http://localhost:8087"
+		cfg.ReviewerServiceURL = "http://localhost:8000"
 	}
 
 	log := logger.New(logger.ComponentDashboard)
