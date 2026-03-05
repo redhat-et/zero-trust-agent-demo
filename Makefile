@@ -17,6 +17,16 @@ GIT_SHA := $(shell git rev-parse --short HEAD)
 GIT_DIRTY := $(shell git diff --quiet || echo "-dirty")
 DEV_TAG ?= $(GIT_SHA)$(GIT_DIRTY)
 CONTAINER_ENGINE ?= podman
+# Remote Podman connection (e.g., PODMAN_CONNECTION=rhel)
+# When set, builds run on the remote host via 'podman --connection <name>'
+PODMAN_CONNECTION ?=
+ifdef PODMAN_CONNECTION
+  CONTAINER_ENGINE := podman --connection $(PODMAN_CONNECTION)
+  # No --platform needed when building on native x86_64
+  PLATFORM_FLAG :=
+else
+  PLATFORM_FLAG := --platform linux/amd64
+endif
 
 # Default target
 all: build
@@ -145,12 +155,13 @@ docker-load:
 	done
 
 # Podman operations for development (cross-platform builds)
-# Build x86_64 images for OpenShift testing (from ARM Mac)
+# Build x86_64 images for OpenShift testing
+# Use PODMAN_CONNECTION=rhel to build on a remote x86_64 host (no QEMU)
 podman-build-dev:
 	@echo "=== Building x86_64 images for development ==="
 	@for svc in $(SERVICES); do \
 		echo "Building $$svc for linux/amd64..."; \
-		$(CONTAINER_ENGINE) build --platform linux/amd64 \
+		$(CONTAINER_ENGINE) build $(PLATFORM_FLAG) \
 			-t $(REGISTRY)/$$svc:$(DEV_TAG) \
 			-f $$svc/Dockerfile .; \
 	done
@@ -159,7 +170,7 @@ podman-build-dev:
 # Build and push specific services (faster iteration)
 podman-build-dev-%:
 	@echo "Building $* for linux/amd64..."
-	$(CONTAINER_ENGINE) build --platform linux/amd64 \
+	$(CONTAINER_ENGINE) build $(PLATFORM_FLAG) \
 		-t $(REGISTRY)/$*:$(DEV_TAG) \
 		-f $*/Dockerfile .
 
@@ -403,8 +414,9 @@ help:
 	@echo "  make ghcr-cleanup KEEP_VERSIONS=5"
 	@echo ""
 	@echo "Variables:"
-	@echo "  DEV_TAG    - Image tag (default: git SHA, e.g., abc1234)"
-	@echo "  REGISTRY   - Container registry (default: ghcr.io/redhat-et/zero-trust-agent-demo)"
+	@echo "  DEV_TAG             - Image tag (default: git SHA, e.g., abc1234)"
+	@echo "  REGISTRY            - Container registry (default: ghcr.io/redhat-et/zero-trust-agent-demo)"
+	@echo "  PODMAN_CONNECTION   - Remote Podman host (e.g., rhel) for native x86_64 builds"
 	@echo ""
 	@echo "Development:"
 	@echo "  make check-deps     - Verify required tools are installed"

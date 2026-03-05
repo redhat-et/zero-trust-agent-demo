@@ -92,8 +92,8 @@ else
 fi
 echo ""
 
-# Test 2: Verify token audience contains agent's SPIFFE ID
-echo "--- Test 2: Verify token audience ---"
+# Test 2: Verify token azp (authorized party) matches agent's SPIFFE ID
+echo "--- Test 2: Verify token authorized party ---"
 if [ -n "${ACCESS_TOKEN:-}" ]; then
   # Decode JWT payload (base64url)
   PAYLOAD=$(decode_jwt_payload "$ACCESS_TOKEN")
@@ -103,10 +103,10 @@ if [ -n "${ACCESS_TOKEN:-}" ]; then
     echo "  Token audience: $TOKEN_AUD"
     echo "  Token azp: $TOKEN_AZP"
 
-    if echo "$TOKEN_AUD" | grep -q "$CLIENT_ID"; then
-      pass "Token audience contains agent's SPIFFE ID"
+    if [ "$TOKEN_AZP" = "$CLIENT_ID" ]; then
+      pass "Token azp matches agent's SPIFFE ID"
     else
-      fail "Token audience does not contain agent's SPIFFE ID"
+      fail "Token azp ($TOKEN_AZP) does not match agent's SPIFFE ID ($CLIENT_ID)"
     fi
   else
     fail "Could not decode JWT payload"
@@ -436,7 +436,7 @@ if [ -n "$SUMMARIZER_POD" ]; then
   ENVOY_LOGS=$(kubectl logs "$SUMMARIZER_POD" -n spiffe-demo -c envoy-proxy --tail=100 2>/dev/null || echo "")
   if [ -n "$ENVOY_LOGS" ]; then
     # Show delegation header forwarding
-    DELEG_LINES=$(echo "$ENVOY_LOGS" | grep -E "\[Delegation\]" | tail -2)
+    DELEG_LINES=$(echo "$ENVOY_LOGS" | { grep -E "\[Delegation\]" || true; } | tail -2)
     if [ -n "$DELEG_LINES" ]; then
       echo "$DELEG_LINES" | while read -r line; do echo "    $line"; done
     else
@@ -444,7 +444,7 @@ if [ -n "$SUMMARIZER_POD" ]; then
     fi
 
     # Show token exchange activity
-    EXCHANGE_LINES=$(echo "$ENVOY_LOGS" | grep -E "\[Token Exchange\] (Starting|Client ID|Audience|Successfully)" | tail -4)
+    EXCHANGE_LINES=$(echo "$ENVOY_LOGS" | { grep -E "\[Token Exchange\] (Starting|Client ID|Audience|Successfully)" || true; } | tail -4)
     if [ -n "$EXCHANGE_LINES" ]; then
       echo "$EXCHANGE_LINES" | while read -r line; do echo "    $line"; done
       pass "Envoy ext-proc logs show token exchange with delegation headers"
@@ -463,7 +463,7 @@ if [ -n "$SUMMARIZER_POD" ]; then
   DOC_POD=$(kubectl get pods -n spiffe-demo -l app=document-service -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
   if [ -n "$DOC_POD" ]; then
     DOC_LOGS=$(kubectl logs "$DOC_POD" -n spiffe-demo -c document-service --tail=50 2>/dev/null || echo "")
-    DELEG_CONSUMED=$(echo "$DOC_LOGS" | grep -i "delegation header" | tail -2)
+    DELEG_CONSUMED=$(echo "$DOC_LOGS" | { grep -i "delegation header" || true; } | tail -2)
     if [ -n "$DELEG_CONSUMED" ]; then
       echo "$DELEG_CONSUMED" | while read -r line; do echo "    $line"; done
       pass "Document-service logs show delegation headers received"
