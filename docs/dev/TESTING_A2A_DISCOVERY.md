@@ -38,7 +38,7 @@ kubectl -n spiffe-demo wait --for=condition=ready pod \
 Port-forward agent-service:
 
 ```bash
-kubectl -n spiffe-demo port-forward svc/agent-service 8083:8083 &
+kubectl -n spiffe-demo port-forward svc/agent-service 8083:8080 &
 ```
 
 Query agents — you should see gpt4, claude, summarizer, reviewer (all static):
@@ -98,7 +98,7 @@ Re-query the agents list (kill the old port-forward first if agent-service
 pod restarted):
 
 ```bash
-kubectl -n spiffe-demo port-forward svc/agent-service 8083:8083 &
+kubectl -n spiffe-demo port-forward svc/agent-service 8083:8080 &
 curl -sk https://localhost:8083/agents | python3 -m json.tool
 ```
 
@@ -217,7 +217,7 @@ kubectl apply -k deploy/k8s/overlays/local-ai-agents
 
 ```bash
 kubectl -n spiffe-demo exec deploy/agent-service -- \
-  curl -sk https://summarizer-service:8086/.well-known/agent-card.json
+  curl -sk https://summarizer-service:8000/.well-known/agent-card.json
 ```
 
 ### Invoke returns 502 bad gateway

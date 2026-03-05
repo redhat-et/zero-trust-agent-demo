@@ -398,10 +398,10 @@ Each service exposes health endpoints:
 | Service | Health Endpoint | Metrics Endpoint |
 |---------|----------------|------------------|
 | web-dashboard | `http://localhost:8080/health` | `http://localhost:8080/metrics` |
-| user-service | `http://localhost:8182/health` | `http://localhost:8182/metrics` |
-| agent-service | `http://localhost:8183/health` | `http://localhost:8183/metrics` |
-| document-service | `http://localhost:8184/health` | `http://localhost:8184/metrics` |
-| opa-service | `http://localhost:8185/health` | `http://localhost:8185/metrics` |
+| user-service | `http://localhost:8180/health` | `http://localhost:8180/metrics` |
+| agent-service | `http://localhost:8180/health` | `http://localhost:8180/metrics` |
+| document-service | `http://localhost:8180/health` | `http://localhost:8180/metrics` |
+| opa-service | `http://localhost:8180/health` | `http://localhost:8180/metrics` |
 
 ### Key Metrics
 
@@ -421,10 +421,7 @@ kubectl get pods -n spiffe-demo -o wide
 # Check service health
 for svc in user-service agent-service document-service opa-service; do
   echo "=== $svc ==="
-  kubectl exec -n spiffe-demo deploy/$svc -- curl -s localhost:8182/health 2>/dev/null || \
-  kubectl exec -n spiffe-demo deploy/$svc -- curl -s localhost:8183/health 2>/dev/null || \
-  kubectl exec -n spiffe-demo deploy/$svc -- curl -s localhost:8184/health 2>/dev/null || \
-  kubectl exec -n spiffe-demo deploy/$svc -- curl -s localhost:8185/health 2>/dev/null
+  kubectl exec -n spiffe-demo deploy/$svc -- curl -s localhost:8180/health
 done
 
 # Check SPIRE agent health
@@ -490,7 +487,7 @@ kubectl get pod <pod-name> -n spiffe-demo -o yaml | grep -A5 serviceAccount
 ```bash
 # Check SVID expiration
 kubectl exec -n spiffe-demo deploy/user-service -- \
-  curl -s localhost:8182/health | jq '.svid'
+  curl -s localhost:8180/health | jq '.svid'
 
 # Verify trust bundle
 kubectl exec -n spiffe-demo deploy/user-service -- \
@@ -498,7 +495,7 @@ kubectl exec -n spiffe-demo deploy/user-service -- \
 
 # Test connection manually
 kubectl exec -n spiffe-demo deploy/user-service -- \
-  curl -v https://document-service:8084/health
+  curl -v https://document-service:8080/health
 ```
 
 **Resolution:**
@@ -572,7 +569,7 @@ SVIDs have a 1-hour TTL and rotate automatically at ~50% TTL (30 minutes).
 # Monitor SVID expiration over time
 watch -n 60 'for pod in $(kubectl get pods -n spiffe-demo -o name); do \
   echo "$pod:"; \
-  kubectl exec -n spiffe-demo $pod -- curl -s localhost:8182/health 2>/dev/null | jq -r ".svid.ttl // \"N/A\""; \
+  kubectl exec -n spiffe-demo $pod -- curl -s localhost:8180/health 2>/dev/null | jq -r ".svid.ttl // \"N/A\""; \
 done'
 ```
 
@@ -598,9 +595,9 @@ while true; do
 
   for svc in user-service agent-service document-service; do
     TTL=$(kubectl exec -n spiffe-demo deploy/$svc -- \
-      curl -s localhost:8182/health 2>/dev/null | jq -r '.svid.ttl // "N/A"')
+      curl -s localhost:8180/health 2>/dev/null | jq -r '.svid.ttl // "N/A"')
     ROTATIONS=$(kubectl exec -n spiffe-demo deploy/$svc -- \
-      curl -s localhost:8182/metrics 2>/dev/null | grep spiffe_svid_rotations_total | awk '{print $2}')
+      curl -s localhost:8180/metrics 2>/dev/null | grep spiffe_svid_rotations_total | awk '{print $2}')
     echo "$svc: TTL=$TTL, Rotations=${ROTATIONS:-0}"
   done
 
