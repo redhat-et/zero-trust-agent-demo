@@ -373,8 +373,7 @@ func (s *AgentService) handleDelegatedAccess(w http.ResponseWriter, r *http.Requ
 		"agent_spiffe_id", agent.SPIFFEID)
 
 	// Make delegated request to document service
-	bearerToken := extractBearerToken(r)
-	result, err := s.accessDocumentDelegated(ctx, agent, req.UserSPIFFEID, req.DocumentID, req.UserDepartments, bearerToken)
+	result, err := s.accessDocumentDelegated(ctx, agent, req.UserSPIFFEID, req.DocumentID, req.UserDepartments)
 	if err != nil {
 		telemetry.SetSpanError(span, err)
 		s.log.Error("Delegated access failed", "error", err)
@@ -408,7 +407,7 @@ type AccessResult struct {
 	User     string `json:"user,omitempty"`
 }
 
-func (s *AgentService) accessDocumentDelegated(ctx context.Context, agent *store.Agent, userSPIFFEID, documentID string, userDepartments []string, bearerToken string) (*AccessResult, error) {
+func (s *AgentService) accessDocumentDelegated(ctx context.Context, agent *store.Agent, userSPIFFEID, documentID string, userDepartments []string) (*AccessResult, error) {
 	delegation := map[string]any{
 		"user_spiffe_id":  userSPIFFEID,
 		"agent_spiffe_id": agent.SPIFFEID,
@@ -435,9 +434,9 @@ func (s *AgentService) accessDocumentDelegated(ctx context.Context, agent *store
 	req.Header.Set("Content-Type", "application/json")
 	// Agent uses its own SPIFFE ID for the mTLS connection
 	req.Header.Set("X-SPIFFE-ID", agent.SPIFFEID)
-	if bearerToken != "" {
-		req.Header.Set("Authorization", "Bearer "+bearerToken)
-	}
+	// Note: do NOT forward the inbound bearer token here.
+	// The inbound JWT was scoped for agent-service, not document-service.
+	// Document-service authenticates via X-SPIFFE-ID header instead.
 
 	s.log.Flow(logger.DirectionOutgoing, "Making delegated request to Document Service")
 	s.log.Info("Request details",
@@ -554,7 +553,7 @@ func (s *AgentService) handleInvoke(w http.ResponseWriter, r *http.Request, agen
 
 	// First check OPA authorization via document-service
 	bearerToken := extractBearerToken(r)
-	accessResult, err := s.accessDocumentDelegated(ctx, agent, req.UserSPIFFEID, req.DocumentID, req.UserDepartments, bearerToken)
+	accessResult, err := s.accessDocumentDelegated(ctx, agent, req.UserSPIFFEID, req.DocumentID, req.UserDepartments)
 	if err != nil {
 		s.log.Error("Authorization check failed", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)

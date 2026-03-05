@@ -418,7 +418,7 @@ while true; do
     echo "=== $(date) ==="
     for pod in $(kubectl get pods -n spiffe-demo -o name); do
         kubectl exec -n spiffe-demo $pod -- \
-            curl -s localhost:8182/health 2>/dev/null | jq -r '.svid.ttl // "N/A"'
+            curl -s localhost:8180/health 2>/dev/null | jq -r '.svid.ttl // "N/A"'
     done
     sleep 300  # Check every 5 minutes
 done
@@ -486,7 +486,7 @@ spec:
             matchLabels:
               app: agent-service
       ports:
-        - port: 8084
+        - port: 8080
   egress:
     # Only allow to opa-service
     - to:
@@ -494,7 +494,7 @@ spec:
             matchLabels:
               app: opa-service
       ports:
-        - port: 8085
+        - port: 8080
     # Allow DNS
     - to:
         - namespaceSelector: {}

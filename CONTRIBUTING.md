@@ -24,10 +24,10 @@ Thanks for your interest in contributing to the Zero Trust Agent Demo!
 zero-trust-agent-demo/
 ├── pkg/                    # Shared packages
 ├── web-dashboard/          # Dashboard service (:8080)
-├── user-service/           # User management (:8082)
-├── agent-service/          # Agent management (:8083)
-├── document-service/       # Document access (:8084)
-├── opa-service/            # Policy evaluation (:8085)
+├── user-service/           # User management (:8080)
+├── agent-service/          # Agent management (:8080)
+├── document-service/       # Document access (:8080)
+├── opa-service/            # Policy evaluation (:8080)
 ├── deploy/                 # Kubernetes manifests
 └── scripts/                # Helper scripts
 ```

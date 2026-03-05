@@ -18,12 +18,12 @@ This phase validates the core Zero Trust principle: **agents can only access res
 ```text
 ┌─────────────────┐     ┌────────────────────┐     ┌──────────────────┐
 │   Dashboard     │────▶│ summarizer-service │────▶│ document-service │
-│     :8080       │     │       :8086        │     │      :8084       │
+│     :8080       │     │       :8000        │     │      :8080       │
 │                 │     └────────────────────┘     └────────┬─────────┘
 │                 │                                         │
 │                 │     ┌────────────────────┐              │
 │                 │────▶│  reviewer-service  │──────────────┘
-│                 │     │       :8087        │
+│                 │     │       :8000        │
 └─────────────────┘     └────────────────────┘
                                   │
                                   ▼
@@ -45,8 +45,8 @@ This phase validates the core Zero Trust principle: **agents can only access res
 
 | Service | Main Port | Health Port |
 | ------- | --------- | ----------- |
-| summarizer-service | 8086 | 8186 |
-| reviewer-service | 8087 | 8187 |
+| summarizer-service | 8000 | 8100 |
+| reviewer-service | 8000 | 8100 |
 
 ## Implementation details
 
@@ -320,7 +320,7 @@ open http://localhost:8080
 
 ```bash
 # Test summarizer (should be allowed - alice has finance)
-curl -X POST http://localhost:8086/summarize \
+curl -X POST http://localhost:8000/summarize \
   -H "Content-Type: application/json" \
   -d '{
     "document_id": "DOC-002",
@@ -329,7 +329,7 @@ curl -X POST http://localhost:8086/summarize \
   }'
 
 # Test summarizer (should be denied - summarizer lacks engineering)
-curl -X POST http://localhost:8086/summarize \
+curl -X POST http://localhost:8000/summarize \
   -H "Content-Type: application/json" \
   -d '{
     "document_id": "DOC-001",
@@ -338,7 +338,7 @@ curl -X POST http://localhost:8086/summarize \
   }'
 
 # Test reviewer (should be allowed - reviewer has all departments)
-curl -X POST http://localhost:8087/review \
+curl -X POST http://localhost:8000/review \
   -H "Content-Type: application/json" \
   -d '{
     "document_id": "DOC-001",
