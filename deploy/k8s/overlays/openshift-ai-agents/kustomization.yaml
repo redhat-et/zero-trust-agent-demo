@@ -46,21 +46,21 @@ generatorOptions:
 # Services from ai-agents (still have simple image names)
 images:
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/agent-service
-  newTag: bcc0f09
+  newTag: fb63b22
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/document-service
-  newTag: bcc0f09
+  newTag: fb63b22
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/opa-service
-  newTag: bcc0f09
+  newTag: fb63b22
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/user-service
-  newTag: bcc0f09
+  newTag: fb63b22
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/web-dashboard
-  newTag: bcc0f09
+  newTag: fb63b22
 - name: reviewer-service
   newName: ghcr.io/redhat-et/zero-trust-agent-demo/reviewer-service
-  newTag: bcc0f09
+  newTag: fb63b22
 - name: summarizer-service
   newName: ghcr.io/redhat-et/zero-trust-agent-demo/summarizer-service
-  newTag: bcc0f09
+  newTag: fb63b22
 
   # Summarizer Service - Real SPIFFE with ghcr.io images
 
@@ -70,6 +70,7 @@ images:
 
   # Update service ports to use mTLS naming
 
+# Enable A2A agent discovery on agent-service
 patches:
 - patch: |-
     - op: add
@@ -78,7 +79,7 @@ patches:
     - op: add
       path: /spec/template/spec/containers/0/ports/-
       value:
-        containerPort: 8186
+        containerPort: 8100
         name: health
     - op: replace
       path: /spec/template/spec/containers/0/ports/0/name
@@ -87,7 +88,7 @@ patches:
       path: /spec/template/spec/containers/0/env/-
       value:
         name: SPIFFE_DEMO_SERVICE_HEALTH_PORT
-        value: "8186"
+        value: "8100"
     - op: add
       path: /spec/template/spec/containers/0/env/-
       value:
@@ -102,7 +103,7 @@ patches:
       path: /spec/template/spec/containers/0/env/1
       value:
         name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
-        value: "https://document-service:8084"
+        value: "https://document-service:8080"
     - op: add
       path: /spec/template/spec/containers/0/securityContext
       value:
@@ -126,7 +127,7 @@ patches:
       value:
         httpGet:
           path: /health
-          port: 8186
+          port: 8100
         initialDelaySeconds: 10
         periodSeconds: 10
     - op: add
@@ -134,7 +135,7 @@ patches:
       value:
         httpGet:
           path: /ready
-          port: 8186
+          port: 8100
         initialDelaySeconds: 5
         periodSeconds: 5
     - op: add
@@ -157,7 +158,7 @@ patches:
     - op: add
       path: /spec/template/spec/containers/0/ports/-
       value:
-        containerPort: 8187
+        containerPort: 8100
         name: health
     - op: replace
       path: /spec/template/spec/containers/0/ports/0/name
@@ -166,7 +167,7 @@ patches:
       path: /spec/template/spec/containers/0/env/-
       value:
         name: SPIFFE_DEMO_SERVICE_HEALTH_PORT
-        value: "8187"
+        value: "8100"
     - op: add
       path: /spec/template/spec/containers/0/env/-
       value:
@@ -181,7 +182,7 @@ patches:
       path: /spec/template/spec/containers/0/env/1
       value:
         name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
-        value: "https://document-service:8084"
+        value: "https://document-service:8080"
     - op: add
       path: /spec/template/spec/containers/0/securityContext
       value:
@@ -205,7 +206,7 @@ patches:
       value:
         httpGet:
           path: /health
-          port: 8187
+          port: 8100
         initialDelaySeconds: 10
         periodSeconds: 10
     - op: add
@@ -213,7 +214,7 @@ patches:
       value:
         httpGet:
           path: /ready
-          port: 8187
+          port: 8100
         initialDelaySeconds: 5
         periodSeconds: 5
     - op: add
@@ -234,12 +235,12 @@ patches:
       path: /spec/template/spec/containers/0/env/-
       value:
         name: SPIFFE_DEMO_SUMMARIZER_SERVICE_URL
-        value: "https://summarizer-service:8086"
+        value: "https://summarizer-service:8000"
     - op: add
       path: /spec/template/spec/containers/0/env/-
       value:
         name: SPIFFE_DEMO_REVIEWER_SERVICE_URL
-        value: "https://reviewer-service:8087"
+        value: "https://reviewer-service:8000"
   target:
     kind: Deployment
     name: web-dashboard
@@ -257,5 +258,4 @@ patches:
   target:
     kind: Service
     name: reviewer-service
-# Enable A2A agent discovery on agent-service
 - path: agent-service-discovery-patch.yaml

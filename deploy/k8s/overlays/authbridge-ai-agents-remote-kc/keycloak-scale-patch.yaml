@@ -1,0 +1,8 @@
+# Scale in-cluster Keycloak to 0 since we use a remote instance
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: spiffe-demo
+spec:
+  replicas: 0

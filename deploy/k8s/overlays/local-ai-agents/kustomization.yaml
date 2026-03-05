@@ -54,7 +54,7 @@ patches:
         path: /spec/template/spec/containers/0/env/1
         value:
           name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
-          value: "https://document-service:8084"
+          value: "https://document-service:8080"
       - op: add
         path: /spec/template/spec/containers/0/volumeMounts
         value:
@@ -120,7 +120,7 @@ patches:
         path: /spec/template/spec/containers/0/env/1
         value:
           name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
-          value: "https://document-service:8084"
+          value: "https://document-service:8080"
       - op: add
         path: /spec/template/spec/containers/0/volumeMounts
         value:
@@ -160,12 +160,12 @@ patches:
         path: /spec/template/spec/containers/0/env/-
         value:
           name: SPIFFE_DEMO_SUMMARIZER_SERVICE_URL
-          value: "https://summarizer-service:8086"
+          value: "https://summarizer-service:8000"
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value:
           name: SPIFFE_DEMO_REVIEWER_SERVICE_URL
-          value: "https://reviewer-service:8087"
+          value: "https://reviewer-service:8000"
 
   # Update service ports to use mTLS naming
   - target:

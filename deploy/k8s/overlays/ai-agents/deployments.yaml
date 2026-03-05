@@ -10,6 +10,8 @@ metadata:
     app: summarizer-service
     a2a-agent.demo/type: agent
     a2a-agent.demo/protocol: a2a
+    kagenti.io/type: agent
+    protocol.kagenti.io/a2a: ""
   annotations:
     a2a-agent.demo/description: "Specialized agent for summarizing financial documents"
 spec:
@@ -21,6 +23,7 @@ spec:
     metadata:
       labels:
         app: summarizer-service
+        kagenti.io/type: agent
     spec:
       containers:
         - name: summarizer-service
@@ -33,14 +36,14 @@ spec:
               cpu: 500m
               memory: 512Mi
           ports:
-            - containerPort: 8086
+            - containerPort: 8000
           args:
             - serve
           env:
             - name: SPIFFE_DEMO_SERVICE_PORT
-              value: "8086"
+              value: "8000"
             - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
-              value: "http://document-service:8084"
+              value: "http://document-service:8080"
           envFrom:
             - configMapRef:
                 name: llm-config
@@ -58,6 +61,8 @@ metadata:
     app: reviewer-service
     a2a-agent.demo/type: agent
     a2a-agent.demo/protocol: a2a
+    kagenti.io/type: agent
+    protocol.kagenti.io/a2a: ""
   annotations:
     a2a-agent.demo/description: "Reviews documents for compliance, security, and general issues"
 spec:
@@ -69,6 +74,7 @@ spec:
     metadata:
       labels:
         app: reviewer-service
+        kagenti.io/type: agent
     spec:
       containers:
         - name: reviewer-service
@@ -81,14 +87,14 @@ spec:
               cpu: 500m
               memory: 512Mi
           ports:
-            - containerPort: 8087
+            - containerPort: 8000
           args:
             - serve
           env:
             - name: SPIFFE_DEMO_SERVICE_PORT
-              value: "8087"
+              value: "8000"
             - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
-              value: "http://document-service:8084"
+              value: "http://document-service:8080"
           envFrom:
             - configMapRef:
                 name: llm-config

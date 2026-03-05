@@ -373,7 +373,7 @@ project. No source code is copied into this repository.
 | proxy-init | `ghcr.io/kagenti/kagenti-extensions/proxy-init:latest` | iptables setup for traffic interception |
 | spiffe-helper | `ghcr.io/spiffe/spiffe-helper:nightly` | Fetches JWT SVID from SPIRE agent |
 | client-registration | `ghcr.io/kagenti/kagenti-extensions/client-registration:latest` | Registers with Keycloak using SPIFFE ID |
-| envoy-proxy | `ghcr.io/kagenti/kagenti-extensions/envoy-with-processor:latest` | Envoy + go-processor for token exchange |
+| envoy-proxy | `ghcr.io/pavelanni/kagenti-extensions/envoy-with-processor:latest` | Envoy + go-processor for token exchange |
 
 ## Configuration
 

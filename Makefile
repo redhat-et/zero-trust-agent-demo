@@ -1,5 +1,6 @@
-.PHONY: all build test clean run-local run-kind setup-kind deploy-k8s docker-build docker-load help \
-	deploy-openshift-authbridge deploy-openshift-authbridge-quick test-openshift-authbridge
+.PHONY: all build test clean run-kind setup-kind deploy-k8s docker-build docker-load help \
+	deploy-openshift-authbridge deploy-openshift-authbridge-quick test-openshift-authbridge \
+	deploy-authbridge-ai-agents deploy-authbridge-ai-agents-remote-kc test-authbridge-ai-agents
 
 # Variables
 BINARY_DIR := bin
@@ -16,6 +17,16 @@ GIT_SHA := $(shell git rev-parse --short HEAD)
 GIT_DIRTY := $(shell git diff --quiet || echo "-dirty")
 DEV_TAG ?= $(GIT_SHA)$(GIT_DIRTY)
 CONTAINER_ENGINE ?= podman
+# Remote Podman connection (e.g., PODMAN_CONNECTION=rhel)
+# When set, builds run on the remote host via 'podman --connection <name>'
+PODMAN_CONNECTION ?=
+ifdef PODMAN_CONNECTION
+  CONTAINER_ENGINE := podman --connection $(PODMAN_CONNECTION)
+  # No --platform needed when building on native x86_64
+  PLATFORM_FLAG :=
+else
+  PLATFORM_FLAG := --platform linux/amd64
+endif
 
 # Default target
 all: build
@@ -84,11 +95,6 @@ clean:
 	rm -rf $(BINARY_DIR)
 	rm -rf tmp/
 
-# Run services locally (development mode)
-run-local: build
-	@echo "=== Starting services locally ==="
-	@./scripts/run-local.sh
-
 # Run individual service locally
 run-opa:
 	cd opa-service && $(GO) run . serve --policy-dir=policies
@@ -149,12 +155,13 @@ docker-load:
 	done
 
 # Podman operations for development (cross-platform builds)
-# Build x86_64 images for OpenShift testing (from ARM Mac)
+# Build x86_64 images for OpenShift testing
+# Use PODMAN_CONNECTION=rhel to build on a remote x86_64 host (no QEMU)
 podman-build-dev:
 	@echo "=== Building x86_64 images for development ==="
 	@for svc in $(SERVICES); do \
 		echo "Building $$svc for linux/amd64..."; \
-		$(CONTAINER_ENGINE) build --platform linux/amd64 \
+		$(CONTAINER_ENGINE) build $(PLATFORM_FLAG) \
 			-t $(REGISTRY)/$$svc:$(DEV_TAG) \
 			-f $$svc/Dockerfile .; \
 	done
@@ -163,7 +170,7 @@ podman-build-dev:
 # Build and push specific services (faster iteration)
 podman-build-dev-%:
 	@echo "Building $* for linux/amd64..."
-	$(CONTAINER_ENGINE) build --platform linux/amd64 \
+	$(CONTAINER_ENGINE) build $(PLATFORM_FLAG) \
 		-t $(REGISTRY)/$*:$(DEV_TAG) \
 		-f $*/Dockerfile .
 
@@ -275,6 +282,19 @@ test-authbridge-remote-kc:
 	KEYCLOAK_URL=https://keycloak.example.com \
 		./scripts/test-authbridge.sh
 
+# AuthBridge with AI agents (Kind + Keycloak + summarizer/reviewer)
+deploy-authbridge-ai-agents:
+	@echo "=== Deploying AuthBridge with AI agents ==="
+	./scripts/setup-authbridge.sh ai-agents
+
+deploy-authbridge-ai-agents-remote-kc:
+	@echo "=== Deploying AuthBridge with AI agents (remote Keycloak) ==="
+	./scripts/setup-authbridge.sh ai-agents-remote-kc
+
+test-authbridge-ai-agents:
+	@echo "=== Running AuthBridge AI agents tests ==="
+	./scripts/test-authbridge.sh
+
 # AuthBridge on OpenShift (remote Keycloak via OpenShift Route)
 deploy-openshift-authbridge: check-deps podman-dev
 	@echo "=== Deploying AuthBridge to OpenShift with tag $(DEV_TAG) ==="
@@ -338,7 +358,6 @@ help:
 	@echo "  make clean          - Remove build artifacts"
 	@echo ""
 	@echo "Local development:"
-	@echo "  make run-local      - Run all services locally"
 	@echo "  make run-opa        - Run OPA service"
 	@echo "  make run-document   - Run Document service"
 	@echo "  make run-user       - Run User service"
@@ -361,6 +380,11 @@ help:
 	@echo "  make test-authbridge              - Run AuthBridge token exchange tests"
 	@echo "  make deploy-authbridge-remote-kc  - Deploy with remote Keycloak"
 	@echo "  make test-authbridge-remote-kc    - Test with remote Keycloak"
+	@echo ""
+	@echo "AuthBridge with AI agents:"
+	@echo "  make deploy-authbridge-ai-agents            - Deploy AuthBridge + AI agents to Kind"
+	@echo "  make deploy-authbridge-ai-agents-remote-kc  - Deploy with remote Keycloak"
+	@echo "  make test-authbridge-ai-agents              - Run AuthBridge AI agents tests"
 	@echo ""
 	@echo "AuthBridge on OpenShift:"
 	@echo "  make deploy-openshift-authbridge        - Build, push, deploy AuthBridge to OpenShift"
@@ -390,8 +414,9 @@ help:
 	@echo "  make ghcr-cleanup KEEP_VERSIONS=5"
 	@echo ""
 	@echo "Variables:"
-	@echo "  DEV_TAG    - Image tag (default: git SHA, e.g., abc1234)"
-	@echo "  REGISTRY   - Container registry (default: ghcr.io/redhat-et/zero-trust-agent-demo)"
+	@echo "  DEV_TAG             - Image tag (default: git SHA, e.g., abc1234)"
+	@echo "  REGISTRY            - Container registry (default: ghcr.io/redhat-et/zero-trust-agent-demo)"
+	@echo "  PODMAN_CONNECTION   - Remote Podman host (e.g., rhel) for native x86_64 builds"
 	@echo ""
 	@echo "Development:"
 	@echo "  make check-deps     - Verify required tools are installed"

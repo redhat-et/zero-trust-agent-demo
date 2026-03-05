@@ -47,7 +47,7 @@ spec:
             # authenticate via OIDC, and security is enforced by OPA
             # on the document-service side.
             - name: INBOUND_PORTS_EXCLUDE
-              value: "8083,8183"
+              value: "8080,8180"
           resources:
             limits:
               cpu: 10m
@@ -63,7 +63,7 @@ spec:
             - name: SPIFFE_DEMO_SERVICE_LISTEN_PLAIN_HTTP
               value: "true"
             - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
-              value: "http://document-service:8084"
+              value: "http://document-service:8080"
         # spiffe-helper: fetches JWT SVID from SPIRE agent
         - name: spiffe-helper
           image: ghcr.io/spiffe/spiffe-helper:nightly
@@ -158,7 +158,7 @@ spec:
               mountPath: /opt
         # envoy-proxy: intercepts outbound traffic and exchanges tokens
         - name: envoy-proxy
-          image: ghcr.io/kagenti/kagenti-extensions/envoy-with-processor:latest
+          image: ghcr.io/pavelanni/kagenti-extensions/envoy-with-processor:latest
           imagePullPolicy: IfNotPresent
           securityContext:
             runAsUser: 1337

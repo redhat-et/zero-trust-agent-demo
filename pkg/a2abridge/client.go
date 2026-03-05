@@ -10,7 +10,7 @@ import (
 	"github.com/a2aproject/a2a-go/a2aclient"
 )
 
-// A2AClient wraps the a2aclient to send delegation requests to A2A agents.
+// A2AClient wraps the a2aclient to send requests to A2A agents.
 type A2AClient struct {
 	httpClient *http.Client
 	log        *slog.Logger
@@ -26,12 +26,13 @@ func NewA2AClient(httpClient *http.Client, log *slog.Logger) *A2AClient {
 
 // InvokeRequest holds the parameters for invoking an A2A agent.
 type InvokeRequest struct {
-	AgentURL        string
-	Card            *a2a.AgentCard
-	DocumentID      string
-	UserSPIFFEID    string
-	UserDepartments []string
-	ReviewType      string
+	AgentURL      string
+	Card          *a2a.AgentCard
+	DocumentID    string
+	ReviewType    string
+	BearerToken   string // Optional JWT forwarded from the caller (user delegation)
+	UserSPIFFEID  string // User SPIFFE ID — sent as X-Delegation-User header
+	AgentSPIFFEID string // Agent SPIFFE ID — sent as X-Delegation-Agent header
 }
 
 // InvokeResult holds the response from an A2A agent invocation.
@@ -40,15 +41,11 @@ type InvokeResult struct {
 	State string `json:"state"`
 }
 
-// Invoke sends a message/send request to an A2A agent with delegation context.
+// Invoke sends a message/send request to an A2A agent.
 func (c *A2AClient) Invoke(ctx context.Context, req *InvokeRequest) (*InvokeResult, error) {
-	// Build the delegation context as a DataPart
+	// Build the request as a DataPart with document_id (no delegation fields)
 	data := map[string]any{
-		"document_id":    req.DocumentID,
-		"user_spiffe_id": req.UserSPIFFEID,
-	}
-	if len(req.UserDepartments) > 0 {
-		data["user_departments"] = req.UserDepartments
+		"document_id": req.DocumentID,
 	}
 	if req.ReviewType != "" {
 		data["review_type"] = req.ReviewType
@@ -68,6 +65,23 @@ func (c *A2AClient) Invoke(ctx context.Context, req *InvokeRequest) (*InvokeResu
 		a2aclient.WithJSONRPCTransport(c.httpClient),
 	}
 
+	// Forward the bearer token and delegation context as HTTP headers via
+	// CallMeta. The downstream agent's DelegationTransport will read these
+	// from the request context and inject them on outbound requests.
+	meta := a2aclient.CallMeta{}
+	if req.BearerToken != "" {
+		meta["authorization"] = []string{"Bearer " + req.BearerToken}
+	}
+	if req.UserSPIFFEID != "" {
+		meta["x-delegation-user"] = []string{req.UserSPIFFEID}
+	}
+	if req.AgentSPIFFEID != "" {
+		meta["x-delegation-agent"] = []string{req.AgentSPIFFEID}
+	}
+	if len(meta) > 0 {
+		opts = append(opts, a2aclient.WithInterceptors(a2aclient.NewStaticCallMetaInjector(meta)))
+	}
+
 	endpoints := []a2a.AgentInterface{
 		{URL: req.AgentURL, Transport: a2a.TransportProtocolJSONRPC},
 	}
@@ -78,8 +92,7 @@ func (c *A2AClient) Invoke(ctx context.Context, req *InvokeRequest) (*InvokeResu
 
 	c.log.Info("Sending A2A message/send",
 		"url", req.AgentURL,
-		"document_id", req.DocumentID,
-		"user_spiffe_id", req.UserSPIFFEID)
+		"document_id", req.DocumentID)
 
 	result, err := client.SendMessage(ctx, params)
 	if err != nil {

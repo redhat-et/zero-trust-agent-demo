@@ -29,13 +29,13 @@ spec:
               cpu: 500m
               memory: 512Mi
           ports:
-            - containerPort: 8085
+            - containerPort: 8080
           args:
             - serve
             - --policy-dir=/policies
           env:
             - name: SPIFFE_DEMO_SERVICE_PORT
-              value: "8085"
+              value: "8080"
             - name: SPIFFE_DEMO_SERVICE_MOCK_SPIFFE
               value: "true"
           volumeMounts:
@@ -44,13 +44,13 @@ spec:
           livenessProbe:
             httpGet:
               path: /health
-              port: 8085
+              port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
           readinessProbe:
             httpGet:
               path: /health
-              port: 8085
+              port: 8080
             initialDelaySeconds: 2
             periodSeconds: 5
       volumes:
@@ -68,8 +68,8 @@ spec:
   selector:
     app: opa-service
   ports:
-    - port: 8085
-      targetPort: 8085
+    - port: 8080
+      targetPort: 8080
 ---
 # Document Service
 apiVersion: apps/v1
@@ -101,28 +101,28 @@ spec:
               cpu: 500m
               memory: 512Mi
           ports:
-            - containerPort: 8084
+            - containerPort: 8080
           args:
             - serve
           env:
             - name: SPIFFE_DEMO_SERVICE_PORT
-              value: "8084"
+              value: "8080"
             - name: SPIFFE_DEMO_SERVICE_MOCK_SPIFFE
               value: "true"
             - name: SPIFFE_DEMO_OPA_HOST
               value: "opa-service"
             - name: SPIFFE_DEMO_OPA_PORT
-              value: "8085"
+              value: "8080"
           livenessProbe:
             httpGet:
               path: /health
-              port: 8084
+              port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
           readinessProbe:
             httpGet:
               path: /health
-              port: 8084
+              port: 8080
             initialDelaySeconds: 2
             periodSeconds: 5
 ---
@@ -136,8 +136,8 @@ spec:
   selector:
     app: document-service
   ports:
-    - port: 8084
-      targetPort: 8084
+    - port: 8080
+      targetPort: 8080
 ---
 # User Service
 apiVersion: apps/v1
@@ -169,28 +169,28 @@ spec:
               cpu: 500m
               memory: 512Mi
           ports:
-            - containerPort: 8082
+            - containerPort: 8080
           args:
             - serve
           env:
             - name: SPIFFE_DEMO_SERVICE_PORT
-              value: "8082"
+              value: "8080"
             - name: SPIFFE_DEMO_SERVICE_MOCK_SPIFFE
               value: "true"
             - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
-              value: "http://document-service:8084"
+              value: "http://document-service:8080"
             - name: SPIFFE_DEMO_AGENT_SERVICE_URL
-              value: "http://agent-service:8083"
+              value: "http://agent-service:8080"
           livenessProbe:
             httpGet:
               path: /health
-              port: 8082
+              port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
           readinessProbe:
             httpGet:
               path: /health
-              port: 8082
+              port: 8080
             initialDelaySeconds: 2
             periodSeconds: 5
 ---
@@ -204,8 +204,8 @@ spec:
   selector:
     app: user-service
   ports:
-    - port: 8082
-      targetPort: 8082
+    - port: 8080
+      targetPort: 8080
 ---
 # Agent Service
 apiVersion: apps/v1
@@ -237,26 +237,26 @@ spec:
               cpu: 500m
               memory: 512Mi
           ports:
-            - containerPort: 8083
+            - containerPort: 8080
           args:
             - serve
           env:
             - name: SPIFFE_DEMO_SERVICE_PORT
-              value: "8083"
+              value: "8080"
             - name: SPIFFE_DEMO_SERVICE_MOCK_SPIFFE
               value: "true"
             - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
-              value: "http://document-service:8084"
+              value: "http://document-service:8080"
           livenessProbe:
             httpGet:
               path: /health
-              port: 8083
+              port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
           readinessProbe:
             httpGet:
               path: /health
-              port: 8083
+              port: 8080
             initialDelaySeconds: 2
             periodSeconds: 5
 ---
@@ -270,8 +270,8 @@ spec:
   selector:
     app: agent-service
   ports:
-    - port: 8083
-      targetPort: 8083
+    - port: 8080
+      targetPort: 8080
 ---
 # Web Dashboard
 apiVersion: apps/v1
@@ -312,11 +312,11 @@ spec:
             - name: SPIFFE_DEMO_SERVICE_MOCK_SPIFFE
               value: "true"
             - name: SPIFFE_DEMO_USER_SERVICE_URL
-              value: "http://user-service:8082"
+              value: "http://user-service:8080"
             - name: SPIFFE_DEMO_AGENT_SERVICE_URL
-              value: "http://agent-service:8083"
+              value: "http://agent-service:8080"
             - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
-              value: "http://document-service:8084"
+              value: "http://document-service:8080"
           livenessProbe:
             httpGet:
               path: /health

@@ -1,0 +1,21 @@
+# Override proxy-init to exclude port 443 (HTTPS to remote Keycloak)
+# instead of port 8080 (HTTP to in-cluster Keycloak).
+#
+# This ensures the client-registration container can reach the remote
+# Keycloak without its traffic being intercepted by Envoy.
+# The envoy-proxy container (UID 1337) already bypasses iptables via
+# the PROXY_UID rule, so the go-processor's token exchange calls to
+# the remote Keycloak work regardless.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-service
+  namespace: spiffe-demo
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: proxy-init
+          env:
+            - name: OUTBOUND_PORTS_EXCLUDE
+              value: "443,4317"

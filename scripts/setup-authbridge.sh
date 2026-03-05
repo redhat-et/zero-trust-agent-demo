@@ -23,12 +23,20 @@ case "$VARIANT" in
     OVERLAY_DIR="$PROJECT_DIR/deploy/k8s/overlays/authbridge-remote-kc"
     echo "=== AuthBridge Deployment (Remote Keycloak) ==="
     ;;
+  ai-agents)
+    OVERLAY_DIR="$PROJECT_DIR/deploy/k8s/overlays/authbridge-ai-agents"
+    echo "=== AuthBridge Deployment (with AI Agents) ==="
+    ;;
+  ai-agents-remote-kc)
+    OVERLAY_DIR="$PROJECT_DIR/deploy/k8s/overlays/authbridge-ai-agents-remote-kc"
+    echo "=== AuthBridge Deployment (AI Agents + Remote Keycloak) ==="
+    ;;
   local|"")
     OVERLAY_DIR="$PROJECT_DIR/deploy/k8s/overlays/authbridge"
     echo "=== AuthBridge Deployment ==="
     ;;
   *)
-    echo "ERROR: Unknown variant '$VARIANT'. Use 'local' or 'remote-kc'."
+    echo "ERROR: Unknown variant '$VARIANT'. Use 'local', 'remote-kc', 'ai-agents', or 'ai-agents-remote-kc'."
     exit 1
     ;;
 esac
@@ -59,7 +67,7 @@ if ! kubectl get namespace spire-system &>/dev/null 2>&1; then
 fi
 
 # Check settings file for remote-kc variant
-if [ "$VARIANT" = "remote-kc" ]; then
+if [ "$VARIANT" = "remote-kc" ] || [ "$VARIANT" = "ai-agents-remote-kc" ]; then
   SETTINGS_FILE="$OVERLAY_DIR/settings.yaml"
   if [ ! -f "$SETTINGS_FILE" ]; then
     echo ""
@@ -87,11 +95,15 @@ echo ""
 
 # Wait for deployments
 echo "Waiting for deployments to be ready..."
-if [ "$VARIANT" != "remote-kc" ]; then
+if [ "$VARIANT" != "remote-kc" ] && [ "$VARIANT" != "ai-agents-remote-kc" ]; then
   kubectl rollout status deployment/keycloak -n spiffe-demo --timeout=180s || true
 fi
 kubectl rollout status deployment/agent-service -n spiffe-demo --timeout=120s || true
 kubectl rollout status deployment/document-service -n spiffe-demo --timeout=120s || true
+if [ "$VARIANT" = "ai-agents" ] || [ "$VARIANT" = "ai-agents-remote-kc" ]; then
+  kubectl rollout status deployment/summarizer-service -n spiffe-demo --timeout=120s || true
+  kubectl rollout status deployment/reviewer-service -n spiffe-demo --timeout=120s || true
+fi
 echo ""
 
 # Check agent-service pod containers

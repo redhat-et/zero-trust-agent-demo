@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: spiffe-demo-authbridge-ai-agents
+
+# Build on top of authbridge overlay and add AI agent services
+resources:
+  - ../authbridge
+  - ../ai-agents
+
+# Transform AI agent image names to match Kind local registry
+images:
+  - name: summarizer-service
+    newName: localhost/spiffe-demo/summarizer-service
+    newTag: latest
+  - name: reviewer-service
+    newName: localhost/spiffe-demo/reviewer-service
+    newTag: latest
+
+patches:
+  - path: ai-agents-authbridge-patch.yaml
+  - path: ai-agents-sidecars-patch.yaml
+  - path: agent-service-discovery-patch.yaml

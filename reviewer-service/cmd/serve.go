@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -22,7 +21,6 @@ import (
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/llm"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/logger"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/metrics"
-	"github.com/redhat-et/zero-trust-agent-demo/pkg/spiffe"
 )
 
 var serveCmd = &cobra.Command{
@@ -34,7 +32,7 @@ var serveCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(serveCmd)
-	serveCmd.Flags().String("document-service-url", "http://localhost:8084", "Document service URL")
+	serveCmd.Flags().String("document-service-url", "http://localhost:8080", "Document service URL")
 	serveCmd.Flags().String("llm-provider", "", "LLM provider (anthropic, openai, litellm)")
 	serveCmd.Flags().String("llm-api-key", "", "LLM API key (or set LLM_API_KEY/ANTHROPIC_API_KEY env var)")
 	serveCmd.Flags().String("llm-base-url", "", "Base URL for OpenAI-compatible APIs")
@@ -58,10 +56,8 @@ type Config struct {
 
 // ReviewRequest represents a request to review a document
 type ReviewRequest struct {
-	DocumentID      string   `json:"document_id"`
-	UserSPIFFEID    string   `json:"user_spiffe_id"`
-	UserDepartments []string `json:"user_departments,omitempty"`
-	ReviewType      string   `json:"review_type,omitempty"` // compliance, security, general
+	DocumentID string `json:"document_id"`
+	ReviewType string `json:"review_type,omitempty"` // compliance, security, general
 }
 
 // ReviewResponse represents the response from a review
@@ -80,10 +76,7 @@ type ReviewerService struct {
 	httpClient         *http.Client
 	documentServiceURL string
 	log                *logger.Logger
-	trustDomain        string
-	workloadClient     *spiffe.WorkloadClient
 	llmProvider        llm.Provider
-	agentSPIFFEID      string
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
@@ -94,15 +87,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Set defaults
 	if cfg.DocumentServiceURL == "" {
-		cfg.DocumentServiceURL = "http://localhost:8084"
-	}
-
-	// Set port defaults for reviewer-service
-	if cfg.Service.Port == 0 {
-		cfg.Service.Port = 8087
-	}
-	if cfg.Service.HealthPort == 0 {
-		cfg.Service.HealthPort = 8187
+		cfg.DocumentServiceURL = "http://localhost:8080"
 	}
 
 	// Get LLM provider from environment if not set in config
@@ -130,32 +115,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	log := logger.New(logger.ComponentReviewer)
 
-	// Initialize SPIFFE workload client
-	spiffeCfg := spiffe.Config{
-		SocketPath:  cfg.SPIFFE.SocketPath,
-		TrustDomain: cfg.SPIFFE.TrustDomain,
-		MockMode:    cfg.Service.MockSPIFFE,
+	// Wrap the HTTP client with DelegationTransport so that outbound
+	// requests to document-service automatically include X-Delegation-*
+	// headers from the request context — no auth logic in agent code.
+	httpClient := &http.Client{
+		Transport: &a2abridge.DelegationTransport{Base: http.DefaultTransport},
+		Timeout:   30 * time.Second,
 	}
-	workloadClient := spiffe.NewWorkloadClient(spiffeCfg, log)
-
-	// Build the agent's SPIFFE ID
-	agentSPIFFEID := "spiffe://" + cfg.SPIFFE.TrustDomain + "/agent/reviewer"
-
-	// Fetch identity from SPIRE Agent (unless in mock mode)
-	ctx := context.Background()
-	if !cfg.Service.MockSPIFFE {
-		identity, err := workloadClient.FetchIdentity(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to fetch SPIFFE identity: %w", err)
-		}
-		log.Info("SPIFFE identity acquired", "spiffe_id", identity.SPIFFEID)
-		agentSPIFFEID = identity.SPIFFEID
-	} else {
-		workloadClient.SetMockIdentity(agentSPIFFEID)
-	}
-
-	// Create mTLS HTTP client for outgoing requests
-	httpClient := workloadClient.CreateMTLSClient(30 * time.Second)
 
 	// Initialize LLM provider if API key is available
 	var llmProvider llm.Provider
@@ -174,10 +140,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		httpClient:         httpClient,
 		documentServiceURL: cfg.DocumentServiceURL,
 		log:                log,
-		trustDomain:        cfg.SPIFFE.TrustDomain,
-		workloadClient:     workloadClient,
 		llmProvider:        llmProvider,
-		agentSPIFFEID:      agentSPIFFEID,
 	}
 
 	mux := http.NewServeMux()
@@ -202,23 +165,25 @@ func runServe(cmd *cobra.Command, args []string) error {
 		},
 	})
 
-	a2aExecutor := &a2abridge.DelegatedExecutor{
+	// The reviewer executor needs to extract review_type from the A2A message,
+	// so we wrap the generic AgentExecutor with a review-type-aware LLM processor.
+	executor := &a2abridge.AgentExecutor{
 		Log:           log,
-		FetchDocument: svc.fetchDocumentForA2A,
+		FetchDocument: svc.fetchDocument,
 		ProcessLLM:    svc.reviewDocument,
 	}
-	a2aHandler := a2asrv.NewHandler(a2aExecutor)
+	a2aHandler := a2asrv.NewHandler(executor)
 	jsonrpcHandler := a2asrv.NewJSONRPCHandler(a2aHandler)
 	mux.Handle("GET /.well-known/agent-card.json", a2asrv.NewStaticAgentCardHandler(card))
 	mux.Handle("POST /a2a", jsonrpcHandler)
 	mux.Handle("POST /{$}", jsonrpcHandler) // Kagenti sends JSON-RPC to root path
 
-	// Wrap with SPIFFE identity middleware
-	handler := spiffe.IdentityMiddleware(cfg.Service.MockSPIFFE)(mux)
-
-	server := workloadClient.CreateHTTPServer(cfg.Service.Addr(), handler)
-	server.ReadTimeout = 10 * time.Second
-	server.WriteTimeout = 120 * time.Second // Longer for LLM responses
+	server := &http.Server{
+		Addr:         cfg.Service.Addr(),
+		Handler:      mux,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 120 * time.Second, // Longer for LLM responses
+	}
 
 	// Graceful shutdown
 	done := make(chan bool)
@@ -234,19 +199,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			log.Error("Shutdown error", "error", err)
 		}
-		if err := workloadClient.Close(); err != nil {
-			log.Error("Failed to close SPIFFE workload client", "error", err)
-		}
 		close(done)
 	}()
 
 	log.Section("STARTING REVIEWER SERVICE")
 	log.Info("Reviewer Service starting", "addr", cfg.Service.Addr())
 	log.Info("Health server starting", "addr", cfg.Service.HealthAddr())
-	log.Info("Trust domain", "domain", cfg.SPIFFE.TrustDomain)
-	log.Info("Agent SPIFFE ID", "id", agentSPIFFEID)
 	log.Info("Document service", "url", cfg.DocumentServiceURL)
-	log.Info("mTLS mode", "enabled", !cfg.Service.MockSPIFFE)
 	log.Info("A2A endpoint", "url", agentURL+"/a2a")
 	log.Info("A2A agent card", "url", agentURL+"/.well-known/agent-card.json")
 	if llmProvider != nil {
@@ -270,13 +229,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	// Start main server (mTLS if not in mock mode)
-	var serverErr error
-	if !cfg.Service.MockSPIFFE && server.TLSConfig != nil {
-		serverErr = server.ListenAndServeTLS("", "")
-	} else {
-		serverErr = server.ListenAndServe()
-	}
+	serverErr := server.ListenAndServe()
 	if serverErr != http.ErrServerClosed {
 		return fmt.Errorf("server error: %w", serverErr)
 	}
@@ -314,29 +267,28 @@ func (s *ReviewerService) handleReview(w http.ResponseWriter, r *http.Request) {
 	s.log.Section("REVIEW REQUEST")
 	s.log.Info("Received review request",
 		"document_id", req.DocumentID,
-		"user", req.UserSPIFFEID,
-		"review_type", req.ReviewType,
-		"user_departments", req.UserDepartments)
+		"review_type", req.ReviewType)
 
 	// Validate required fields
-	if req.DocumentID == "" || req.UserSPIFFEID == "" {
+	if req.DocumentID == "" {
 		s.log.Error("Missing required fields")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(ReviewResponse{
 			Allowed:          false,
 			DocumentID:       req.DocumentID,
-			Reason:           "document_id and user_spiffe_id are required",
+			Reason:           "document_id is required",
 			ProcessingTimeMs: time.Since(startTime).Milliseconds(),
 		})
 		return
 	}
 
-	// Fetch document from document-service with delegation context
-	doc, err := s.fetchDocumentWithDelegation(r.Context(), req)
+	// Fetch document from document-service
+	bearerToken := extractBearerToken(r)
+	doc, err := s.fetchDocument(r.Context(), req.DocumentID, bearerToken)
 	if err != nil {
 		s.log.Error("Failed to fetch document", "error", err)
-		metrics.AuthorizationDecisions.WithLabelValues("reviewer-service", "error", "delegated").Inc()
+		metrics.AuthorizationDecisions.WithLabelValues("reviewer-service", "error", "direct").Inc()
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		json.NewEncoder(w).Encode(ReviewResponse{
@@ -350,20 +302,20 @@ func (s *ReviewerService) handleReview(w http.ResponseWriter, r *http.Request) {
 
 	if doc == nil || doc["content"] == nil {
 		s.log.Deny("Access denied by document service")
-		metrics.AuthorizationDecisions.WithLabelValues("reviewer-service", "deny", "delegated").Inc()
+		metrics.AuthorizationDecisions.WithLabelValues("reviewer-service", "deny", "direct").Inc()
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		json.NewEncoder(w).Encode(ReviewResponse{
 			Allowed:          false,
 			DocumentID:       req.DocumentID,
-			Reason:           "Access denied - permission intersection failed",
+			Reason:           "Access denied",
 			ProcessingTimeMs: time.Since(startTime).Milliseconds(),
 		})
 		return
 	}
 
 	s.log.Allow("Document access granted")
-	metrics.AuthorizationDecisions.WithLabelValues("reviewer-service", "allow", "delegated").Inc()
+	metrics.AuthorizationDecisions.WithLabelValues("reviewer-service", "allow", "direct").Inc()
 
 	// Extract document details
 	title, _ := doc["title"].(string)
@@ -384,7 +336,6 @@ func (s *ReviewerService) handleReview(w http.ResponseWriter, r *http.Request) {
 			review = fmt.Sprintf("## Review Failed\n\nFailed to generate AI review: %v\n\n### Document Preview\n\n%s", err, truncate(content, 500))
 		} else {
 			s.log.Success("Review generated successfully")
-			// Parse mock issue counts from response (in a real system this would be structured)
 			issuesFound = countIssues(review)
 			severity = determineSeverity(review)
 		}
@@ -410,86 +361,56 @@ func (s *ReviewerService) handleReview(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *ReviewerService) fetchDocumentWithDelegation(ctx context.Context, req ReviewRequest) (map[string]any, error) {
-	delegation := map[string]any{
-		"user_spiffe_id":  req.UserSPIFFEID,
-		"agent_spiffe_id": s.agentSPIFFEID,
+func extractBearerToken(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	if strings.HasPrefix(auth, "Bearer ") {
+		return strings.TrimPrefix(auth, "Bearer ")
 	}
-	if len(req.UserDepartments) > 0 {
-		delegation["user_departments"] = req.UserDepartments
-	}
-	reqBody := map[string]any{
-		"document_id": req.DocumentID,
-		"delegation":  delegation,
-	}
+	return ""
+}
 
-	body, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		s.documentServiceURL+"/access", bytes.NewReader(body))
+// fetchDocument fetches a document from document-service using a simple GET.
+// Delegation context (X-Delegation-User/Agent headers) is injected automatically
+// by the DelegationTransport wrapping the HTTP client.
+func (s *ReviewerService) fetchDocument(ctx context.Context, documentID, bearerToken string) (map[string]any, error) {
+	url := fmt.Sprintf("%s/documents/%s", s.documentServiceURL, documentID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
+	req.Header.Set("Accept", "application/json")
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
 
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("X-SPIFFE-ID", s.agentSPIFFEID)
-
-	s.log.Flow(logger.DirectionOutgoing, "Requesting document with delegation context")
-	s.log.Info("Delegation details",
-		"user", req.UserSPIFFEID,
-		"agent", s.agentSPIFFEID,
-		"document", req.DocumentID)
-
-	resp, err := s.httpClient.Do(httpReq)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("document service request failed: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusForbidden {
+		return nil, fmt.Errorf("access denied")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("document service returned status %d", resp.StatusCode)
+	}
 
 	var result map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	if resp.StatusCode == http.StatusForbidden {
-		reason := "Access denied"
-		if r, ok := result["reason"].(string); ok {
-			reason = r
-		}
-		return nil, fmt.Errorf("%s", reason)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("document service returned status %d", resp.StatusCode)
-	}
-
-	// Extract document from response
 	if doc, ok := result["document"].(map[string]any); ok {
 		return doc, nil
 	}
-
 	return result, nil
 }
 
-// fetchDocumentForA2A adapts fetchDocumentWithDelegation for the A2A executor.
-func (s *ReviewerService) fetchDocumentForA2A(ctx context.Context, dc *a2abridge.DelegationContext) (map[string]any, error) {
-	return s.fetchDocumentWithDelegation(ctx, ReviewRequest{
-		DocumentID:      dc.DocumentID,
-		UserSPIFFEID:    dc.UserSPIFFEID,
-		UserDepartments: dc.UserDepartments,
-		ReviewType:      dc.ReviewType,
-	})
-}
-
 // reviewDocument generates a review for the given document using the LLM.
-func (s *ReviewerService) reviewDocument(ctx context.Context, dc *a2abridge.DelegationContext, title, content string) (string, error) {
-	reviewType := dc.ReviewType
-	if reviewType == "" {
-		reviewType = "general"
-	}
+// It uses "general" as the default review type.
+func (s *ReviewerService) reviewDocument(ctx context.Context, title, content string) (string, error) {
+	reviewType := "general"
 
 	if s.llmProvider != nil {
 		s.log.Info("Generating review with LLM (A2A)", "document", title, "review_type", reviewType)
@@ -503,10 +424,7 @@ func (s *ReviewerService) reviewDocument(ctx context.Context, dc *a2abridge.Dele
 		return result, nil
 	}
 
-	reviewTypeLabel := reviewType
-	if len(reviewTypeLabel) > 0 {
-		reviewTypeLabel = strings.ToUpper(reviewTypeLabel[:1]) + reviewTypeLabel[1:]
-	}
+	reviewTypeLabel := strings.ToUpper(reviewType[:1]) + reviewType[1:]
 	return fmt.Sprintf("## %s Review\n\n**Document:** %s\n\nThis is a mock review. Configure LLM_API_KEY to enable real AI reviews.\n\n### Document Preview\n\n%s", reviewTypeLabel, title, truncate(content, 500)), nil
 }
 
@@ -521,7 +439,6 @@ func truncate(s string, maxLen int) string {
 func countIssues(review string) int {
 	lower := strings.ToLower(review)
 	count := 0
-	// Simple heuristic: count severity mentions
 	count += strings.Count(lower, "critical:")
 	count += strings.Count(lower, "high:")
 	count += strings.Count(lower, "medium:")
@@ -529,7 +446,7 @@ func countIssues(review string) int {
 	count += strings.Count(lower, "- issue")
 	count += strings.Count(lower, "finding")
 	if count == 0 {
-		count = 1 // Default to at least 1 if any review was generated
+		count = 1
 	}
 	return count
 }

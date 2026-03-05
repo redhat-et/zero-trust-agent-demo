@@ -11,8 +11,8 @@ spec:
   selector:
     app: summarizer-service
   ports:
-    - port: 8086
-      targetPort: 8086
+    - port: 8000
+      targetPort: 8000
       name: http
 ---
 apiVersion: v1
@@ -26,6 +26,6 @@ spec:
   selector:
     app: reviewer-service
   ports:
-    - port: 8087
-      targetPort: 8087
+    - port: 8000
+      targetPort: 8000
       name: http

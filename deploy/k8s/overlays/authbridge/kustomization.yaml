@@ -11,9 +11,6 @@ resources:
   - authbridge-secrets.yaml
 
 images:
-  - name: ghcr.io/kagenti/kagenti-extensions/envoy-with-processor
-    newName: localhost/spiffe-demo/envoy-with-processor
-    newTag: latest
   - name: jaeger
     newName: jaegertracing/jaeger
     newTag: "2.15.0"

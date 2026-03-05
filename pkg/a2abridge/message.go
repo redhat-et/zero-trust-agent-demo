@@ -2,55 +2,60 @@ package a2abridge
 
 import (
 	"fmt"
+	"regexp"
 
 	"github.com/a2aproject/a2a-go/a2a"
 )
 
-// DelegationContext holds the delegation parameters extracted from an A2A message.
-type DelegationContext struct {
-	DocumentID      string   `json:"document_id"`
-	UserSPIFFEID    string   `json:"user_spiffe_id"`
-	UserDepartments []string `json:"user_departments,omitempty"`
-	ReviewType      string   `json:"review_type,omitempty"`
-}
+// documentIDPattern matches document IDs like DOC-001, DOC-002, etc.
+var documentIDPattern = regexp.MustCompile(`\b(DOC-\d+)\b`)
 
-// ExtractDelegationContext extracts delegation context from A2A message parts.
-// It looks for a DataPart with document_id and user_spiffe_id fields.
-func ExtractDelegationContext(msg *a2a.Message) (*DelegationContext, error) {
+// ExtractDocumentID extracts a document ID from an A2A message.
+// It first checks for a DataPart with a "document_id" field, then falls back
+// to extracting a DOC-NNN pattern from TextPart content.
+func ExtractDocumentID(msg *a2a.Message) (string, error) {
 	if msg == nil {
-		return nil, fmt.Errorf("message is nil")
+		return "", fmt.Errorf("message is nil")
 	}
 
+	// First pass: look for structured DataPart with document_id
 	for _, part := range msg.Parts {
 		dp, ok := part.(a2a.DataPart)
 		if !ok {
 			continue
 		}
-
-		dc := &DelegationContext{}
-
-		if v, ok := dp.Data["document_id"].(string); ok {
-			dc.DocumentID = v
+		if v, ok := dp.Data["document_id"].(string); ok && v != "" {
+			return v, nil
 		}
-		if v, ok := dp.Data["user_spiffe_id"].(string); ok {
-			dc.UserSPIFFEID = v
-		}
-		if v, ok := dp.Data["review_type"].(string); ok {
-			dc.ReviewType = v
-		}
-		if deps, ok := dp.Data["user_departments"].([]any); ok {
-			for _, d := range deps {
-				if s, ok := d.(string); ok {
-					dc.UserDepartments = append(dc.UserDepartments, s)
-				}
-			}
-		}
-
-		if dc.DocumentID == "" || dc.UserSPIFFEID == "" {
-			continue
-		}
-		return dc, nil
 	}
 
-	return nil, fmt.Errorf("no DataPart with document_id and user_spiffe_id found in message")
+	// Second pass: extract document ID from text (e.g., "Summarize DOC-002")
+	for _, part := range msg.Parts {
+		tp, ok := part.(a2a.TextPart)
+		if !ok {
+			continue
+		}
+		if matches := documentIDPattern.FindStringSubmatch(tp.Text); len(matches) > 1 {
+			return matches[1], nil
+		}
+	}
+
+	return "", fmt.Errorf("no document ID found in message (use DataPart with document_id or include DOC-NNN in text)")
+}
+
+// ExtractReviewType extracts an optional review type from an A2A message DataPart.
+func ExtractReviewType(msg *a2a.Message) string {
+	if msg == nil {
+		return ""
+	}
+	for _, part := range msg.Parts {
+		dp, ok := part.(a2a.DataPart)
+		if !ok {
+			continue
+		}
+		if v, ok := dp.Data["review_type"].(string); ok {
+			return v
+		}
+	}
+	return ""
 }

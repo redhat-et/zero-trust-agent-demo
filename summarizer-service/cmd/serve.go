@@ -1,13 +1,13 @@
 package cmd
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -21,7 +21,6 @@ import (
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/llm"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/logger"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/metrics"
-	"github.com/redhat-et/zero-trust-agent-demo/pkg/spiffe"
 )
 
 var serveCmd = &cobra.Command{
@@ -33,7 +32,7 @@ var serveCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(serveCmd)
-	serveCmd.Flags().String("document-service-url", "http://localhost:8084", "Document service URL")
+	serveCmd.Flags().String("document-service-url", "http://localhost:8080", "Document service URL")
 	serveCmd.Flags().String("llm-provider", "", "LLM provider (anthropic, openai, litellm)")
 	serveCmd.Flags().String("llm-api-key", "", "LLM API key (or set LLM_API_KEY/ANTHROPIC_API_KEY env var)")
 	serveCmd.Flags().String("llm-base-url", "", "Base URL for OpenAI-compatible APIs")
@@ -57,9 +56,7 @@ type Config struct {
 
 // SummarizeRequest represents a request to summarize a document
 type SummarizeRequest struct {
-	DocumentID      string   `json:"document_id"`
-	UserSPIFFEID    string   `json:"user_spiffe_id"`
-	UserDepartments []string `json:"user_departments,omitempty"`
+	DocumentID string `json:"document_id"`
 }
 
 // SummarizeResponse represents the response from summarization
@@ -76,10 +73,7 @@ type SummarizerService struct {
 	httpClient         *http.Client
 	documentServiceURL string
 	log                *logger.Logger
-	trustDomain        string
-	workloadClient     *spiffe.WorkloadClient
 	llmProvider        llm.Provider
-	agentSPIFFEID      string
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
@@ -90,15 +84,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Set defaults
 	if cfg.DocumentServiceURL == "" {
-		cfg.DocumentServiceURL = "http://localhost:8084"
-	}
-
-	// Set port defaults for summarizer-service
-	if cfg.Service.Port == 0 {
-		cfg.Service.Port = 8086
-	}
-	if cfg.Service.HealthPort == 0 {
-		cfg.Service.HealthPort = 8186
+		cfg.DocumentServiceURL = "http://localhost:8080"
 	}
 
 	// Get LLM provider from environment if not set in config
@@ -126,32 +112,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	log := logger.New(logger.ComponentSummarizer)
 
-	// Initialize SPIFFE workload client
-	spiffeCfg := spiffe.Config{
-		SocketPath:  cfg.SPIFFE.SocketPath,
-		TrustDomain: cfg.SPIFFE.TrustDomain,
-		MockMode:    cfg.Service.MockSPIFFE,
+	// Wrap the HTTP client with DelegationTransport so that outbound
+	// requests to document-service automatically include X-Delegation-*
+	// headers from the request context — no auth logic in agent code.
+	httpClient := &http.Client{
+		Transport: &a2abridge.DelegationTransport{Base: http.DefaultTransport},
+		Timeout:   30 * time.Second,
 	}
-	workloadClient := spiffe.NewWorkloadClient(spiffeCfg, log)
-
-	// Build the agent's SPIFFE ID
-	agentSPIFFEID := "spiffe://" + cfg.SPIFFE.TrustDomain + "/agent/summarizer"
-
-	// Fetch identity from SPIRE Agent (unless in mock mode)
-	ctx := context.Background()
-	if !cfg.Service.MockSPIFFE {
-		identity, err := workloadClient.FetchIdentity(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to fetch SPIFFE identity: %w", err)
-		}
-		log.Info("SPIFFE identity acquired", "spiffe_id", identity.SPIFFEID)
-		agentSPIFFEID = identity.SPIFFEID
-	} else {
-		workloadClient.SetMockIdentity(agentSPIFFEID)
-	}
-
-	// Create mTLS HTTP client for outgoing requests
-	httpClient := workloadClient.CreateMTLSClient(30 * time.Second)
 
 	// Initialize LLM provider if API key is available
 	var llmProvider llm.Provider
@@ -170,10 +137,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		httpClient:         httpClient,
 		documentServiceURL: cfg.DocumentServiceURL,
 		log:                log,
-		trustDomain:        cfg.SPIFFE.TrustDomain,
-		workloadClient:     workloadClient,
 		llmProvider:        llmProvider,
-		agentSPIFFEID:      agentSPIFFEID,
 	}
 
 	mux := http.NewServeMux()
@@ -198,9 +162,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 		},
 	})
 
-	executor := &a2abridge.DelegatedExecutor{
+	executor := &a2abridge.AgentExecutor{
 		Log:           log,
-		FetchDocument: svc.fetchDocumentForA2A,
+		FetchDocument: svc.fetchDocument,
 		ProcessLLM:    svc.summarizeDocument,
 	}
 	a2aHandler := a2asrv.NewHandler(executor)
@@ -209,12 +173,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 	mux.Handle("POST /a2a", jsonrpcHandler)
 	mux.Handle("POST /{$}", jsonrpcHandler) // Kagenti sends JSON-RPC to root path
 
-	// Wrap with SPIFFE identity middleware
-	handler := spiffe.IdentityMiddleware(cfg.Service.MockSPIFFE)(mux)
-
-	server := workloadClient.CreateHTTPServer(cfg.Service.Addr(), handler)
-	server.ReadTimeout = 10 * time.Second
-	server.WriteTimeout = 120 * time.Second // Longer for LLM responses
+	server := &http.Server{
+		Addr:         cfg.Service.Addr(),
+		Handler:      mux,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 120 * time.Second, // Longer for LLM responses
+	}
 
 	// Graceful shutdown
 	done := make(chan bool)
@@ -230,19 +194,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			log.Error("Shutdown error", "error", err)
 		}
-		if err := workloadClient.Close(); err != nil {
-			log.Error("Failed to close SPIFFE workload client", "error", err)
-		}
 		close(done)
 	}()
 
 	log.Section("STARTING SUMMARIZER SERVICE")
 	log.Info("Summarizer Service starting", "addr", cfg.Service.Addr())
 	log.Info("Health server starting", "addr", cfg.Service.HealthAddr())
-	log.Info("Trust domain", "domain", cfg.SPIFFE.TrustDomain)
-	log.Info("Agent SPIFFE ID", "id", agentSPIFFEID)
 	log.Info("Document service", "url", cfg.DocumentServiceURL)
-	log.Info("mTLS mode", "enabled", !cfg.Service.MockSPIFFE)
 	log.Info("A2A endpoint", "url", agentURL+"/a2a")
 	log.Info("A2A agent card", "url", agentURL+"/.well-known/agent-card.json")
 	if llmProvider != nil {
@@ -266,13 +224,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	// Start main server (mTLS if not in mock mode)
-	var serverErr error
-	if !cfg.Service.MockSPIFFE && server.TLSConfig != nil {
-		serverErr = server.ListenAndServeTLS("", "")
-	} else {
-		serverErr = server.ListenAndServe()
-	}
+	serverErr := server.ListenAndServe()
 	if serverErr != http.ErrServerClosed {
 		return fmt.Errorf("server error: %w", serverErr)
 	}
@@ -303,30 +255,29 @@ func (s *SummarizerService) handleSummarize(w http.ResponseWriter, r *http.Reque
 	}
 
 	s.log.Section("SUMMARIZE REQUEST")
-	s.log.Info("Received summarization request",
-		"document_id", req.DocumentID,
-		"user", req.UserSPIFFEID,
-		"user_departments", req.UserDepartments)
+	s.log.Info("Received summarization request", "document_id", req.DocumentID)
 
 	// Validate required fields
-	if req.DocumentID == "" || req.UserSPIFFEID == "" {
+	if req.DocumentID == "" {
 		s.log.Error("Missing required fields")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(SummarizeResponse{
 			Allowed:          false,
 			DocumentID:       req.DocumentID,
-			Reason:           "document_id and user_spiffe_id are required",
+			Reason:           "document_id is required",
 			ProcessingTimeMs: time.Since(startTime).Milliseconds(),
 		})
 		return
 	}
 
-	// Fetch document from document-service with delegation context
-	doc, err := s.fetchDocumentWithDelegation(r.Context(), req)
+	// Fetch document from document-service
+	// Extract optional bearer token from the incoming request for auth passthrough
+	bearerToken := extractBearerToken(r)
+	doc, err := s.fetchDocument(r.Context(), req.DocumentID, bearerToken)
 	if err != nil {
 		s.log.Error("Failed to fetch document", "error", err)
-		metrics.AuthorizationDecisions.WithLabelValues("summarizer-service", "error", "delegated").Inc()
+		metrics.AuthorizationDecisions.WithLabelValues("summarizer-service", "error", "direct").Inc()
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		json.NewEncoder(w).Encode(SummarizeResponse{
@@ -340,20 +291,20 @@ func (s *SummarizerService) handleSummarize(w http.ResponseWriter, r *http.Reque
 
 	if doc == nil || doc["content"] == nil {
 		s.log.Deny("Access denied by document service")
-		metrics.AuthorizationDecisions.WithLabelValues("summarizer-service", "deny", "delegated").Inc()
+		metrics.AuthorizationDecisions.WithLabelValues("summarizer-service", "deny", "direct").Inc()
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		json.NewEncoder(w).Encode(SummarizeResponse{
 			Allowed:          false,
 			DocumentID:       req.DocumentID,
-			Reason:           "Access denied - permission intersection failed",
+			Reason:           "Access denied",
 			ProcessingTimeMs: time.Since(startTime).Milliseconds(),
 		})
 		return
 	}
 
 	s.log.Allow("Document access granted")
-	metrics.AuthorizationDecisions.WithLabelValues("summarizer-service", "allow", "delegated").Inc()
+	metrics.AuthorizationDecisions.WithLabelValues("summarizer-service", "allow", "direct").Inc()
 
 	// Extract document details
 	title, _ := doc["title"].(string)
@@ -385,81 +336,46 @@ func (s *SummarizerService) handleSummarize(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-func (s *SummarizerService) fetchDocumentWithDelegation(ctx context.Context, req SummarizeRequest) (map[string]any, error) {
-	delegation := map[string]any{
-		"user_spiffe_id":  req.UserSPIFFEID,
-		"agent_spiffe_id": s.agentSPIFFEID,
-	}
-	if len(req.UserDepartments) > 0 {
-		delegation["user_departments"] = req.UserDepartments
-	}
-	reqBody := map[string]any{
-		"document_id": req.DocumentID,
-		"delegation":  delegation,
-	}
-
-	body, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		s.documentServiceURL+"/access", bytes.NewReader(body))
+// fetchDocument fetches a document from document-service using a simple GET.
+// Delegation context (X-Delegation-User/Agent headers) is injected automatically
+// by the DelegationTransport wrapping the HTTP client.
+func (s *SummarizerService) fetchDocument(ctx context.Context, documentID, bearerToken string) (map[string]any, error) {
+	url := fmt.Sprintf("%s/documents/%s", s.documentServiceURL, documentID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
+	req.Header.Set("Accept", "application/json")
+	if bearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+bearerToken)
+	}
 
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("X-SPIFFE-ID", s.agentSPIFFEID)
-
-	s.log.Flow(logger.DirectionOutgoing, "Requesting document with delegation context")
-	s.log.Info("Delegation details",
-		"user", req.UserSPIFFEID,
-		"agent", s.agentSPIFFEID,
-		"document", req.DocumentID)
-
-	resp, err := s.httpClient.Do(httpReq)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("document service request failed: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusForbidden {
+		return nil, fmt.Errorf("access denied")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("document service returned status %d", resp.StatusCode)
+	}
 
 	var result map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	if resp.StatusCode == http.StatusForbidden {
-		reason := "Access denied"
-		if r, ok := result["reason"].(string); ok {
-			reason = r
-		}
-		return nil, fmt.Errorf("%s", reason)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("document service returned status %d", resp.StatusCode)
-	}
-
-	// Extract document from response
 	if doc, ok := result["document"].(map[string]any); ok {
 		return doc, nil
 	}
-
 	return result, nil
 }
 
-// fetchDocumentForA2A adapts fetchDocumentWithDelegation for the A2A executor.
-func (s *SummarizerService) fetchDocumentForA2A(ctx context.Context, dc *a2abridge.DelegationContext) (map[string]any, error) {
-	return s.fetchDocumentWithDelegation(ctx, SummarizeRequest{
-		DocumentID:      dc.DocumentID,
-		UserSPIFFEID:    dc.UserSPIFFEID,
-		UserDepartments: dc.UserDepartments,
-	})
-}
-
 // summarizeDocument generates a summary for the given document using the LLM.
-func (s *SummarizerService) summarizeDocument(ctx context.Context, _ *a2abridge.DelegationContext, title, content string) (string, error) {
+func (s *SummarizerService) summarizeDocument(ctx context.Context, title, content string) (string, error) {
 	if s.llmProvider != nil {
 		s.log.Info("Generating summary with LLM (A2A)", "document", title)
 		userPrompt := llm.FormatSummaryRequest(title, content)
@@ -471,6 +387,14 @@ func (s *SummarizerService) summarizeDocument(ctx context.Context, _ *a2abridge.
 		return result, nil
 	}
 	return fmt.Sprintf("## Summary\n\n**Document:** %s\n\nThis is a mock summary. Configure LLM_API_KEY to enable real AI summarization.\n\n### Document Preview\n\n%s", title, truncate(content, 500)), nil
+}
+
+func extractBearerToken(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	if strings.HasPrefix(auth, "Bearer ") {
+		return strings.TrimPrefix(auth, "Bearer ")
+	}
+	return ""
 }
 
 func truncate(s string, maxLen int) string {

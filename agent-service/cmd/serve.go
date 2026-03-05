@@ -33,7 +33,7 @@ var serveCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(serveCmd)
-	serveCmd.Flags().String("document-service-url", "http://localhost:8084", "Document service URL")
+	serveCmd.Flags().String("document-service-url", "http://localhost:8080", "Document service URL")
 	serveCmd.Flags().Bool("enable-discovery", false, "Enable Kubernetes-based A2A agent discovery")
 	serveCmd.Flags().String("discovery-namespace", "spiffe-demo", "Namespace to discover A2A agents in")
 	serveCmd.Flags().Duration("discovery-interval", 30*time.Second, "Interval between discovery scans")
@@ -100,7 +100,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Set defaults
 	if cfg.DocumentServiceURL == "" {
-		cfg.DocumentServiceURL = "http://localhost:8084"
+		cfg.DocumentServiceURL = "http://localhost:8080"
 	}
 
 	log := logger.New(logger.ComponentAgentSvc)
@@ -578,12 +578,13 @@ func (s *AgentService) handleInvoke(w http.ResponseWriter, r *http.Request, agen
 	s.log.Success("Authorization granted, forwarding to A2A agent")
 
 	invokeResult, err := s.a2aClient.Invoke(ctx, &a2abridge.InvokeRequest{
-		AgentURL:        agent.A2AURL,
-		Card:            agent.AgentCard,
-		DocumentID:      req.DocumentID,
-		UserSPIFFEID:    req.UserSPIFFEID,
-		UserDepartments: req.UserDepartments,
-		ReviewType:      req.ReviewType,
+		AgentURL:      agent.A2AURL,
+		Card:          agent.AgentCard,
+		DocumentID:    req.DocumentID,
+		ReviewType:    req.ReviewType,
+		BearerToken:   bearerToken,
+		UserSPIFFEID:  req.UserSPIFFEID,
+		AgentSPIFFEID: agent.SPIFFEID,
 	})
 	if err != nil {
 		s.log.Error("A2A invocation failed", "error", err)

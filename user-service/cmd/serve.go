@@ -32,8 +32,8 @@ var serveCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(serveCmd)
-	serveCmd.Flags().String("document-service-url", "http://localhost:8084", "Document service URL")
-	serveCmd.Flags().String("agent-service-url", "http://localhost:8083", "Agent service URL")
+	serveCmd.Flags().String("document-service-url", "http://localhost:8080", "Document service URL")
+	serveCmd.Flags().String("agent-service-url", "http://localhost:8080", "Agent service URL")
 	v.BindPFlag("document_service_url", serveCmd.Flags().Lookup("document-service-url"))
 	v.BindPFlag("agent_service_url", serveCmd.Flags().Lookup("agent-service-url"))
 }
@@ -98,10 +98,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Set defaults
 	if cfg.DocumentServiceURL == "" {
-		cfg.DocumentServiceURL = "http://localhost:8084"
+		cfg.DocumentServiceURL = "http://localhost:8080"
 	}
 	if cfg.AgentServiceURL == "" {
-		cfg.AgentServiceURL = "http://localhost:8083"
+		cfg.AgentServiceURL = "http://localhost:8080"
 	}
 
 	log := logger.New(logger.ComponentUserService)

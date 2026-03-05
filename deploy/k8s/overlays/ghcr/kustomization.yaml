@@ -43,7 +43,7 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/ports/-
         value:
-          containerPort: 8185
+          containerPort: 8180
           name: health
       - op: replace
         path: /spec/template/spec/containers/0/ports/0/name
@@ -52,7 +52,7 @@ patches:
         path: /spec/template/spec/containers/0/env/-
         value:
           name: SPIFFE_DEMO_SERVICE_HEALTH_PORT
-          value: "8185"
+          value: "8180"
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value:
@@ -81,7 +81,7 @@ patches:
         value:
           httpGet:
             path: /health
-            port: 8185
+            port: 8180
           initialDelaySeconds: 10
           periodSeconds: 10
       - op: add
@@ -89,7 +89,7 @@ patches:
         value:
           httpGet:
             path: /ready
-            port: 8185
+            port: 8180
           initialDelaySeconds: 5
           periodSeconds: 5
       - op: add
@@ -114,7 +114,7 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/ports/-
         value:
-          containerPort: 8184
+          containerPort: 8180
           name: health
       - op: replace
         path: /spec/template/spec/containers/0/ports/0/name
@@ -123,7 +123,7 @@ patches:
         path: /spec/template/spec/containers/0/env/-
         value:
           name: SPIFFE_DEMO_SERVICE_HEALTH_PORT
-          value: "8184"
+          value: "8180"
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value:
@@ -152,7 +152,7 @@ patches:
         value:
           httpGet:
             path: /health
-            port: 8184
+            port: 8180
           initialDelaySeconds: 10
           periodSeconds: 10
       - op: add
@@ -160,7 +160,7 @@ patches:
         value:
           httpGet:
             path: /ready
-            port: 8184
+            port: 8180
           initialDelaySeconds: 5
           periodSeconds: 5
       - op: add
@@ -185,7 +185,7 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/ports/-
         value:
-          containerPort: 8182
+          containerPort: 8180
           name: health
       - op: replace
         path: /spec/template/spec/containers/0/ports/0/name
@@ -194,7 +194,7 @@ patches:
         path: /spec/template/spec/containers/0/env/-
         value:
           name: SPIFFE_DEMO_SERVICE_HEALTH_PORT
-          value: "8182"
+          value: "8180"
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value:
@@ -209,12 +209,12 @@ patches:
         path: /spec/template/spec/containers/0/env/-
         value:
           name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
-          value: "https://document-service:8084"
+          value: "https://document-service:8080"
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value:
           name: SPIFFE_DEMO_AGENT_SERVICE_URL
-          value: "https://agent-service:8083"
+          value: "https://agent-service:8080"
       - op: add
         path: /spec/template/spec/containers/0/volumeMounts
         value:
@@ -233,7 +233,7 @@ patches:
         value:
           httpGet:
             path: /health
-            port: 8182
+            port: 8180
           initialDelaySeconds: 10
           periodSeconds: 10
       - op: add
@@ -241,7 +241,7 @@ patches:
         value:
           httpGet:
             path: /ready
-            port: 8182
+            port: 8180
           initialDelaySeconds: 5
           periodSeconds: 5
       - op: add
@@ -266,7 +266,7 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/ports/-
         value:
-          containerPort: 8183
+          containerPort: 8180
           name: health
       - op: replace
         path: /spec/template/spec/containers/0/ports/0/name
@@ -275,7 +275,7 @@ patches:
         path: /spec/template/spec/containers/0/env/-
         value:
           name: SPIFFE_DEMO_SERVICE_HEALTH_PORT
-          value: "8183"
+          value: "8180"
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value:
@@ -290,7 +290,7 @@ patches:
         path: /spec/template/spec/containers/0/env/-
         value:
           name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
-          value: "https://document-service:8084"
+          value: "https://document-service:8080"
       - op: add
         path: /spec/template/spec/containers/0/volumeMounts
         value:
@@ -309,7 +309,7 @@ patches:
         value:
           httpGet:
             path: /health
-            port: 8183
+            port: 8180
           initialDelaySeconds: 10
           periodSeconds: 10
       - op: add
@@ -317,7 +317,7 @@ patches:
         value:
           httpGet:
             path: /ready
-            port: 8183
+            port: 8180
           initialDelaySeconds: 5
           periodSeconds: 5
       - op: add
@@ -353,17 +353,17 @@ patches:
         path: /spec/template/spec/containers/0/env/-
         value:
           name: SPIFFE_DEMO_USER_SERVICE_URL
-          value: "https://user-service:8082"
+          value: "https://user-service:8080"
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value:
           name: SPIFFE_DEMO_AGENT_SERVICE_URL
-          value: "https://agent-service:8083"
+          value: "https://agent-service:8080"
       - op: add
         path: /spec/template/spec/containers/0/env/-
         value:
           name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
-          value: "https://document-service:8084"
+          value: "https://document-service:8080"
       - op: add
         path: /spec/template/spec/containers/0/volumeMounts
         value:
