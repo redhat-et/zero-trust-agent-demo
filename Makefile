@@ -117,6 +117,15 @@ run-reviewer:
 run-dashboard:
 	cd web-dashboard && $(GO) run . serve
 
+# zt-monitor (local TUI tool, not a deployable service)
+build-zt-monitor:
+	@echo "Building zt-monitor..."
+	@mkdir -p $(BINARY_DIR)
+	$(GO) build -o $(BINARY_DIR)/zt-monitor ./zt-monitor
+
+run-zt-monitor:
+	cd zt-monitor && $(GO) run . watch
+
 # Kind cluster operations
 setup-kind:
 	@echo "=== Setting up Kind cluster ==="
@@ -417,6 +426,10 @@ help:
 	@echo "  DEV_TAG             - Image tag (default: git SHA, e.g., abc1234)"
 	@echo "  REGISTRY            - Container registry (default: ghcr.io/redhat-et/zero-trust-agent-demo)"
 	@echo "  PODMAN_CONNECTION   - Remote Podman host (e.g., rhel) for native x86_64 builds"
+	@echo ""
+	@echo "TUI Monitor:"
+	@echo "  make build-zt-monitor   - Build zt-monitor TUI"
+	@echo "  make run-zt-monitor     - Run zt-monitor TUI"
 	@echo ""
 	@echo "Development:"
 	@echo "  make check-deps     - Verify required tools are installed"
