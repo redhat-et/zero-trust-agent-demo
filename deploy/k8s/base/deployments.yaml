@@ -36,6 +36,8 @@ spec:
           env:
             - name: SPIFFE_DEMO_SERVICE_PORT
               value: "8080"
+            - name: SPIFFE_DEMO_LOG_FORMAT
+              value: "json"
           volumeMounts:
             - name: policies
               mountPath: /policies
@@ -101,6 +103,8 @@ spec:
           env:
             - name: SPIFFE_DEMO_SERVICE_PORT
               value: "8080"
+            - name: SPIFFE_DEMO_LOG_FORMAT
+              value: "json"
             - name: SPIFFE_DEMO_OPA_HOST
               value: "opa-service"
             - name: SPIFFE_DEMO_OPA_PORT
@@ -149,6 +153,8 @@ spec:
           env:
             - name: SPIFFE_DEMO_SERVICE_PORT
               value: "8080"
+            - name: SPIFFE_DEMO_LOG_FORMAT
+              value: "json"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -184,6 +190,8 @@ spec:
           env:
             - name: SPIFFE_DEMO_SERVICE_PORT
               value: "8080"
+            - name: SPIFFE_DEMO_LOG_FORMAT
+              value: "json"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -219,3 +227,5 @@ spec:
           env:
             - name: SPIFFE_DEMO_SERVICE_PORT
               value: "8080"
+            - name: SPIFFE_DEMO_LOG_FORMAT
+              value: "json"

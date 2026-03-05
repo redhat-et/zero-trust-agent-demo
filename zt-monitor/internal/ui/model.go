@@ -55,6 +55,7 @@ func NewModel(namespace, kubeconfig string) Model {
 		events:         NewEventList(),
 		tokens:         NewTokenPanel(),
 		activeServices: make(map[string]bool),
+		eventCh:        make(chan parser.Event, 100),
 	}
 }
 
@@ -69,7 +70,6 @@ func (m Model) Init() tea.Cmd {
 func (m *Model) startStreaming() tea.Cmd {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
-	m.eventCh = make(chan parser.Event, 100)
 
 	go k8s.StreamLogs(ctx, m.namespace, m.kubeconfig, m.eventCh)
 
