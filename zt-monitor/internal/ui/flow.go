@@ -83,21 +83,27 @@ func RenderFlow(activeServices map[string]bool, activeEdge [2]string, edgeLabel 
 		b.WriteString(style.Render(name))
 
 		// -> doc-svc -> opa
+		docStyle := flowNodeStyle
+		if isActiveEdge(activeEdge, node.Name, "doc-svc") || activeServices["doc-svc"] {
+			docStyle = flowActiveStyle
+		}
 		if isActiveEdge(activeEdge, node.Name, "doc-svc") {
 			b.WriteString(flowActiveStyle.Render(arrow))
-			b.WriteString(flowActiveStyle.Render("doc-svc"))
 		} else {
 			b.WriteString(flowArrowStyle.Render(arrow))
-			b.WriteString(flowNodeStyle.Render("doc-svc"))
 		}
+		b.WriteString(docStyle.Render("doc-svc"))
 
+		opaStyle := flowNodeStyle
+		if isActiveEdge(activeEdge, "doc-svc", "opa") || activeServices["opa"] {
+			opaStyle = flowActiveStyle
+		}
 		if isActiveEdge(activeEdge, "doc-svc", "opa") {
 			b.WriteString(flowActiveStyle.Render(arrow))
-			b.WriteString(flowActiveStyle.Render("opa"))
 		} else {
 			b.WriteString(flowArrowStyle.Render(arrow))
-			b.WriteString(flowNodeStyle.Render("opa"))
 		}
+		b.WriteString(opaStyle.Render("opa"))
 
 		b.WriteString("\n")
 	}
