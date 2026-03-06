@@ -10,6 +10,8 @@ on:
       - "go.sum"
       - "opa-service/policies/**"
       - ".github/workflows/build-push.yaml"
+      - "!zt-monitor/**"
+      - "!docs/**"
 
 env:
   REGISTRY: ghcr.io

@@ -252,6 +252,19 @@ Common flags:
 - **SPIFFE/SPIRE** - Workload identity (mock mode for local dev)
 - **SSE (Server-Sent Events)** - Real-time dashboard updates
 
+## Security Standards (RFCs)
+
+The AuthBridge token exchange flow is built on these standards
+(offline copies in `docs/references/`):
+
+| RFC | Title | Used for |
+| --- | ----- | -------- |
+| RFC 7515 | JSON Web Signature (JWS) | JWT signature verification via JWKS |
+| RFC 7519 | JSON Web Token (JWT) | Access token format (Keycloak-issued) |
+| RFC 8693 | OAuth 2.0 Token Exchange | Ext-proc token swap between services |
+| RFC 8705 | OAuth 2.0 Mutual-TLS | SPIFFE SVID client authentication |
+| RFC 9068 | JWT Profile for Access Tokens | Standardized JWT access token structure |
+
 ## Development Notes
 
 ### Adding a New Document
