@@ -117,6 +117,15 @@ run-reviewer:
 run-dashboard:
 	cd web-dashboard && $(GO) run . serve
 
+# zt-monitor (local TUI tool, not a deployable service)
+build-zt-monitor:
+	@echo "Building zt-monitor..."
+	@mkdir -p $(BINARY_DIR)
+	$(GO) build -o $(BINARY_DIR)/zt-monitor ./zt-monitor
+
+run-zt-monitor:
+	cd zt-monitor && $(GO) run . watch
+
 # Kind cluster operations
 setup-kind:
 	@echo "=== Setting up Kind cluster ==="
@@ -215,18 +224,13 @@ deploy-openshift: check-deps podman-dev
 	@echo "Deployed with images tagged: $(DEV_TAG)"
 	@echo "To rollback: make deploy-openshift DEV_TAG=<previous-sha>"
 
-# Deploy without rebuilding (just update tags and apply)
+# Re-deploy without rebuilding (uses existing image tags in kustomization.yaml)
+# Runs rollout restart to pick up config changes or same-tag image updates
 deploy-openshift-quick:
-	@echo "=== Quick deploy to OpenShift with tag $(DEV_TAG) ==="
-	@cd deploy/k8s/overlays/openshift-ai-agents && \
-	for svc in $(BASE_SERVICES); do \
-		kustomize edit set image $(REGISTRY)/$$svc:$(DEV_TAG); \
-	done && \
-	for svc in $(AI_SERVICES); do \
-		kustomize edit set image $$svc=$(REGISTRY)/$$svc:$(DEV_TAG); \
-	done
+	@echo "=== Quick re-deploy to OpenShift (existing image tags) ==="
 	oc apply -k deploy/k8s/overlays/openshift-ai-agents
-	@echo "Deployed with tag: $(DEV_TAG)"
+	oc rollout restart deployment -n spiffe-demo
+	@echo "Re-deployed (use deploy-openshift to update image tags)"
 
 # Restart OpenShift deployments (pick up new images with same tag)
 restart-openshift:
@@ -309,13 +313,10 @@ deploy-openshift-authbridge: check-deps podman-dev
 	@echo "To rollback: make deploy-openshift-authbridge DEV_TAG=<previous-sha>"
 
 deploy-openshift-authbridge-quick:
-	@echo "=== Quick deploy AuthBridge to OpenShift with tag $(DEV_TAG) ==="
-	@cd deploy/k8s/overlays/openshift-authbridge && \
-	for svc in $(BASE_SERVICES); do \
-		kustomize edit set image $(REGISTRY)/$$svc:$(DEV_TAG); \
-	done
+	@echo "=== Quick re-deploy AuthBridge to OpenShift (existing image tags) ==="
 	oc apply -k deploy/k8s/overlays/openshift-authbridge
-	@echo "Deployed with tag: $(DEV_TAG)"
+	oc rollout restart deployment -n spiffe-demo
+	@echo "Re-deployed (use deploy-openshift-authbridge to update image tags)"
 
 test-openshift-authbridge:
 	@echo "=== Running AuthBridge tests on OpenShift ==="
@@ -417,6 +418,10 @@ help:
 	@echo "  DEV_TAG             - Image tag (default: git SHA, e.g., abc1234)"
 	@echo "  REGISTRY            - Container registry (default: ghcr.io/redhat-et/zero-trust-agent-demo)"
 	@echo "  PODMAN_CONNECTION   - Remote Podman host (e.g., rhel) for native x86_64 builds"
+	@echo ""
+	@echo "TUI Monitor:"
+	@echo "  make build-zt-monitor   - Build zt-monitor TUI"
+	@echo "  make run-zt-monitor     - Run zt-monitor TUI"
 	@echo ""
 	@echo "Development:"
 	@echo "  make check-deps     - Verify required tools are installed"

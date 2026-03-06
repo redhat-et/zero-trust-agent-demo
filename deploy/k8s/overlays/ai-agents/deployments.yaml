@@ -42,6 +42,8 @@ spec:
           env:
             - name: SPIFFE_DEMO_SERVICE_PORT
               value: "8000"
+            - name: SPIFFE_DEMO_LOG_FORMAT
+              value: "json"
             - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
               value: "http://document-service:8080"
           envFrom:
@@ -93,6 +95,8 @@ spec:
           env:
             - name: SPIFFE_DEMO_SERVICE_PORT
               value: "8000"
+            - name: SPIFFE_DEMO_LOG_FORMAT
+              value: "json"
             - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
               value: "http://document-service:8080"
           envFrom:
