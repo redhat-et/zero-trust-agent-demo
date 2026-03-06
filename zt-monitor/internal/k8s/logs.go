@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/redhat-et/zero-trust-agent-demo/zt-monitor/internal/parser"
@@ -38,9 +39,15 @@ func DefaultTargets() []PodTarget {
 // runs in its own goroutine with automatic reconnection.
 func StreamLogs(ctx context.Context, namespace, kubeconfig string, events chan<- parser.Event) {
 	targets := DefaultTargets()
+	var wg sync.WaitGroup
 	for _, t := range targets {
-		go tailTarget(ctx, namespace, kubeconfig, t, events)
+		wg.Add(1)
+		go func(target PodTarget) {
+			defer wg.Done()
+			tailTarget(ctx, namespace, kubeconfig, target, events)
+		}(t)
 	}
+	wg.Wait()
 }
 
 func tailTarget(ctx context.Context, namespace, kubeconfig string, target PodTarget, events chan<- parser.Event) {

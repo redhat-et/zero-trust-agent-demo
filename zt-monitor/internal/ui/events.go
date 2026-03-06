@@ -44,12 +44,16 @@ func (el *EventList) Clear() {
 // ScrollUp moves the view up.
 func (el *EventList) ScrollUp(n int) {
 	el.offset += n
-	max := len(el.filtered()) - el.height
-	if max < 0 {
-		max = 0
+	visibleRows := el.height - 3 // match Render's header + padding
+	if visibleRows < 1 {
+		visibleRows = 1
 	}
-	if el.offset > max {
-		el.offset = max
+	maxOffset := len(el.filtered()) - visibleRows
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if el.offset > maxOffset {
+		el.offset = maxOffset
 	}
 }
 

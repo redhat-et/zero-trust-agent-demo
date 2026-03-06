@@ -46,8 +46,15 @@ func parseJSONLog(line, source string) *Event {
 		return nil
 	}
 
+	ts := time.Now()
+	if jl.Time != "" {
+		if parsed, err := time.Parse(time.RFC3339, jl.Time); err == nil {
+			ts = parsed
+		}
+	}
+
 	ev := &Event{
-		Time:   time.Now(),
+		Time:   ts,
 		Source: source,
 		Fields: make(map[string]string),
 	}

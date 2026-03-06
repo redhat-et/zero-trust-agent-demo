@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"fmt"
 	"testing"
 )
 
@@ -31,9 +30,6 @@ func TestParseJSONLogs(t *testing.T) {
 		if ev == nil {
 			t.Errorf("case %d: got nil, want %s", i, tt.wantType)
 			continue
-		}
-		if ev.Type != tt.wantType {
-			fmt.Printf("  case %d: msg=%q type=%s\n", i, ev.Message, ev.Type)
 		}
 		if ev.Type != tt.wantType {
 			t.Errorf("case %d: got type %s, want %s (msg=%q)", i, ev.Type, tt.wantType, ev.Message)

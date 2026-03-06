@@ -29,7 +29,7 @@ var a2aNodes = []flowNode{
 const arrow = " -> "
 
 // RenderFlow renders the ASCII flow diagram with active service highlighting.
-func RenderFlow(width int, activeServices map[string]bool, activeEdge [2]string, edgeLabel string) string {
+func RenderFlow(activeServices map[string]bool, activeEdge [2]string, edgeLabel string) string {
 	var b strings.Builder
 
 	b.WriteString(panelTitle.Render("FLOW"))

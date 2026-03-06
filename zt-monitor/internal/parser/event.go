@@ -52,7 +52,7 @@ type Event struct {
 func (e Event) Summary() string {
 	ts := e.Time.Format("15:04:05")
 	label := e.Source
-	if e.Container != "" && e.Container != e.Source {
+	if label == "" {
 		label = e.Container
 	}
 	return fmt.Sprintf("%s [%-12s] %s", ts, label, e.Message)

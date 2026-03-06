@@ -225,9 +225,11 @@ deploy-openshift: check-deps podman-dev
 	@echo "To rollback: make deploy-openshift DEV_TAG=<previous-sha>"
 
 # Re-deploy without rebuilding (uses existing image tags in kustomization.yaml)
+# Runs rollout restart to pick up config changes or same-tag image updates
 deploy-openshift-quick:
 	@echo "=== Quick re-deploy to OpenShift (existing image tags) ==="
 	oc apply -k deploy/k8s/overlays/openshift-ai-agents
+	oc rollout restart deployment -n spiffe-demo
 	@echo "Re-deployed (use deploy-openshift to update image tags)"
 
 # Restart OpenShift deployments (pick up new images with same tag)
@@ -313,6 +315,7 @@ deploy-openshift-authbridge: check-deps podman-dev
 deploy-openshift-authbridge-quick:
 	@echo "=== Quick re-deploy AuthBridge to OpenShift (existing image tags) ==="
 	oc apply -k deploy/k8s/overlays/openshift-authbridge
+	oc rollout restart deployment -n spiffe-demo
 	@echo "Re-deployed (use deploy-openshift-authbridge to update image tags)"
 
 test-openshift-authbridge:

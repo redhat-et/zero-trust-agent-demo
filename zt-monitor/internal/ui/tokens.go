@@ -29,28 +29,17 @@ func (tp *TokenPanel) UpdateFromEvent(ev parser.Event) {
 		return
 	}
 
-	phase := ev.Fields["phase"]
-	switch phase {
-	case "before":
-		for k, v := range ev.Fields {
-			if strings.HasPrefix(k, "before_") {
-				tp.Before[strings.TrimPrefix(k, "before_")] = v
-			}
-		}
-	case "after":
-		for k, v := range ev.Fields {
-			if strings.HasPrefix(k, "after_") {
-				tp.After[strings.TrimPrefix(k, "after_")] = v
-			}
-		}
-	}
-
-	// Also extract from specific fields
 	if aud, ok := ev.Fields["audience"]; ok {
 		tp.After["aud"] = aud
 	}
 	if cid, ok := ev.Fields["client_id"]; ok {
 		tp.Before["azp"] = cid
+	}
+	if scopes, ok := ev.Fields["scopes"]; ok {
+		tp.After["scope"] = scopes
+	}
+	if url, ok := ev.Fields["token_url"]; ok {
+		tp.Before["iss"] = url
 	}
 }
 
@@ -163,8 +152,9 @@ func truncate(s string, maxLen int) string {
 	if maxLen <= 0 {
 		return s
 	}
-	if len(s) > maxLen {
-		return s[:maxLen-1] + "…"
+	runes := []rune(s)
+	if len(runes) > maxLen {
+		return string(runes[:maxLen-1]) + "…"
 	}
 	return s
 }

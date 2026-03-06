@@ -39,8 +39,10 @@ type Model struct {
 	edgeLabel      string
 	edgeExpiry     time.Time
 
-	// Log streaming
-	cancel context.CancelFunc
+	// Log streaming — ctx/cancel created in NewModel so they survive
+	// the value copy that Bubble Tea makes in Init().
+	ctx     context.Context
+	cancel  context.CancelFunc
 	eventCh chan parser.Event
 
 	// Event count for status
@@ -49,6 +51,7 @@ type Model struct {
 
 // NewModel creates a new TUI model.
 func NewModel(namespace, kubeconfig string) Model {
+	ctx, cancel := context.WithCancel(context.Background())
 	return Model{
 		namespace:      namespace,
 		kubeconfig:     kubeconfig,
@@ -56,28 +59,23 @@ func NewModel(namespace, kubeconfig string) Model {
 		tokens:         NewTokenPanel(),
 		activeServices: make(map[string]bool),
 		eventCh:        make(chan parser.Event, 100),
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 }
 
 // Init starts log streaming and the refresh ticker.
 func (m Model) Init() tea.Cmd {
+	ch := m.eventCh
+	go k8s.StreamLogs(m.ctx, m.namespace, m.kubeconfig, ch)
+
 	return tea.Batch(
-		m.startStreaming(),
+		waitForEvent(ch),
 		tickCmd(),
 	)
 }
 
-func (m *Model) startStreaming() tea.Cmd {
-	ctx, cancel := context.WithCancel(context.Background())
-	m.cancel = cancel
-
-	go k8s.StreamLogs(ctx, m.namespace, m.kubeconfig, m.eventCh)
-
-	return m.waitForEvent()
-}
-
-func (m *Model) waitForEvent() tea.Cmd {
-	ch := m.eventCh
+func waitForEvent(ch <-chan parser.Event) tea.Cmd {
 	return func() tea.Msg {
 		ev, ok := <-ch
 		if !ok {
@@ -106,14 +104,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case EventMsg:
+		ev := parser.Event(msg)
+		m.events.Add(ev)
+		m.totalEvents++
 		if !m.paused {
-			ev := parser.Event(msg)
-			m.events.Add(ev)
 			m.tokens.UpdateFromEvent(ev)
 			m.updateFlowState(ev)
-			m.totalEvents++
 		}
-		return m, m.waitForEvent()
+		return m, waitForEvent(m.eventCh)
 
 	case TickMsg:
 		// Expire active edge highlight
@@ -253,7 +251,7 @@ func (m Model) View() tea.View {
 
 	// Flow panel (~30%)
 	flowHeight := max(m.height*30/100, 8)
-	flowContent := RenderFlow(m.width-4, m.activeServices, m.activeEdge, m.edgeLabel)
+	flowContent := RenderFlow(m.activeServices, m.activeEdge, m.edgeLabel)
 	flowPanel := panelBorder.
 		Width(m.width - 2).
 		Height(flowHeight).
@@ -302,11 +300,7 @@ func (m Model) renderHeader() string {
 
 	right := ns + " " + status
 
-	return lipgloss.Place(m.width, 1,
-		lipgloss.Left, lipgloss.Top,
-		title,
-		lipgloss.WithWhitespaceChars(" "),
-	)[:0] + lipgloss.JoinHorizontal(lipgloss.Top,
+	return lipgloss.JoinHorizontal(lipgloss.Top,
 		title,
 		lipgloss.NewStyle().
 			Width(m.width-lipgloss.Width(title)-lipgloss.Width(right)).

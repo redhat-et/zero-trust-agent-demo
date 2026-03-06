@@ -10,8 +10,8 @@ import (
 // Lines from the ext-proc start with a Go log timestamp: "2026/03/05 18:14:43 ..."
 // Envoy's own C++ debug lines start with "[2026-03-05 ...][thread][level]" and are skipped.
 var (
-	// Go log prefix: "2026/03/05 18:14:43 " — strip this before matching.
-	goLogPrefixRe = regexp.MustCompile(`^\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2}\s+`)
+	// Go log prefix: "2026/03/05 18:14:43 " — capture and strip before matching.
+	goLogPrefixRe = regexp.MustCompile(`^(\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2})\s+`)
 
 	// Token exchange patterns (matched against the message after stripping timestamp)
 	tokenExchangeStartRe   = regexp.MustCompile(`\[Token Exchange\]\s*Starting token exchange`)
@@ -41,15 +41,25 @@ func ParseEnvoyLog(line, source string) *Event {
 		return nil
 	}
 
-	// Strip Go log timestamp prefix
-	msg := goLogPrefixRe.ReplaceAllString(line, "")
-	if msg == "" || msg == line && !strings.Contains(line, "[Token") && !strings.Contains(line, "[Delegation") {
+	// Extract and strip Go log timestamp prefix
+	ts := time.Now()
+	msg := line
+	if m := goLogPrefixRe.FindStringSubmatch(line); m != nil {
+		if parsed, err := time.Parse("2006/01/02 15:04:05", m[1]); err == nil {
+			ts = parsed
+		}
+		msg = line[len(m[0]):]
+	} else if !strings.Contains(line, "[Token") && !strings.Contains(line, "[Delegation") {
 		// No timestamp prefix and no known markers — not an ext-proc line
 		return nil
 	}
 
+	if msg == "" {
+		return nil
+	}
+
 	ev := &Event{
-		Time:      time.Now(),
+		Time:      ts,
 		Source:    source,
 		Container: "envoy",
 		Fields:    make(map[string]string),
