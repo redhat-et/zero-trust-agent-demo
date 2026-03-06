@@ -224,18 +224,11 @@ deploy-openshift: check-deps podman-dev
 	@echo "Deployed with images tagged: $(DEV_TAG)"
 	@echo "To rollback: make deploy-openshift DEV_TAG=<previous-sha>"
 
-# Deploy without rebuilding (just update tags and apply)
+# Re-deploy without rebuilding (uses existing image tags in kustomization.yaml)
 deploy-openshift-quick:
-	@echo "=== Quick deploy to OpenShift with tag $(DEV_TAG) ==="
-	@cd deploy/k8s/overlays/openshift-ai-agents && \
-	for svc in $(BASE_SERVICES); do \
-		kustomize edit set image $(REGISTRY)/$$svc:$(DEV_TAG); \
-	done && \
-	for svc in $(AI_SERVICES); do \
-		kustomize edit set image $$svc=$(REGISTRY)/$$svc:$(DEV_TAG); \
-	done
+	@echo "=== Quick re-deploy to OpenShift (existing image tags) ==="
 	oc apply -k deploy/k8s/overlays/openshift-ai-agents
-	@echo "Deployed with tag: $(DEV_TAG)"
+	@echo "Re-deployed (use deploy-openshift to update image tags)"
 
 # Restart OpenShift deployments (pick up new images with same tag)
 restart-openshift:
@@ -318,13 +311,9 @@ deploy-openshift-authbridge: check-deps podman-dev
 	@echo "To rollback: make deploy-openshift-authbridge DEV_TAG=<previous-sha>"
 
 deploy-openshift-authbridge-quick:
-	@echo "=== Quick deploy AuthBridge to OpenShift with tag $(DEV_TAG) ==="
-	@cd deploy/k8s/overlays/openshift-authbridge && \
-	for svc in $(BASE_SERVICES); do \
-		kustomize edit set image $(REGISTRY)/$$svc:$(DEV_TAG); \
-	done
+	@echo "=== Quick re-deploy AuthBridge to OpenShift (existing image tags) ==="
 	oc apply -k deploy/k8s/overlays/openshift-authbridge
-	@echo "Deployed with tag: $(DEV_TAG)"
+	@echo "Re-deployed (use deploy-openshift-authbridge to update image tags)"
 
 test-openshift-authbridge:
 	@echo "=== Running AuthBridge tests on OpenShift ==="

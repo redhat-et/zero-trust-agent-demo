@@ -175,14 +175,15 @@ func formatEvent(ev parser.Event, width int) string {
 		msgStyle = eventLineStyle
 	}
 
-	msg := msgStyle.Render(ev.Message)
-
-	line := fmt.Sprintf("  %s %s %s", ts, src, msg)
-
-	// Truncate to width
-	if width > 0 && len(line) > width {
-		line = line[:width-1] + "…"
+	// Truncate message to fit available width (accounting for prefix)
+	prefixWidth := 2 + len(ts) + 1 + 14 + 1 // "  HH:MM:SS [LABEL       ] "
+	msg := ev.Message
+	if width > 0 {
+		maxMsg := width - prefixWidth
+		if maxMsg > 0 && len(msg) > maxMsg {
+			msg = msg[:maxMsg-1] + "…"
+		}
 	}
 
-	return line
+	return fmt.Sprintf("  %s %s %s", ts, src, msgStyle.Render(msg))
 }

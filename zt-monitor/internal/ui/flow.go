@@ -26,6 +26,8 @@ var a2aNodes = []flowNode{
 	{Name: "reviewer", Short: "reviewer"},
 }
 
+const arrow = " -> "
+
 // RenderFlow renders the ASCII flow diagram with active service highlighting.
 func RenderFlow(width int, activeServices map[string]bool, activeEdge [2]string, edgeLabel string) string {
 	var b strings.Builder
@@ -33,7 +35,8 @@ func RenderFlow(width int, activeServices map[string]bool, activeEdge [2]string,
 	b.WriteString(panelTitle.Render("FLOW"))
 	b.WriteString("\n\n")
 
-	// Main flow line
+	// Main flow line:
+	//   dashboard -> user-svc -> agent-svc -> doc-svc -> opa
 	b.WriteString("  ")
 	for i, node := range flowNodes {
 		style := flowNodeStyle
@@ -42,50 +45,66 @@ func RenderFlow(width int, activeServices map[string]bool, activeEdge [2]string,
 		}
 		b.WriteString(style.Render(node.Short))
 		if i < len(flowNodes)-1 {
-			var arrow string
 			if isActiveEdge(activeEdge, flowNodes[i].Name, flowNodes[i+1].Name) {
-				arrow = flowActiveStyle.Render(" ──→ ")
+				b.WriteString(flowActiveStyle.Render(arrow))
 			} else {
-				arrow = flowArrowStyle.Render(" ──→ ")
+				b.WriteString(flowArrowStyle.Render(arrow))
 			}
-			b.WriteString(arrow)
 		}
 	}
 	b.WriteString("\n")
 
-	// A2A branch line (from agent-svc)
-	b.WriteString("                           ")
+	// Calculate indent to align branches under agent-svc
+	indent := 2 + len("dashboard") + len(arrow) + len("user-svc") + len(arrow)
+	pad := strings.Repeat(" ", indent)
+
+	// A2A branch lines (both are peers called by agent-svc):
+	//                             |- summarizer  -> doc-svc -> opa
+	//                             '- reviewer    -> doc-svc -> opa
 	for i, node := range a2aNodes {
-		prefix := "└──→ "
-		if i > 0 {
-			prefix = "     └──→ "
+		connector := "|- "
+		if i == len(a2aNodes)-1 {
+			connector = "'- "
 		}
+
+		b.WriteString(pad)
+
+		if isActiveEdge(activeEdge, "agent-svc", node.Name) {
+			b.WriteString(flowActiveStyle.Render(connector))
+		} else {
+			b.WriteString(flowArrowStyle.Render(connector))
+		}
+
 		style := flowNodeStyle
 		if activeServices[node.Name] {
 			style = flowActiveStyle
 		}
+		name := fmt.Sprintf("%-12s", node.Short)
+		b.WriteString(style.Render(name))
 
-		if isActiveEdge(activeEdge, "agent-svc", node.Name) {
-			b.WriteString(flowActiveStyle.Render(prefix))
+		// -> doc-svc -> opa
+		if isActiveEdge(activeEdge, node.Name, "doc-svc") {
+			b.WriteString(flowActiveStyle.Render(arrow))
+			b.WriteString(flowActiveStyle.Render("doc-svc"))
 		} else {
-			b.WriteString(flowArrowStyle.Render(prefix))
-		}
-		b.WriteString(style.Render(node.Short))
-
-		// Show arrow to doc-svc from A2A agents
-		if activeServices[node.Name] {
-			b.WriteString(flowArrowStyle.Render(" ──→ "))
+			b.WriteString(flowArrowStyle.Render(arrow))
 			b.WriteString(flowNodeStyle.Render("doc-svc"))
 		}
-		b.WriteString("\n")
-		if i == 0 {
-			b.WriteString("                           ")
+
+		if isActiveEdge(activeEdge, "doc-svc", "opa") {
+			b.WriteString(flowActiveStyle.Render(arrow))
+			b.WriteString(flowActiveStyle.Render("opa"))
+		} else {
+			b.WriteString(flowArrowStyle.Render(arrow))
+			b.WriteString(flowNodeStyle.Render("opa"))
 		}
+
+		b.WriteString("\n")
 	}
 
 	// Active edge label
 	if activeEdge[0] != "" && activeEdge[1] != "" {
-		label := fmt.Sprintf("Active: %s → %s", activeEdge[0], activeEdge[1])
+		label := fmt.Sprintf("Active: %s -> %s", activeEdge[0], activeEdge[1])
 		if edgeLabel != "" {
 			label += " [" + edgeLabel + "]"
 		}

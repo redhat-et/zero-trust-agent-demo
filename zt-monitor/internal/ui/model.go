@@ -301,27 +301,36 @@ func (m Model) renderHeader() string {
 	}
 
 	right := ns + " " + status
-	gap := m.width - len(stripANSI(title)) - len(stripANSI(right)) - 2
-	if gap < 1 {
-		gap = 1
-	}
 
-	return title + strings.Repeat(" ", gap) + right
+	return lipgloss.Place(m.width, 1,
+		lipgloss.Left, lipgloss.Top,
+		title,
+		lipgloss.WithWhitespaceChars(" "),
+	)[:0] + lipgloss.JoinHorizontal(lipgloss.Top,
+		title,
+		lipgloss.NewStyle().
+			Width(m.width-lipgloss.Width(title)-lipgloss.Width(right)).
+			Render(""),
+		right,
+	)
 }
 
 func (m Model) renderStatusBar() string {
-	help := "q:quit  p:pause  c:clear  f:filter  ↑↓/jk:scroll"
+	help := "q:quit  p:pause  c:clear  f:filter  jk/arrows:scroll"
 	if m.filtering {
-		help = fmt.Sprintf("Filter: %s█  (enter to apply, esc to cancel)", m.filterBuf)
+		help = fmt.Sprintf("Filter: %s_  (enter to apply, esc to cancel)", m.filterBuf)
 	}
 
-	right := fmt.Sprintf("Events: %d", m.totalEvents)
-	gap := m.width - len(help) - len(right) - 4
-	if gap < 1 {
-		gap = 1
-	}
+	left := helpStyle.Render(help)
+	right := statusBarStyle.Render(fmt.Sprintf("Events: %d", m.totalEvents))
 
-	return helpStyle.Render(help) + strings.Repeat(" ", gap) + statusBarStyle.Render(right)
+	return lipgloss.JoinHorizontal(lipgloss.Top,
+		left,
+		lipgloss.NewStyle().
+			Width(m.width-lipgloss.Width(left)-lipgloss.Width(right)).
+			Render(""),
+		right,
+	)
 }
 
 func (m Model) eventPanelHeight() int {

@@ -80,17 +80,28 @@ func (tp *TokenPanel) Render(width int) string {
 		halfWidth = 20
 	}
 
-	beforeBox := renderClaimBox("Before", tp.Before, halfWidth)
-	afterBox := renderClaimBox("After", tp.After, halfWidth)
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorToken).
+		Width(halfWidth).
+		PaddingLeft(1).
+		PaddingRight(1)
 
-	// Side by side
+	titleStyle := lipgloss.NewStyle().
+		Foreground(colorToken).
+		Bold(true)
+
+	beforeContent := renderClaims(titleStyle.Render("Before"), tp.Before, halfWidth-4)
+	afterContent := renderClaims(titleStyle.Render("After"), tp.After, halfWidth-4)
+
+	beforeBox := boxStyle.Render(beforeContent)
+	afterBox := boxStyle.Render(afterContent)
+
+	// Place side by side
 	beforeLines := strings.Split(beforeBox, "\n")
 	afterLines := strings.Split(afterBox, "\n")
 
-	maxLines := len(beforeLines)
-	if len(afterLines) > maxLines {
-		maxLines = len(afterLines)
-	}
+	maxLines := max(len(beforeLines), len(afterLines))
 
 	for i := range maxLines {
 		left := ""
@@ -102,8 +113,7 @@ func (tp *TokenPanel) Render(width int) string {
 			right = afterLines[i]
 		}
 
-		// Pad left to fixed width
-		left = padRight(left, halfWidth)
+		left = padRight(left, halfWidth+2)
 
 		b.WriteString("  ")
 		b.WriteString(left)
@@ -115,55 +125,38 @@ func (tp *TokenPanel) Render(width int) string {
 	return b.String()
 }
 
-func renderClaimBox(title string, claims map[string]string, width int) string {
+func renderClaims(title string, claims map[string]string, maxValWidth int) string {
 	var b strings.Builder
 
-	header := tokenLabelStyle.Render(fmt.Sprintf("┌─ %s ", title))
-	remaining := width - len(fmt.Sprintf("┌─ %s ", title))
-	if remaining > 0 {
-		header += tokenLabelStyle.Render(strings.Repeat("─", remaining) + "┐")
-	}
-	b.WriteString(header)
+	b.WriteString(title)
 	b.WriteString("\n")
 
 	displayKeys := []string{"aud", "azp", "sub", "iss", "exp", "scope"}
 	for _, key := range displayKeys {
 		if val, ok := claims[key]; ok {
-			line := fmt.Sprintf("│ %s: %s", key,
-				tokenValueStyle.Render(truncate(val, width-len(key)-6)))
-			b.WriteString(tokenLabelStyle.Render("│ "))
-			b.WriteString(fmt.Sprintf("%s: %s",
+			b.WriteString(fmt.Sprintf("%s: %s\n",
 				tokenLabelStyle.Render(key),
-				tokenValueStyle.Render(truncate(val, width-len(key)-6))))
-			_ = line
-			b.WriteString("\n")
+				tokenValueStyle.Render(truncate(val, maxValWidth-len(key)-2))))
 		}
 	}
 
-	// Any remaining keys not in displayKeys
 	for key, val := range claims {
 		if !contains(displayKeys, key) {
-			b.WriteString(tokenLabelStyle.Render("│ "))
-			b.WriteString(fmt.Sprintf("%s: %s",
+			b.WriteString(fmt.Sprintf("%s: %s\n",
 				tokenLabelStyle.Render(key),
-				tokenValueStyle.Render(truncate(val, width-len(key)-6))))
-			b.WriteString("\n")
+				tokenValueStyle.Render(truncate(val, maxValWidth-len(key)-2))))
 		}
 	}
 
-	footer := tokenLabelStyle.Render("└" + strings.Repeat("─", width-1) + "┘")
-	b.WriteString(footer)
-
-	return b.String()
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func padRight(s string, n int) string {
-	// Count visible length (strip ANSI)
-	visible := stripANSI(s)
-	if len(visible) >= n {
+	w := lipgloss.Width(s)
+	if w >= n {
 		return s
 	}
-	return s + strings.Repeat(" ", n-len(visible))
+	return s + strings.Repeat(" ", n-w)
 }
 
 func truncate(s string, maxLen int) string {
@@ -183,24 +176,4 @@ func contains(ss []string, s string) bool {
 		}
 	}
 	return false
-}
-
-// stripANSI removes ANSI escape sequences for length calculation.
-func stripANSI(s string) string {
-	var b strings.Builder
-	inEsc := false
-	for _, r := range s {
-		if r == '\033' {
-			inEsc = true
-			continue
-		}
-		if inEsc {
-			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
-				inEsc = false
-			}
-			continue
-		}
-		b.WriteRune(r)
-	}
-	return b.String()
 }
