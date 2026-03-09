@@ -1,0 +1,17 @@
+# Per-target routing for agent-service envoy-proxy.
+# When agent-service calls summarizer or reviewer, the ext-proc uses
+# the matching route to exchange for the correct audience and scopes.
+# Requests to other hosts fall through to the global TARGET_AUDIENCE.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: authbridge-agent-routes
+  namespace: spiffe-demo
+data:
+  routes.yaml: |
+    - host: "summarizer-service**"
+      target_audience: "spiffe://demo.example.com/service/summarizer-service"
+      token_scopes: "openid summarizer-service-aud"
+    - host: "reviewer-service**"
+      target_audience: "spiffe://demo.example.com/service/reviewer-service"
+      token_scopes: "openid reviewer-service-aud"

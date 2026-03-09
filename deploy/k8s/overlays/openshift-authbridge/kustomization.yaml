@@ -21,6 +21,7 @@ resources:
 - authbridge-configmaps.yaml
 - authbridge-secrets.yaml
 - ai-agents-scc.yaml
+- agent-service-routes-configmap.yaml
 - settings.yaml
 
   # OpenShift-specific agent-service sidecar patch (SELinux + port 443)
@@ -36,6 +37,7 @@ patches:
 - path: ai-agents-authbridge-patch.yaml
 - path: ai-agents-sidecars-patch.yaml
 - path: agent-service-discovery-scheme-patch.yaml
+- path: agent-service-routes-patch.yaml
 
 # Inject values from settings.yaml into the right resources.
 # The settings ConfigMap is annotated with local-config and will not

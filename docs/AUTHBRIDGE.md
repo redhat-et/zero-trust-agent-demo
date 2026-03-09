@@ -383,8 +383,13 @@ The `realm-spiffe-demo.json` includes:
 
 - `agent-service-spiffe-aud` client scope: adds the agent-service SPIFFE ID
   (`spiffe://demo.example.com/service/agent-service`) to access tokens
-- `document-service-aud` in default optional scopes: allows dynamically
-  registered clients to request document-service audience during token exchange
+- `summarizer-service-aud` client scope: adds the summarizer-service SPIFFE ID
+  as audience for per-target token exchange routing
+- `reviewer-service-aud` client scope: adds the reviewer-service SPIFFE ID
+  as audience for per-target token exchange routing
+- `document-service-aud`, `summarizer-service-aud`, `reviewer-service-aud`
+  in default optional scopes: allows dynamically registered clients to
+  request these audiences during token exchange
 - `KC_HOSTNAME=keycloak.localtest.me`: ensures consistent `iss` claim in all
   tokens (browser and in-cluster)
 
@@ -614,6 +619,91 @@ network-level encryption are complementary:
 
 This layered approach is the standard pattern for zero-trust architectures in
 Kubernetes.
+
+## Act claim chaining (RFC 8693)
+
+### Problem
+
+Multi-hop delegation (user -> agent-service -> summarizer -> document-service)
+passes delegation context via unsigned `X-Delegation-*` HTTP headers. A
+compromised intermediate service could forge these headers and impersonate
+a different user or agent.
+
+### Solution
+
+AuthProxy sends its own identity as `actor_token` during RFC 8693 token
+exchange. The Keycloak `act-claim-spi` reads the actor token's `sub` claim
+and injects it as a nested `act` claim in the exchanged JWT. On multi-hop
+exchanges, existing `act` claims are preserved by nesting.
+
+### Token flow with act claims
+
+```text
+1. Alice logs in -> JWT: {sub: "alice"}
+
+2. Agent-service exchanges token (actor=agent-service):
+   JWT: {sub: "alice", act: {sub: "agent-sa"}}
+
+3. Summarizer exchanges token (actor=summarizer):
+   JWT: {sub: "alice", act: {sub: "summarizer-sa", act: {sub: "agent-sa"}}}
+
+4. Document-service receives JWT with full delegation chain
+```
+
+### Example JWT payload
+
+```json
+{
+  "sub": "alice-uuid",
+  "aud": "document-service",
+  "azp": "spiffe://demo.example.com/service/summarizer-service",
+  "groups": ["/engineering", "/finance"],
+  "act": {
+    "sub": "service-account-spiffe://demo.example.com/service/summarizer-service",
+    "act": {
+      "sub": "service-account-spiffe://demo.example.com/service/agent-service"
+    }
+  }
+}
+```
+
+### Per-target audience routing
+
+Agent-service calls multiple downstream services (document-service,
+summarizer-service, reviewer-service). A `routes.yaml` ConfigMap controls
+which audience and scopes the ext-proc requests during token exchange:
+
+```yaml
+- host: "summarizer-service**"
+  target_audience: "spiffe://demo.example.com/service/summarizer-service"
+  token_scopes: "openid summarizer-service-aud"
+- host: "reviewer-service**"
+  target_audience: "spiffe://demo.example.com/service/reviewer-service"
+  token_scopes: "openid reviewer-service-aud"
+# Requests to other hosts use the global TARGET_AUDIENCE (document-service)
+```
+
+### Act claim configuration
+
+| Variable | Default | Description |
+| -------- | ------- | ----------- |
+| `ACTOR_TOKEN_ENABLED` | `true` | Enable/disable actor token injection |
+| `ROUTES_CONFIG_PATH` | (empty) | Path to routes.yaml for per-target routing |
+
+### Act claim prerequisites
+
+- `keycloak-act-claim-spi` deployed in Keycloak
+- AuthProxy with actor token support (ACTOR_TOKEN_ENABLED=true)
+- Audience scopes: `summarizer-service-aud`, `reviewer-service-aud`
+
+### Act claim verification
+
+```bash
+# Run act claim tests
+./scripts/test-authbridge.sh
+
+# Look for "Act Claim Test" sections in output
+```
 
 ## Backward compatibility
 
