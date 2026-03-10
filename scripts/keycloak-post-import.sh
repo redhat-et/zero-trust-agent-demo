@@ -59,8 +59,25 @@ add_audience_mapper() {
     -H "Authorization: Bearer $token" | jq -r ".[] | select(.name==\"${mapper_name}\") | .id")
 
   if [ -n "$existing" ]; then
-    echo "  (already exists: $mapper_name)"
-    return 0
+    # Check if the existing mapper has the correct audience
+    local current_aud
+    current_aud=$(curl -sf "${KEYCLOAK_URL}/admin/realms/${REALM}/client-scopes/${scope_id}/protocol-mappers/models" \
+      -H "Authorization: Bearer $token" | jq -r ".[] | select(.name==\"${mapper_name}\") | .config[\"included.custom.audience\"]")
+
+    if [ "$current_aud" = "$audience" ]; then
+      echo "  (already exists: $mapper_name)"
+      return 0
+    fi
+
+    echo "  ~ Updating $mapper_name: $current_aud -> $audience"
+    local del_status
+    del_status=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
+      "${KEYCLOAK_URL}/admin/realms/${REALM}/client-scopes/${scope_id}/protocol-mappers/models/${existing}" \
+      -H "Authorization: Bearer $token")
+    if [ "$del_status" != "204" ]; then
+      echo "  ! Failed to delete stale mapper ($del_status)"
+      return 1
+    fi
   fi
 
   local status

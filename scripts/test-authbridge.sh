@@ -22,6 +22,7 @@ TOKEN_ENDPOINT="$KEYCLOAK_URL/realms/$REALM/protocol/openid-connect/token"
 
 PASS=0
 FAIL=0
+SKIP=0
 
 pass() {
   echo "  ✓ PASS: $1"
@@ -31,6 +32,11 @@ pass() {
 fail() {
   echo "  ✗ FAIL: $1"
   FAIL=$((FAIL + 1))
+}
+
+skip() {
+  echo "  ⊘ SKIP: $1"
+  SKIP=$((SKIP + 1))
 }
 
 # Decode a JWT payload with proper base64url padding.
@@ -726,7 +732,7 @@ if [ -n "$SUMMARIZER_POD" ]; then
         EXCHANGE_EVIDENCE=$(echo "$ENVOY_ACT_LOGS" | { grep -E "\[Token Exchange\] Successfully exchanged token" || true; } | tail -3)
         if [ -n "$EXCHANGE_EVIDENCE" ]; then
           echo "$EXCHANGE_EVIDENCE" | while read -r line; do echo "    $line"; done
-          pass "Agent envoy-proxy performed token exchange (act claim injected by Keycloak SPI)"
+          skip "Token exchange occurred but no act claim evidence in document-service logs (SPI may not be deployed)"
         else
           fail "No token exchange evidence found in agent envoy-proxy logs"
         fi
@@ -748,9 +754,10 @@ fi
 
 # Print summary
 echo "=== Test Summary ==="
-echo "  Passed: $PASS"
-echo "  Failed: $FAIL"
-echo "  Total:  $((PASS + FAIL))"
+echo "  Passed:  $PASS"
+echo "  Failed:  $FAIL"
+echo "  Skipped: $SKIP"
+echo "  Total:   $((PASS + FAIL + SKIP))"
 echo ""
 
 if [ "$FAIL" -gt 0 ]; then
