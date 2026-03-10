@@ -586,6 +586,92 @@
       },
       "notBefore": 0,
       "groups": []
+    },
+    {
+      "username": "alice",
+      "firstName": "Alice",
+      "lastName": "Smith",
+      "email": "alice@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "alice123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-spiffe-demo"
+      ],
+      "groups": [
+        "/engineering",
+        "/finance"
+      ]
+    },
+    {
+      "username": "bob",
+      "firstName": "Bob",
+      "lastName": "Jones",
+      "email": "bob@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "bob123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-spiffe-demo"
+      ],
+      "groups": [
+        "/finance",
+        "/admin"
+      ]
+    },
+    {
+      "username": "carol",
+      "firstName": "Carol",
+      "lastName": "Williams",
+      "email": "carol@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "carol123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-spiffe-demo"
+      ],
+      "groups": [
+        "/hr"
+      ]
+    },
+    {
+      "username": "david",
+      "firstName": "David",
+      "lastName": "Brown",
+      "email": "david@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "david123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "default-roles-spiffe-demo"
+      ],
+      "groups": [
+        "/engineering"
+      ]
     }
   ],
   "scopeMappings": [
