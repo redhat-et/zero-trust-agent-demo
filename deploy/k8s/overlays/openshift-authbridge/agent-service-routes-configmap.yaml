@@ -10,8 +10,8 @@ metadata:
 data:
   routes.yaml: |
     - host: "summarizer-service**"
-      target_audience: "spiffe://demo.example.com/service/summarizer-service"
+      target_audience: "spiffe://apps.ocp-beta-test.nerc.mghpcc.org/ns/spiffe-demo/sa/default"
       token_scopes: "openid summarizer-service-aud"
     - host: "reviewer-service**"
-      target_audience: "spiffe://demo.example.com/service/reviewer-service"
+      target_audience: "spiffe://apps.ocp-beta-test.nerc.mghpcc.org/ns/spiffe-demo/sa/default"
       token_scopes: "openid reviewer-service-aud"

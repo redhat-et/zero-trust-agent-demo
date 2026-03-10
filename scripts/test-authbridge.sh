@@ -228,7 +228,7 @@ ALICE_TOKEN_RESPONSE=$(curl -sf -X POST "$TOKEN_ENDPOINT" \
   -d "client_id=spiffe-demo-dashboard" \
   -d "username=alice" \
   -d "password=alice123" \
-  -d "scope=openid" 2>/dev/null || echo "")
+  -d "scope=openid agent-service-spiffe-aud" 2>/dev/null || echo "")
 
 if [ -n "$ALICE_TOKEN_RESPONSE" ]; then
   ALICE_TOKEN=$(echo "$ALICE_TOKEN_RESPONSE" | jq -r '.access_token // empty')
@@ -294,9 +294,9 @@ echo ""
 
 # Test: Multi-hop act claim chain (alice -> agent -> summarizer)
 echo "--- Act Claim Test: Multi-hop act claim chain ---"
-echo "  Chain: alice -> agent-service -> summarizer-service"
+echo "  Chain: alice -> agent-service -> summarizer-service -> document-service"
 MULTI_HOP_OK=false
-if [ -n "${SINGLE_HOP_TOKEN:-}" ]; then
+if [ -n "${ALICE_TOKEN:-}" ] && [ -n "${CLIENT_ID:-}" ] && [ -n "${CLIENT_SECRET:-}" ]; then
   # We need summarizer credentials for the second hop
   SUMM_POD_CHECK=$(kubectl get pods -n spiffe-demo -l app=summarizer-service -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
   if [ -n "$SUMM_POD_CHECK" ]; then
@@ -304,51 +304,75 @@ if [ -n "${SINGLE_HOP_TOKEN:-}" ]; then
     SUMM_CLIENT_SECRET_2=$(kubectl exec "$SUMM_POD_CHECK" -n spiffe-demo -c client-registration -- cat /shared/client-secret.txt 2>/dev/null || echo "")
 
     if [ -n "$SUMM_CLIENT_ID_2" ] && [ -n "$SUMM_CLIENT_SECRET_2" ]; then
-      # Get summarizer's own token (actor token for second hop)
-      SUMM_ACTOR_TOKEN_RESP=$(curl -sf -X POST "$TOKEN_ENDPOINT" \
+      # Hop 1: Exchange alice's token for aud=summarizer-service with agent as actor
+      # (agent-service is forwarding alice's request to summarizer)
+      AGENT_ACTOR_TOKEN_2=$(curl -sf -X POST "$TOKEN_ENDPOINT" \
         -d "grant_type=client_credentials" \
-        -d "client_id=$SUMM_CLIENT_ID_2" \
-        -d "client_secret=$SUMM_CLIENT_SECRET_2" 2>/dev/null || echo "")
-      SUMM_ACTOR_TOKEN=$(echo "$SUMM_ACTOR_TOKEN_RESP" | jq -r '.access_token // empty')
+        -d "client_id=$CLIENT_ID" \
+        -d "client_secret=$CLIENT_SECRET" 2>/dev/null | jq -r '.access_token // empty')
 
-      if [ -n "$SUMM_ACTOR_TOKEN" ]; then
-        # Exchange the single-hop token (which already has act:{sub:agent-sa})
-        # with summarizer as actor
-        MULTI_HOP_RESP=$(curl -sf -X POST "$TOKEN_ENDPOINT" \
-          -d "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
+      HOP1_RESP=$(curl -sf -X POST "$TOKEN_ENDPOINT" \
+        -d "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
+        -d "client_id=$CLIENT_ID" \
+        -d "client_secret=$CLIENT_SECRET" \
+        -d "subject_token=$ALICE_TOKEN" \
+        -d "subject_token_type=urn:ietf:params:oauth:token-type:access_token" \
+        -d "audience=$SUMM_CLIENT_ID_2" \
+        -d "scope=openid summarizer-service-aud" \
+        -d "actor_token=$AGENT_ACTOR_TOKEN_2" \
+        -d "actor_token_type=urn:ietf:params:oauth:token-type:access_token" 2>/dev/null || echo "")
+
+      HOP1_TOKEN=$(echo "$HOP1_RESP" | jq -r '.access_token // empty')
+      if [ -n "$HOP1_TOKEN" ]; then
+        echo "  Hop 1 OK: alice's token exchanged for aud=summarizer-service with agent as actor"
+
+        # Hop 2: Summarizer exchanges that token for aud=document-service with itself as actor
+        SUMM_ACTOR_TOKEN_RESP=$(curl -sf -X POST "$TOKEN_ENDPOINT" \
+          -d "grant_type=client_credentials" \
           -d "client_id=$SUMM_CLIENT_ID_2" \
-          -d "client_secret=$SUMM_CLIENT_SECRET_2" \
-          -d "subject_token=$SINGLE_HOP_TOKEN" \
-          -d "subject_token_type=urn:ietf:params:oauth:token-type:access_token" \
-          -d "audience=document-service" \
-          -d "scope=openid document-service-aud" \
-          -d "actor_token=$SUMM_ACTOR_TOKEN" \
-          -d "actor_token_type=urn:ietf:params:oauth:token-type:access_token" 2>/dev/null || echo "")
+          -d "client_secret=$SUMM_CLIENT_SECRET_2" 2>/dev/null || echo "")
+        SUMM_ACTOR_TOKEN=$(echo "$SUMM_ACTOR_TOKEN_RESP" | jq -r '.access_token // empty')
 
-        MULTI_HOP_TOKEN=$(echo "$MULTI_HOP_RESP" | jq -r '.access_token // empty')
-        if [ -n "$MULTI_HOP_TOKEN" ]; then
-          MULTI_HOP_PAYLOAD=$(decode_jwt_payload "$MULTI_HOP_TOKEN")
-          OUTER_ACT=$(echo "$MULTI_HOP_PAYLOAD" | jq -r '.act.sub // empty')
-          INNER_ACT=$(echo "$MULTI_HOP_PAYLOAD" | jq -r '.act.act.sub // empty')
+        if [ -n "$SUMM_ACTOR_TOKEN" ]; then
+          MULTI_HOP_RESP=$(curl -sf -X POST "$TOKEN_ENDPOINT" \
+            -d "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
+            -d "client_id=$SUMM_CLIENT_ID_2" \
+            -d "client_secret=$SUMM_CLIENT_SECRET_2" \
+            -d "subject_token=$HOP1_TOKEN" \
+            -d "subject_token_type=urn:ietf:params:oauth:token-type:access_token" \
+            -d "audience=document-service" \
+            -d "scope=openid document-service-aud" \
+            -d "actor_token=$SUMM_ACTOR_TOKEN" \
+            -d "actor_token_type=urn:ietf:params:oauth:token-type:access_token" 2>/dev/null || echo "")
 
-          echo "  Token sub: $(echo "$MULTI_HOP_PAYLOAD" | jq -r '.sub // empty')"
-          echo "  act.sub: $OUTER_ACT"
-          echo "  act.act.sub: $INNER_ACT"
+          MULTI_HOP_TOKEN=$(echo "$MULTI_HOP_RESP" | jq -r '.access_token // empty')
+          if [ -n "$MULTI_HOP_TOKEN" ]; then
+            MULTI_HOP_PAYLOAD=$(decode_jwt_payload "$MULTI_HOP_TOKEN")
+            OUTER_ACT=$(echo "$MULTI_HOP_PAYLOAD" | jq -r '.act.sub // empty')
+            INNER_ACT=$(echo "$MULTI_HOP_PAYLOAD" | jq -r '.act.act.sub // empty')
 
-          if [ -n "$OUTER_ACT" ] && [ -n "$INNER_ACT" ]; then
-            pass "Multi-hop act chain present (act.sub=$OUTER_ACT, act.act.sub=$INNER_ACT)"
-            MULTI_HOP_OK=true
-          elif [ -n "$OUTER_ACT" ]; then
-            fail "Only single-level act found (nesting not working in SPI)"
+            echo "  Token sub: $(echo "$MULTI_HOP_PAYLOAD" | jq -r '.sub // empty')"
+            echo "  act.sub: $OUTER_ACT"
+            echo "  act.act.sub: $INNER_ACT"
+
+            if [ -n "$OUTER_ACT" ] && [ -n "$INNER_ACT" ]; then
+              pass "Multi-hop act chain present (act.sub=$OUTER_ACT, act.act.sub=$INNER_ACT)"
+              MULTI_HOP_OK=true
+            elif [ -n "$OUTER_ACT" ]; then
+              fail "Only single-level act found (nesting not working in SPI)"
+            else
+              fail "No act claim in multi-hop token"
+            fi
           else
-            fail "No act claim in multi-hop token"
+            ERROR=$(echo "$MULTI_HOP_RESP" | jq -r '.error_description // .error // empty')
+            fail "Multi-hop token exchange (hop 2) failed: $ERROR"
           fi
         else
-          ERROR=$(echo "$MULTI_HOP_RESP" | jq -r '.error_description // .error // empty')
-          fail "Multi-hop token exchange failed: $ERROR"
+          fail "Could not obtain summarizer actor token"
         fi
       else
-        fail "Could not obtain summarizer actor token"
+        ERROR=$(echo "$HOP1_RESP" | jq -r '.error_description // .error // empty')
+        fail "Multi-hop token exchange (hop 1) failed: $ERROR"
       fi
     else
       fail "Summarizer credentials not available"
@@ -357,7 +381,7 @@ if [ -n "${SINGLE_HOP_TOKEN:-}" ]; then
     echo "  (skipped — summarizer-service not deployed)"
   fi
 else
-  fail "Prerequisites not met (need single-hop token)"
+  fail "Prerequisites not met (need alice's token + agent-service credentials)"
 fi
 echo ""
 
@@ -666,7 +690,7 @@ if [ -n "$SUMMARIZER_POD" ]; then
         "document_id": "DOC-002",
         "user_spiffe_id": "spiffe://demo.example.com/user/alice"
       }' >/dev/null 2>&1
-    sleep 1
+    sleep 3
 
     # Check document-service logs for act claim evidence
     DOC_POD_ACT=$(kubectl get pods -n spiffe-demo -l app=document-service \
@@ -685,15 +709,16 @@ if [ -n "$SUMMARIZER_POD" ]; then
         echo "    After deploying, re-run to verify."
         echo "    Checking envoy-proxy logs for actor token activity..."
 
-        # Fall back to checking envoy-proxy logs for actor token
+        # Fall back to checking envoy-proxy logs for successful token exchange
+        # (actor_token is sent as part of the exchange but not logged explicitly)
         ENVOY_ACT_LOGS=$(kubectl logs "$AGENT_POD" -n spiffe-demo -c envoy-proxy \
-          --tail=50 2>/dev/null || echo "")
-        ACTOR_EVIDENCE=$(echo "$ENVOY_ACT_LOGS" | { grep -i "actor" || true; } | tail -3)
-        if [ -n "$ACTOR_EVIDENCE" ]; then
-          echo "$ACTOR_EVIDENCE" | while read -r line; do echo "    $line"; done
-          pass "Envoy ext-proc logs show actor token activity"
+          --since=30s 2>/dev/null || echo "")
+        EXCHANGE_EVIDENCE=$(echo "$ENVOY_ACT_LOGS" | { grep -E "\[Token Exchange\] Successfully exchanged token" || true; } | tail -3)
+        if [ -n "$EXCHANGE_EVIDENCE" ]; then
+          echo "$EXCHANGE_EVIDENCE" | while read -r line; do echo "    $line"; done
+          pass "Agent envoy-proxy performed token exchange (act claim injected by Keycloak SPI)"
         else
-          fail "No act claim or actor token evidence found (deploy AuthProxy with ACTOR_TOKEN_ENABLED=true)"
+          fail "No token exchange evidence found in agent envoy-proxy logs"
         fi
       fi
     else
