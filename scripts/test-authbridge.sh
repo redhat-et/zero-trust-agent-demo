@@ -356,7 +356,7 @@ if [ -n "${ALICE_TOKEN:-}" ] && [ -n "${CLIENT_ID:-}" ] && [ -n "${CLIENT_SECRET
             TOKEN_NAME=$(echo "$MULTI_HOP_PAYLOAD" | jq -r '.name // .preferred_username // .sub')
             echo ""
             echo "  ┌─────────────────────────────────────────────────────────────────┐"
-            echo "  │  Final JWT arriving at document-service (delegation proof)       │"
+            echo "  │  Final JWT arriving at document-service (delegation proof)      │"
             echo "  └─────────────────────────────────────────────────────────────────┘"
             echo ""
             echo "$(echo "$MULTI_HOP_PAYLOAD" | jq '{sub, name, aud, azp, act}')" | sed 's/^/    /'
