@@ -351,9 +351,19 @@ if [ -n "${ALICE_TOKEN:-}" ] && [ -n "${CLIENT_ID:-}" ] && [ -n "${CLIENT_SECRET
             OUTER_ACT=$(echo "$MULTI_HOP_PAYLOAD" | jq -r '.act.sub // empty')
             INNER_ACT=$(echo "$MULTI_HOP_PAYLOAD" | jq -r '.act.act.sub // empty')
 
-            echo "  Token sub: $(echo "$MULTI_HOP_PAYLOAD" | jq -r '.sub // empty')"
-            echo "  act.sub: $OUTER_ACT"
-            echo "  act.act.sub: $INNER_ACT"
+            # Show the delegation chain as it would arrive at document-service
+            TOKEN_SUB=$(echo "$MULTI_HOP_PAYLOAD" | jq -r '.sub // empty')
+            TOKEN_NAME=$(echo "$MULTI_HOP_PAYLOAD" | jq -r '.name // .preferred_username // .sub')
+            echo ""
+            echo "  ┌─────────────────────────────────────────────────────────────────┐"
+            echo "  │  Final JWT arriving at document-service (delegation proof)       │"
+            echo "  └─────────────────────────────────────────────────────────────────┘"
+            echo ""
+            echo "$(echo "$MULTI_HOP_PAYLOAD" | jq '{sub, name, aud, azp, act}')" | sed 's/^/    /'
+            echo ""
+            echo "  Reading: \"$TOKEN_NAME\" (sub) delegated through"
+            echo "    act.sub ($OUTER_ACT) -> act.act.sub ($INNER_ACT)"
+            echo ""
 
             if [ -n "$OUTER_ACT" ] && [ -n "$INNER_ACT" ]; then
               pass "Multi-hop act chain present (act.sub=$OUTER_ACT, act.act.sub=$INNER_ACT)"
