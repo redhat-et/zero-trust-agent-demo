@@ -254,8 +254,7 @@ Common flags:
 
 ## Security Standards (RFCs)
 
-The AuthBridge token exchange flow is built on these standards
-(offline copies in `docs/references/`):
+The AuthBridge token exchange flow is built on these standards:
 
 | RFC | Title | Used for |
 | --- | ----- | -------- |

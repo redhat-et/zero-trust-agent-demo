@@ -8,6 +8,7 @@ metadata:
 resources:
   - ../authbridge
   - ../ai-agents
+  - agent-service-routes-configmap.yaml
 
 # Transform AI agent image names to match Kind local registry
 images:
@@ -22,3 +23,4 @@ patches:
   - path: ai-agents-authbridge-patch.yaml
   - path: ai-agents-sidecars-patch.yaml
   - path: agent-service-discovery-patch.yaml
+  - path: agent-service-routes-patch.yaml

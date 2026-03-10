@@ -3,10 +3,10 @@
 > **Note**: This document was originally written as a pre-implementation
 > design blueprint. It has been updated to reflect the current state of
 > the project, including the AuthBridge OIDC overlay (Phase 8),
-> OpenTelemetry distributed tracing (Phase 9), and Kustomize-based
-> deployment. Some sections (demo scenarios, OPA policies, educational
-> features) describe the conceptual design that was implemented
-> faithfully.
+> OpenTelemetry distributed tracing (Phase 9), act claim chaining for
+> delegation tracking (Phase 10), and Kustomize-based deployment. Some
+> sections (demo scenarios, OPA policies, educational features) describe
+> the conceptual design that was implemented faithfully.
 
 ## Table of contents
 
@@ -282,7 +282,9 @@ identity providers.
 Adds Keycloak for user authentication (OIDC), an Envoy sidecar on
 agent-service with an ext-proc that performs RFC 8693 token exchange,
 and JWT validation in document-service. This demonstrates bridging
-human identity (OIDC) with workload identity (SPIFFE).
+human identity (OIDC) with workload identity (SPIFFE). With act claim
+chaining enabled (Phase 10), each token exchange embeds a nested `act`
+claim recording the full delegation path — see ADR-0010.
 
 ```text
 ┌──────────┐  OIDC  ┌──────────┐  mTLS  ┌──────────────────────┐
@@ -2410,6 +2412,7 @@ Decision Record (ADR) in `docs/adr/`:
 | 9B | OTel Collector + Jaeger deployment | ADR-0009 |
 | 9C | AuthBridge ext-proc instrumentation | ADR-0009 |
 | 9D | Bearer token propagation | ADR-0009 |
+| 10 | Act claim chaining (RFC 8693 delegation tracking) | ADR-0010 |
 
 ### Future work
 
@@ -2418,7 +2421,8 @@ Decision Record (ADR) in `docs/adr/`:
 - **Dynamic agent registration API**: REST endpoint to add agents
   without code changes
 - **MCP integration**: SPIFFE-secured Model Context Protocol endpoints
-- **Agent-to-agent delegation**: Multi-level permission reduction
+- **OPA policies using act claims**: Enforce allowed delegation paths
+  based on the signed `act` chain in JWTs
 
 ---
 
@@ -2468,6 +2472,7 @@ Decision Record (ADR) in `docs/adr/`:
 | **Kustomize**               | Kubernetes-native configuration management tool for manifest overlays                           |
 | **OTel**                    | OpenTelemetry - vendor-neutral observability framework for traces, metrics, logs                 |
 | **MCP**                     | Model Context Protocol - protocol for exposing resources/tools to LLMs                          |
+| **act claim**               | RFC 8693 Section 4.1 — nested JWT claim recording who is acting on behalf of whom               |
 | **A2A**                     | Agent-to-Agent communication protocol                                                           |
 
 ---
@@ -2485,4 +2490,5 @@ systems** using:
 
 The system enforces that AI agents can never exceed the permissions
 of either the delegating user or the agent's own capabilities, with
-every decision auditable through OTel traces and OPA policy logs.
+every decision auditable through OTel traces, OPA policy logs, and
+signed `act` claim chains in JWTs.

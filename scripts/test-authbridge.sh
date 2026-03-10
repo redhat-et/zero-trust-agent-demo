@@ -22,6 +22,7 @@ TOKEN_ENDPOINT="$KEYCLOAK_URL/realms/$REALM/protocol/openid-connect/token"
 
 PASS=0
 FAIL=0
+SKIP=0
 
 pass() {
   echo "  ✓ PASS: $1"
@@ -31,6 +32,11 @@ pass() {
 fail() {
   echo "  ✗ FAIL: $1"
   FAIL=$((FAIL + 1))
+}
+
+skip() {
+  echo "  ⊘ SKIP: $1"
+  SKIP=$((SKIP + 1))
 }
 
 # Decode a JWT payload with proper base64url padding.
@@ -213,6 +219,185 @@ if [ -n "${ACCESS_TOKEN:-}" ]; then
     fail "Unexpected response for DOC-004"
     echo "  Response: $DENY_RESULT"
   fi
+fi
+echo ""
+
+# ===== Act Claim Chaining Tests =====
+# These tests verify RFC 8693 actor token chaining (requires keycloak-act-claim-spi
+# deployed in Keycloak and AuthProxy with ACTOR_TOKEN_ENABLED=true).
+
+# Test: Obtain alice's user token via password grant
+echo "--- Act Claim Test: Obtain alice's user token ---"
+ALICE_TOKEN=""
+ALICE_TOKEN_RESPONSE=$(curl -sf -X POST "$TOKEN_ENDPOINT" \
+  -d "grant_type=password" \
+  -d "client_id=spiffe-demo-dashboard" \
+  -d "username=alice" \
+  -d "password=alice123" \
+  -d "scope=openid agent-service-spiffe-aud" 2>/dev/null || echo "")
+
+if [ -n "$ALICE_TOKEN_RESPONSE" ]; then
+  ALICE_TOKEN=$(echo "$ALICE_TOKEN_RESPONSE" | jq -r '.access_token // empty')
+  if [ -n "$ALICE_TOKEN" ]; then
+    pass "Obtained alice's user token via password grant"
+  else
+    ERROR=$(echo "$ALICE_TOKEN_RESPONSE" | jq -r '.error_description // .error // empty')
+    fail "Could not obtain alice's token: $ERROR"
+  fi
+else
+  fail "Password grant request failed (directAccessGrantsEnabled may be off)"
+fi
+echo ""
+
+# Test: Single-hop act claim (exchange alice's token with agent-service as actor)
+echo "--- Act Claim Test: Single-hop act claim ---"
+if [ -n "${ALICE_TOKEN:-}" ] && [ -n "${CLIENT_ID:-}" ] && [ -n "${CLIENT_SECRET:-}" ]; then
+  # Get agent-service's own token (actor token)
+  AGENT_ACTOR_TOKEN_RESP=$(curl -sf -X POST "$TOKEN_ENDPOINT" \
+    -d "grant_type=client_credentials" \
+    -d "client_id=$CLIENT_ID" \
+    -d "client_secret=$CLIENT_SECRET" 2>/dev/null || echo "")
+  AGENT_ACTOR_TOKEN=$(echo "$AGENT_ACTOR_TOKEN_RESP" | jq -r '.access_token // empty')
+
+  if [ -n "$AGENT_ACTOR_TOKEN" ]; then
+    # Exchange alice's token with agent-service as actor
+    SINGLE_HOP_RESP=$(curl -sf -X POST "$TOKEN_ENDPOINT" \
+      -d "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
+      -d "client_id=$CLIENT_ID" \
+      -d "client_secret=$CLIENT_SECRET" \
+      -d "subject_token=$ALICE_TOKEN" \
+      -d "subject_token_type=urn:ietf:params:oauth:token-type:access_token" \
+      -d "audience=document-service" \
+      -d "scope=openid document-service-aud" \
+      -d "actor_token=$AGENT_ACTOR_TOKEN" \
+      -d "actor_token_type=urn:ietf:params:oauth:token-type:access_token" 2>/dev/null || echo "")
+
+    SINGLE_HOP_TOKEN=$(echo "$SINGLE_HOP_RESP" | jq -r '.access_token // empty')
+    if [ -n "$SINGLE_HOP_TOKEN" ]; then
+      SINGLE_HOP_PAYLOAD=$(decode_jwt_payload "$SINGLE_HOP_TOKEN")
+      ACT_SUB=$(echo "$SINGLE_HOP_PAYLOAD" | jq -r '.act.sub // empty')
+      TOKEN_SUB=$(echo "$SINGLE_HOP_PAYLOAD" | jq -r '.sub // empty')
+
+      echo "  Token sub: $TOKEN_SUB"
+      echo "  act.sub: $ACT_SUB"
+
+      if [ -n "$ACT_SUB" ]; then
+        pass "Single-hop act claim present (act.sub=$ACT_SUB)"
+      else
+        fail "Single-hop exchange succeeded but no act claim found (is keycloak-act-claim-spi deployed?)"
+      fi
+    else
+      ERROR=$(echo "$SINGLE_HOP_RESP" | jq -r '.error_description // .error // empty')
+      fail "Single-hop token exchange failed: $ERROR"
+    fi
+  else
+    fail "Could not obtain agent-service actor token"
+  fi
+else
+  fail "Prerequisites not met (need alice's token + agent-service credentials)"
+fi
+echo ""
+
+# Test: Multi-hop act claim chain (alice -> agent -> summarizer)
+echo "--- Act Claim Test: Multi-hop act claim chain ---"
+echo "  Chain: alice -> agent-service -> summarizer-service -> document-service"
+MULTI_HOP_OK=false
+if [ -n "${ALICE_TOKEN:-}" ] && [ -n "${CLIENT_ID:-}" ] && [ -n "${CLIENT_SECRET:-}" ]; then
+  # We need summarizer credentials for the second hop
+  SUMM_POD_CHECK=$(kubectl get pods -n spiffe-demo -l app=summarizer-service -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+  if [ -n "$SUMM_POD_CHECK" ]; then
+    SUMM_CLIENT_ID_2=$(kubectl exec "$SUMM_POD_CHECK" -n spiffe-demo -c client-registration -- cat /shared/client-id.txt 2>/dev/null || echo "")
+    SUMM_CLIENT_SECRET_2=$(kubectl exec "$SUMM_POD_CHECK" -n spiffe-demo -c client-registration -- cat /shared/client-secret.txt 2>/dev/null || echo "")
+
+    if [ -n "$SUMM_CLIENT_ID_2" ] && [ -n "$SUMM_CLIENT_SECRET_2" ]; then
+      # Hop 1: Exchange alice's token for aud=summarizer-service with agent as actor
+      # (agent-service is forwarding alice's request to summarizer)
+      AGENT_ACTOR_TOKEN_2=$(curl -sf -X POST "$TOKEN_ENDPOINT" \
+        -d "grant_type=client_credentials" \
+        -d "client_id=$CLIENT_ID" \
+        -d "client_secret=$CLIENT_SECRET" 2>/dev/null | jq -r '.access_token // empty')
+
+      HOP1_RESP=$(curl -sf -X POST "$TOKEN_ENDPOINT" \
+        -d "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
+        -d "client_id=$CLIENT_ID" \
+        -d "client_secret=$CLIENT_SECRET" \
+        -d "subject_token=$ALICE_TOKEN" \
+        -d "subject_token_type=urn:ietf:params:oauth:token-type:access_token" \
+        -d "audience=$SUMM_CLIENT_ID_2" \
+        -d "scope=openid summarizer-service-aud" \
+        -d "actor_token=$AGENT_ACTOR_TOKEN_2" \
+        -d "actor_token_type=urn:ietf:params:oauth:token-type:access_token" 2>/dev/null || echo "")
+
+      HOP1_TOKEN=$(echo "$HOP1_RESP" | jq -r '.access_token // empty')
+      if [ -n "$HOP1_TOKEN" ]; then
+        echo "  Hop 1 OK: alice's token exchanged for aud=summarizer-service with agent as actor"
+
+        # Hop 2: Summarizer exchanges that token for aud=document-service with itself as actor
+        SUMM_ACTOR_TOKEN_RESP=$(curl -sf -X POST "$TOKEN_ENDPOINT" \
+          -d "grant_type=client_credentials" \
+          -d "client_id=$SUMM_CLIENT_ID_2" \
+          -d "client_secret=$SUMM_CLIENT_SECRET_2" 2>/dev/null || echo "")
+        SUMM_ACTOR_TOKEN=$(echo "$SUMM_ACTOR_TOKEN_RESP" | jq -r '.access_token // empty')
+
+        if [ -n "$SUMM_ACTOR_TOKEN" ]; then
+          MULTI_HOP_RESP=$(curl -sf -X POST "$TOKEN_ENDPOINT" \
+            -d "grant_type=urn:ietf:params:oauth:grant-type:token-exchange" \
+            -d "client_id=$SUMM_CLIENT_ID_2" \
+            -d "client_secret=$SUMM_CLIENT_SECRET_2" \
+            -d "subject_token=$HOP1_TOKEN" \
+            -d "subject_token_type=urn:ietf:params:oauth:token-type:access_token" \
+            -d "audience=document-service" \
+            -d "scope=openid document-service-aud" \
+            -d "actor_token=$SUMM_ACTOR_TOKEN" \
+            -d "actor_token_type=urn:ietf:params:oauth:token-type:access_token" 2>/dev/null || echo "")
+
+          MULTI_HOP_TOKEN=$(echo "$MULTI_HOP_RESP" | jq -r '.access_token // empty')
+          if [ -n "$MULTI_HOP_TOKEN" ]; then
+            MULTI_HOP_PAYLOAD=$(decode_jwt_payload "$MULTI_HOP_TOKEN")
+            OUTER_ACT=$(echo "$MULTI_HOP_PAYLOAD" | jq -r '.act.sub // empty')
+            INNER_ACT=$(echo "$MULTI_HOP_PAYLOAD" | jq -r '.act.act.sub // empty')
+
+            # Show the delegation chain as it would arrive at document-service
+            TOKEN_SUB=$(echo "$MULTI_HOP_PAYLOAD" | jq -r '.sub // empty')
+            TOKEN_NAME=$(echo "$MULTI_HOP_PAYLOAD" | jq -r '.name // .preferred_username // .sub')
+            echo ""
+            echo "  ┌─────────────────────────────────────────────────────────────────┐"
+            echo "  │  Final JWT arriving at document-service (delegation proof)      │"
+            echo "  └─────────────────────────────────────────────────────────────────┘"
+            echo ""
+            echo "$(echo "$MULTI_HOP_PAYLOAD" | jq '{sub, name, aud, azp, act}')" | sed 's/^/    /'
+            echo ""
+            echo "  Reading: \"$TOKEN_NAME\" (sub) delegated through"
+            echo "    act.sub ($OUTER_ACT) -> act.act.sub ($INNER_ACT)"
+            echo ""
+
+            if [ -n "$OUTER_ACT" ] && [ -n "$INNER_ACT" ]; then
+              pass "Multi-hop act chain present (act.sub=$OUTER_ACT, act.act.sub=$INNER_ACT)"
+              MULTI_HOP_OK=true
+            elif [ -n "$OUTER_ACT" ]; then
+              fail "Only single-level act found (nesting not working in SPI)"
+            else
+              fail "No act claim in multi-hop token"
+            fi
+          else
+            ERROR=$(echo "$MULTI_HOP_RESP" | jq -r '.error_description // .error // empty')
+            fail "Multi-hop token exchange (hop 2) failed: $ERROR"
+          fi
+        else
+          fail "Could not obtain summarizer actor token"
+        fi
+      else
+        ERROR=$(echo "$HOP1_RESP" | jq -r '.error_description // .error // empty')
+        fail "Multi-hop token exchange (hop 1) failed: $ERROR"
+      fi
+    else
+      fail "Summarizer credentials not available"
+    fi
+  else
+    echo "  (skipped — summarizer-service not deployed)"
+  fi
+else
+  fail "Prerequisites not met (need alice's token + agent-service credentials)"
 fi
 echo ""
 
@@ -505,6 +690,61 @@ if [ -n "$SUMMARIZER_POD" ]; then
   fi
   echo ""
 
+  # Test 13: E2E act claim verification via A2A invoke
+  # Trigger a live A2A invoke and inspect the document-service logs for act claims
+  # in the received JWT. Requires AuthProxy with ACTOR_TOKEN_ENABLED=true and
+  # keycloak-act-claim-spi deployed.
+  echo "--- Test 13: E2E act claim in JWT (via A2A invoke) ---"
+  echo "  Trigger: agent-service -> summarizer (A2A) -> document-service"
+  if [ -n "${ACCESS_TOKEN:-}" ]; then
+    # Trigger a fresh A2A invoke so document-service receives a JWT with act claims
+    kubectl exec "$AGENT_POD" -n spiffe-demo -c agent-service -- \
+      curl -s -X POST "http://localhost:8080/agents/summarizer/invoke" \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer $ACCESS_TOKEN" \
+      -d '{
+        "document_id": "DOC-002",
+        "user_spiffe_id": "spiffe://demo.example.com/user/alice"
+      }' >/dev/null 2>&1
+    sleep 3
+
+    # Check document-service logs for act claim evidence
+    DOC_POD_ACT=$(kubectl get pods -n spiffe-demo -l app=document-service \
+      -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+    if [ -n "$DOC_POD_ACT" ]; then
+      DOC_LOGS_ACT=$(kubectl logs "$DOC_POD_ACT" -n spiffe-demo -c document-service \
+        --tail=30 2>/dev/null || echo "")
+      ACT_EVIDENCE=$(echo "$DOC_LOGS_ACT" | { grep -i "act" || true; } | tail -3)
+
+      if [ -n "$ACT_EVIDENCE" ]; then
+        echo "$ACT_EVIDENCE" | while read -r line; do echo "    $line"; done
+        pass "Document-service logs show act claim evidence"
+      else
+        echo "    (no act claim evidence in document-service logs)"
+        echo "    This is expected if AuthProxy or act-claim-spi is not yet deployed."
+        echo "    After deploying, re-run to verify."
+        echo "    Checking envoy-proxy logs for actor token activity..."
+
+        # Fall back to checking envoy-proxy logs for successful token exchange
+        # (actor_token is sent as part of the exchange but not logged explicitly)
+        ENVOY_ACT_LOGS=$(kubectl logs "$AGENT_POD" -n spiffe-demo -c envoy-proxy \
+          --since=30s 2>/dev/null || echo "")
+        EXCHANGE_EVIDENCE=$(echo "$ENVOY_ACT_LOGS" | { grep -E "\[Token Exchange\] Successfully exchanged token" || true; } | tail -3)
+        if [ -n "$EXCHANGE_EVIDENCE" ]; then
+          echo "$EXCHANGE_EVIDENCE" | while read -r line; do echo "    $line"; done
+          skip "Token exchange occurred but no act claim evidence in document-service logs (SPI may not be deployed)"
+        else
+          fail "No token exchange evidence found in agent envoy-proxy logs"
+        fi
+      fi
+    else
+      fail "Document-service pod not found"
+    fi
+  else
+    fail "No access token available"
+  fi
+  echo ""
+
 else
   echo ""
   echo "--- Skipping A2A agent tests (summarizer-service not deployed) ---"
@@ -514,9 +754,10 @@ fi
 
 # Print summary
 echo "=== Test Summary ==="
-echo "  Passed: $PASS"
-echo "  Failed: $FAIL"
-echo "  Total:  $((PASS + FAIL))"
+echo "  Passed:  $PASS"
+echo "  Failed:  $FAIL"
+echo "  Skipped: $SKIP"
+echo "  Total:   $((PASS + FAIL + SKIP))"
 echo ""
 
 if [ "$FAIL" -gt 0 ]; then

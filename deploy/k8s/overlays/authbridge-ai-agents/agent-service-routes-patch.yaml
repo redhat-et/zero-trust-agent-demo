@@ -1,0 +1,23 @@
+# Mount routes.yaml in agent-service envoy-proxy for per-target
+# audience routing (summarizer, reviewer).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-service
+  namespace: spiffe-demo
+spec:
+  template:
+    spec:
+      containers:
+        - name: envoy-proxy
+          env:
+            - name: ROUTES_CONFIG_PATH
+              value: "/etc/authproxy/routes.yaml"
+          volumeMounts:
+            - name: authbridge-agent-routes
+              mountPath: /etc/authproxy
+              readOnly: true
+      volumes:
+        - name: authbridge-agent-routes
+          configMap:
+            name: authbridge-agent-routes
