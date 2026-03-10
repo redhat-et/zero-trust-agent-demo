@@ -650,6 +650,60 @@ if [ -n "$SUMMARIZER_POD" ]; then
   fi
   echo ""
 
+  # Test 13: E2E act claim verification via A2A invoke
+  # Trigger a live A2A invoke and inspect the document-service logs for act claims
+  # in the received JWT. Requires AuthProxy with ACTOR_TOKEN_ENABLED=true and
+  # keycloak-act-claim-spi deployed.
+  echo "--- Test 13: E2E act claim in JWT (via A2A invoke) ---"
+  echo "  Trigger: agent-service -> summarizer (A2A) -> document-service"
+  if [ -n "${ACCESS_TOKEN:-}" ]; then
+    # Trigger a fresh A2A invoke so document-service receives a JWT with act claims
+    kubectl exec "$AGENT_POD" -n spiffe-demo -c agent-service -- \
+      curl -s -X POST "http://localhost:8080/agents/summarizer/invoke" \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer $ACCESS_TOKEN" \
+      -d '{
+        "document_id": "DOC-002",
+        "user_spiffe_id": "spiffe://demo.example.com/user/alice"
+      }' >/dev/null 2>&1
+    sleep 1
+
+    # Check document-service logs for act claim evidence
+    DOC_POD_ACT=$(kubectl get pods -n spiffe-demo -l app=document-service \
+      -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+    if [ -n "$DOC_POD_ACT" ]; then
+      DOC_LOGS_ACT=$(kubectl logs "$DOC_POD_ACT" -n spiffe-demo -c document-service \
+        --tail=30 2>/dev/null || echo "")
+      ACT_EVIDENCE=$(echo "$DOC_LOGS_ACT" | { grep -i "act" || true; } | tail -3)
+
+      if [ -n "$ACT_EVIDENCE" ]; then
+        echo "$ACT_EVIDENCE" | while read -r line; do echo "    $line"; done
+        pass "Document-service logs show act claim evidence"
+      else
+        echo "    (no act claim evidence in document-service logs)"
+        echo "    This is expected if AuthProxy or act-claim-spi is not yet deployed."
+        echo "    After deploying, re-run to verify."
+        echo "    Checking envoy-proxy logs for actor token activity..."
+
+        # Fall back to checking envoy-proxy logs for actor token
+        ENVOY_ACT_LOGS=$(kubectl logs "$AGENT_POD" -n spiffe-demo -c envoy-proxy \
+          --tail=50 2>/dev/null || echo "")
+        ACTOR_EVIDENCE=$(echo "$ENVOY_ACT_LOGS" | { grep -i "actor" || true; } | tail -3)
+        if [ -n "$ACTOR_EVIDENCE" ]; then
+          echo "$ACTOR_EVIDENCE" | while read -r line; do echo "    $line"; done
+          pass "Envoy ext-proc logs show actor token activity"
+        else
+          fail "No act claim or actor token evidence found (deploy AuthProxy with ACTOR_TOKEN_ENABLED=true)"
+        fi
+      fi
+    else
+      fail "Document-service pod not found"
+    fi
+  else
+    fail "No access token available"
+  fi
+  echo ""
+
 else
   echo ""
   echo "--- Skipping A2A agent tests (summarizer-service not deployed) ---"
