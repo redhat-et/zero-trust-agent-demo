@@ -1271,7 +1271,11 @@
         "groups",
         "email"
       ],
-      "optionalClientScopes": []
+      "optionalClientScopes": [
+        "agent-service-spiffe-aud",
+        "summarizer-service-aud",
+        "reviewer-service-aud"
+      ]
     }
   ],
   "clientScopes": [
@@ -1482,6 +1486,20 @@
             "access.token.claim": "true",
             "introspection.token.claim": "true"
           }
+        },
+        {
+          "id": "a1b2c3d4-e5f6-7890-abcd-ef0123456790",
+          "name": "agent-service-openshift-aud",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "spiffe://apps.ocp-beta-test.nerc.mghpcc.org/ns/spiffe-demo/sa/agent-service",
+            "id.token.claim": "false",
+            "lightweight.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
         }
       ]
     },
@@ -1509,6 +1527,20 @@
             "access.token.claim": "true",
             "introspection.token.claim": "true"
           }
+        },
+        {
+          "id": "c3d4e5f6-a7b8-9012-cdef-012345678902",
+          "name": "summarizer-service-openshift-aud",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "spiffe://apps.ocp-beta-test.nerc.mghpcc.org/ns/spiffe-demo/sa/default",
+            "id.token.claim": "false",
+            "lightweight.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
         }
       ]
     },
@@ -1531,6 +1563,20 @@
           "consentRequired": false,
           "config": {
             "included.custom.audience": "spiffe://demo.example.com/service/reviewer-service",
+            "id.token.claim": "false",
+            "lightweight.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "id": "e5f6a7b8-c9d0-1234-efab-234567890124",
+          "name": "reviewer-service-openshift-aud",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "spiffe://apps.ocp-beta-test.nerc.mghpcc.org/ns/spiffe-demo/sa/default",
             "id.token.claim": "false",
             "lightweight.claim": "false",
             "access.token.claim": "true",
