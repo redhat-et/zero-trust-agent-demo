@@ -28,7 +28,6 @@ This works because document-service is **our service** — we control
 its authentication. Real-world applications use diverse authn/authz
 mechanisms:
 
-
 | Service    | Auth mechanism    | Credential type                            |
 | ---------- | ----------------- | ------------------------------------------ |
 | AWS S3     | IAM/STS           | ACCESS_KEY + SECRET_KEY (or session token) |
@@ -37,7 +36,6 @@ mechanisms:
 | PostgreSQL | Username/password | Connection credentials                     |
 | SSH hosts  | Certificates      | SSH certificates or keys                   |
 | Kubernetes | ServiceAccount    | Bearer token or X.509                      |
-
 
 **The core challenge**: How do we translate our JWT with act claims
 into service-specific credentials that enforce the permission
@@ -81,10 +79,10 @@ that the Summarizer uses when acting on Alice's behalf
 3. A policy computation step (external or via Vault Sentinel)
   determines the intersection of user and agent permissions
 4. Vault's dynamic secrets engine generates scoped credentials:
-  - **AWS**: STS `AssumeRole` with an inline session policy
+- **AWS**: STS `AssumeRole` with an inline session policy
    restricting to the intersection
-  - **Database**: Time-limited credentials with reduced privileges
-  - **SSH**: Signed certificates with restricted principals
+- **Database**: Time-limited credentials with reduced privileges
+- **SSH**: Signed certificates with restricted principals
 
 **AWS STS session policies** are particularly well-suited because
 they natively implement permission intersection:
@@ -181,10 +179,10 @@ A purpose-built microservice that:
   permission intersection
 4. Calls the target service's credential API to generate scoped
   credentials:
-  - AWS: `sts:AssumeRole` with computed session policy
-  - GitHub: Create a scoped installation token via GitHub App API
-  - Database: Create a temporary user with restricted grants
-  - S3 presigned URLs: Generate URLs for allowed paths only
+- AWS: `sts:AssumeRole` with computed session policy
+- GitHub: Create a scoped installation token via GitHub App API
+- Database: Create a temporary user with restricted grants
+- S3 presigned URLs: Generate URLs for allowed paths only
 
 **Strengths:**
 
@@ -304,14 +302,12 @@ secret needed.
 
 **Biscuit vs. Macaroons:**
 
-
 | Property        | Biscuit                        | Macaroons                   |
 | --------------- | ------------------------------ | --------------------------- |
 | Crypto          | Public key (Ed25519)           | HMAC (shared secret)        |
 | Policy language | Datalog (formal, expressive)   | Opaque bytes (BYO encoding) |
 | Verification    | Anyone with public key         | Only secret holders         |
 | Governance      | Eclipse Foundation, Apache 2.0 | Google (original paper)     |
-
 
 **Production users**: Clever Cloud (Apache Pulsar, internal
 tooling), Space and Time (decentralized data platform).
@@ -384,7 +380,6 @@ policies — the federation endpoint doesn't understand act claims
 
 ## Comparison matrix
 
-
 | Criterion                  | Vault/OpenBao      | Vending Machine    | Proxy             | Biscuit          | Cloud Federation |
 | -------------------------- | ------------------ | ------------------ | ----------------- | ---------------- | ---------------- |
 | Permission intersection    | Needs custom logic | OPA-native         | OPA-native        | Cryptographic    | Session policies |
@@ -395,7 +390,6 @@ policies — the federation endpoint doesn't understand act claims
 | Open source                | OpenBao (LF)       | Custom             | Envoy (CNCF)      | Yes (Rust)       | N/A (vendor)     |
 | Maturity                   | Production-ready   | Greenfield         | Proven pattern    | Early            | Production-ready |
 | Agent credential exposure  | Agent gets creds   | Agent gets creds   | No exposure       | Agent gets token | Agent gets creds |
-
 
 ## Recommended architecture: Hybrid approach
 
@@ -472,7 +466,6 @@ s3_session_policy := policy {
 
 **3. Backend-specific credential adapters**
 
-
 | Backend    | Mechanism                         | Intersection enforcement           |
 | ---------- | --------------------------------- | ---------------------------------- |
 | AWS S3     | STS `AssumeRole` + session policy | Native (AWS enforces intersection) |
@@ -480,24 +473,28 @@ s3_session_policy := policy {
 | Slack      | Proxy-based (filter channels)     | Gateway filters API calls          |
 | PostgreSQL | Vault database secrets engine     | Dynamic user with restricted GRANT |
 | SSH        | Vault SSH secrets engine          | Signed certificate with principals |
-| Kubernetes | TokenRequest API                  | ServiceAccount token with audience |
-
+| Kubernetes | Pre-scoped ServiceAccount + RBAC  | Restricted RBAC rules per SA       |
 
 ### AWS S3 walkthrough
 
 Step-by-step for the Alice + Summarizer + S3 example:
 
 1. **Summarizer** receives Alice's delegated JWT with:
+
   ```json
    {"sub": "summarizer", "act": {"sub": "alice"}}
   ```
-2. **Summarizer** calls the Credential Gateway:
-  ```
+
+1. **Summarizer** calls the Credential Gateway:
+
+  ```text
    POST /credentials
    Authorization: Bearer <JWT-with-act-claims>
    {"target_service": "s3", "action": "read"}
   ```
-3. **Gateway** validates the JWT, extracts the chain, calls OPA:
+
+1. **Gateway** validates the JWT, extracts the chain, calls OPA:
+
   ```json
    {
      "user": "alice",
@@ -506,12 +503,15 @@ Step-by-step for the Alice + Summarizer + S3 example:
      "action": "read"
    }
   ```
-4. **OPA** returns the intersection:
+1. **OPA** returns the intersection:
+
   ```json
    {"allowed_buckets": ["engineering"]}
   ```
-5. **Gateway** calls AWS STS:
-  ```
+
+1. **Gateway** calls AWS STS:
+
+  ```text
    AssumeRole(
      RoleArn: "arn:aws:iam::123:role/delegated-access",
      SessionPolicy: {
@@ -524,7 +524,8 @@ Step-by-step for the Alice + Summarizer + S3 example:
      DurationSeconds: 900
    )
   ```
-6. **Gateway** returns temporary credentials to Summarizer:
+1. **Gateway** returns temporary credentials to Summarizer:
+
   ```json
    {
      "access_key_id": "ASIA...",
@@ -533,7 +534,8 @@ Step-by-step for the Alice + Summarizer + S3 example:
      "expiration": "2026-03-10T15:00:00Z"
    }
   ```
-7. **Summarizer** uses the credentials to access S3 — can only
+
+1. **Summarizer** uses the credentials to access S3 — can only
   read from `engineering/`*
 
 ### GitHub walkthrough
@@ -549,7 +551,6 @@ Step-by-step for the Alice + Summarizer + S3 example:
 
 ## Implementation phases
 
-
 | Phase | Description                                                         | Complexity   |
 | ----- | ------------------------------------------------------------------- | ------------ |
 | 1     | Credential Gateway skeleton with JWT validation and OPA integration | Medium       |
@@ -558,7 +559,6 @@ Step-by-step for the Alice + Summarizer + S3 example:
 | 4     | Vault/OpenBao integration for databases and SSH                     | High         |
 | 5     | Proxy mode for services without credential APIs (Slack, etc.)       | High         |
 | 6     | Biscuit token support for service-to-service chains                 | Experimental |
-
 
 ## Open questions
 
@@ -569,34 +569,33 @@ Step-by-step for the Alice + Summarizer + S3 example:
 2. **Credential revocation**: If Alice revokes delegation to
   Summarizer, how do we revoke already-issued S3 sessions?
    STS sessions can't be revoked individually. Options:
-  - Short TTLs (15 min) to limit exposure
-  - AWS STS condition keys + deny policies
-  - Vault's lease revocation for Vault-issued credentials
-3. **Multi-hop credential chains**: In our current flow,
+- Short TTLs (15 min) to limit exposure
+- AWS STS condition keys + deny policies
+- Vault's lease revocation for Vault-issued credentials
+1. **Multi-hop credential chains**: In our current flow,
   User → Agent → Summarizer → Document Service, the Summarizer
    might need to access S3 on behalf of the user via the agent.
    Should the Credential Gateway accept multi-level act chains
    and compute the intersection across all hops?
-4. **Audit trail**: The act claim chain provides audit for the
+2. **Audit trail**: The act claim chain provides audit for the
   JWT flow. When we translate to service-specific credentials,
    how do we maintain the audit trail? Options:
-  - Tag AWS sessions with `alice-via-summarizer`
-  - Log all credential issuance in the gateway with full chain
-  - Use CloudTrail / audit logs with session name correlation
-5. **Separation of credential storage**: Where do the "master"
+- Tag AWS sessions with `alice-via-summarizer`
+- Log all credential issuance in the gateway with full chain
+- Use CloudTrail / audit logs with session name correlation
+1. **Separation of credential storage**: Where do the "master"
   credentials live (the IAM role ARN, the GitHub App private
    key, the database root password)? Options:
-  - Vault (purpose-built for this)
-  - Kubernetes Secrets (simpler but less secure)
-  - Cloud-native secret managers (AWS Secrets Manager, etc.)
-6. **Service mesh integration**: Should the Credential Gateway
+- Vault (purpose-built for this)
+- Kubernetes Secrets (simpler but less secure)
+- Cloud-native secret managers (AWS Secrets Manager, etc.)
+1. **Service mesh integration**: Should the Credential Gateway
   be a standalone service, an Envoy ext-proc filter, or
    integrated into a service mesh? Our ext-proc pattern could
    extend naturally, but the gateway needs state (credential
    cache, Vault connections).
 
 ## Related work and references
-
 
 | Project                                                                                                                                                                          | Relevance                                            |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
@@ -609,7 +608,6 @@ Step-by-step for the Alice + Summarizer + S3 example:
 | [AWS IAM Roles Anywhere](https://docs.aws.amazon.com/rolesanywhere/)                                                                                                             | X.509 to IAM role mapping                            |
 | [AWS STS Session Policies](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies.html#policies_session)                                                               | Native permission intersection                       |
 | [GitHub App Installation Tokens](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app) | Repository-scoped tokens                             |
-
 
 ## Conclusion
 
