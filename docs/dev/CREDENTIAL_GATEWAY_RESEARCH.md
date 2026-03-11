@@ -43,11 +43,12 @@ intersection?
 
 ### Concrete example: S3
 
-- **Alice** has access to S3 buckets: `finance/`*, `engineering/*`
+- **Alice** has access to S3 prefixes: `s3://data/finance/*`,
+  `s3://data/engineering/*` (within a shared bucket)
 - **Summarizer agent** capabilities: `engineering`, `admin`
-- **Permission intersection**: `engineering/`* only
-- **Need**: An AWS session or credentials scoped to `engineering/`*
-that the Summarizer uses when acting on Alice's behalf
+- **Permission intersection**: `s3://data/engineering/*` only
+- **Need**: An AWS session scoped to `s3://data/engineering/*`
+  that the Summarizer uses when acting on Alice's behalf
 
 ### Concrete example: GitHub
 
@@ -449,16 +450,18 @@ intersection := result {
     result := user_perms & agent_caps
 }
 
-# For S3: compute allowed bucket prefixes
+# For S3: compute allowed prefix paths
 s3_session_policy := policy {
     allowed := intersection
     policy := {
         "Version": "2012-10-17",
         "Statement": [{
             "Effect": "Allow",
-            "Action": ["s3:GetObject"],
-            "Resource": [sprintf("arn:aws:s3:::%v/*", [bucket]) |
-                bucket := allowed[_]]
+            "Action": ["s3:GetObject", "s3:ListBucket"],
+            "Resource": array.concat(
+                ["arn:aws:s3:::data"],
+                [sprintf("arn:aws:s3:::data/%v/*", [prefix]) |
+                    prefix := allowed[_]])
         }]
     }
 }
@@ -514,11 +517,15 @@ Step-by-step for the Alice + Summarizer + S3 example:
   ```text
    AssumeRole(
      RoleArn: "arn:aws:iam::123:role/delegated-access",
-     SessionPolicy: {
+     Policy: {
+       "Version": "2012-10-17",
        "Statement": [{
          "Effect": "Allow",
-         "Action": "s3:GetObject",
-         "Resource": "arn:aws:s3:::engineering/*"
+         "Action": ["s3:GetObject", "s3:ListBucket"],
+         "Resource": [
+           "arn:aws:s3:::data",
+           "arn:aws:s3:::data/engineering/*"
+         ]
        }]
      },
      DurationSeconds: 900
@@ -567,10 +574,14 @@ Step-by-step for the Alice + Summarizer + S3 example:
    last 15 min to 12 hours. Caching reduces STS calls but adds
    complexity.
 2. **Credential revocation**: If Alice revokes delegation to
-  Summarizer, how do we revoke already-issued S3 sessions?
-   STS sessions can't be revoked individually. Options:
-- Short TTLs (15 min) to limit exposure
-- AWS STS condition keys + deny policies
+  Summarizer, how do we invalidate already-issued S3 sessions?
+   Individual STS sessions can't be deleted via API, but AWS
+   provides immediate containment: an IAM deny policy with
+   `aws:TokenIssueTime` condition revokes all sessions issued
+   before a given timestamp. Options:
+- Short TTLs (15 min) to limit exposure window
+- IAM deny policy with `aws:TokenIssueTime` for immediate
+     role-level revocation
 - Vault's lease revocation for Vault-issued credentials
 1. **Multi-hop credential chains**: In our current flow,
   User → Agent → Summarizer → Document Service, the Summarizer
