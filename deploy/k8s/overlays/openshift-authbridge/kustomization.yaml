@@ -114,3 +114,5 @@ images:
   newTag: fb63b22-dirty
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/web-dashboard
   newTag: fb63b22-dirty
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/credential-gateway
+  newTag: fb63b22-dirty

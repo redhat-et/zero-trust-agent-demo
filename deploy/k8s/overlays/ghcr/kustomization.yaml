@@ -24,6 +24,9 @@ images:
   - name: web-dashboard
     newName: ghcr.io/redhat-et/zero-trust-agent-demo/web-dashboard
     newTag: latest
+  - name: credential-gateway
+    newName: ghcr.io/redhat-et/zero-trust-agent-demo/credential-gateway
+    newTag: latest
   - name: jaeger
     newName: jaegertracing/jaeger
     newTag: "2.15.0"
@@ -330,6 +333,41 @@ patches:
         value:
           name: SPIFFE_DEMO_OTEL_COLLECTOR_ENDPOINT
           value: "otel-collector:4317"
+
+  # Credential Gateway - plain HTTP (no SPIFFE mTLS)
+  - target:
+      kind: Deployment
+      name: credential-gateway
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: IfNotPresent
+      - op: add
+        path: /spec/template/spec/containers/0/ports/-
+        value:
+          containerPort: 8180
+          name: health
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_SERVICE_HEALTH_PORT
+          value: "8180"
+      - op: add
+        path: /spec/template/spec/containers/0/livenessProbe
+        value:
+          httpGet:
+            path: /health
+            port: 8180
+          initialDelaySeconds: 10
+          periodSeconds: 10
+      - op: add
+        path: /spec/template/spec/containers/0/readinessProbe
+        value:
+          httpGet:
+            path: /ready
+            port: 8180
+          initialDelaySeconds: 5
+          periodSeconds: 5
 
   # Web Dashboard - Real SPIFFE with ghcr.io images
   - target:
