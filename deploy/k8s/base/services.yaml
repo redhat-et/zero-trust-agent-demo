@@ -11,8 +11,12 @@ spec:
   selector:
     app: opa-service
   ports:
-    - port: 8080
+    - name: mtls
+      port: 8080
       targetPort: 8080
+    - name: health
+      port: 8180
+      targetPort: 8180
 ---
 apiVersion: v1
 kind: Service
