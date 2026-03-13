@@ -67,11 +67,12 @@ type PolicyDecision struct {
 }
 
 type OPAService struct {
-	logger          *logger.Logger
-	query           rego.PreparedEvalQuery
-	managementQuery rego.PreparedEvalQuery
-	decisionLog     *logger.Logger
-	workloadClient  *spiffe.WorkloadClient
+	logger              *logger.Logger
+	query               rego.PreparedEvalQuery
+	managementQuery     rego.PreparedEvalQuery
+	credGatewayQuery    rego.PreparedEvalQuery
+	decisionLog         *logger.Logger
+	workloadClient      *spiffe.WorkloadClient
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
@@ -129,6 +130,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	mux.HandleFunc("/v1/data/authz/allow", svc.handleAllow)
 	mux.HandleFunc("/v1/data/demo/authorization/decision", svc.handleDecision)
 	mux.HandleFunc("/v1/data/demo/authorization/management/decision", svc.handleManagementDecision)
+	mux.HandleFunc("/v1/data/demo/credential_gateway/decision", svc.handleCredentialGatewayDecision)
 
 	// Wrap with SPIFFE identity middleware
 	var handler http.Handler = spiffe.IdentityMiddleware(cfg.Service.MockSPIFFE)(mux)
@@ -223,10 +225,16 @@ func newOPAService(log *logger.Logger, policyDir string, workloadClient *spiffe.
 		return nil, fmt.Errorf("failed to read document_management.rego: %w", err)
 	}
 
+	credGateway, err := os.ReadFile(filepath.Join(policyDir, "credential_gateway.rego"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read credential_gateway.rego: %w", err)
+	}
+
 	log.Info("Loading policy: user_permissions.rego")
 	log.Info("Loading policy: agent_permissions.rego")
 	log.Info("Loading policy: delegation.rego")
 	log.Info("Loading policy: document_management.rego")
+	log.Info("Loading policy: credential_gateway.rego")
 
 	// Prepare the authorization query
 	query, err := rego.New(
@@ -249,12 +257,24 @@ func newOPAService(log *logger.Logger, policyDir string, workloadClient *spiffe.
 		return nil, fmt.Errorf("failed to prepare OPA management query: %w", err)
 	}
 
+	// Prepare the credential gateway query
+	credGatewayQuery, err := rego.New(
+		rego.Query("data.demo.credential_gateway.decision"),
+		rego.Module("user_permissions.rego", string(userPerms)),
+		rego.Module("agent_permissions.rego", string(agentPerms)),
+		rego.Module("credential_gateway.rego", string(credGateway)),
+	).PrepareForEval(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare credential gateway query: %w", err)
+	}
+
 	return &OPAService{
-		logger:          log,
-		query:           query,
-		managementQuery: managementQuery,
-		decisionLog:     logger.New(logger.ComponentOPADecision),
-		workloadClient:  workloadClient,
+		logger:           log,
+		query:            query,
+		managementQuery:  managementQuery,
+		credGatewayQuery: credGatewayQuery,
+		decisionLog:      logger.New(logger.ComponentOPADecision),
+		workloadClient:   workloadClient,
 	}, nil
 }
 
@@ -519,4 +539,71 @@ func (s *OPAService) evaluateManagement(ctx context.Context, input PolicyInput) 
 	metrics.AuthorizationDecisions.WithLabelValues("opa-service-mgmt", decisionLabel, "user").Inc()
 
 	return decision, nil
+}
+
+// CredentialGatewayInput represents input for the credential gateway policy
+type CredentialGatewayInput struct {
+	User          string `json:"user"`
+	Agent         string `json:"agent"`
+	TargetService string `json:"target_service"`
+	Action        string `json:"action"`
+}
+
+func (s *OPAService) handleCredentialGatewayDecision(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Input CredentialGatewayInput `json:"input"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.logger.Error("Invalid request body", "error", err)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	queryLog := logger.New(logger.ComponentOPAQuery)
+	queryLog.Info("Evaluating credential gateway policy",
+		"user", req.Input.User,
+		"agent", req.Input.Agent,
+		"target", req.Input.TargetService)
+
+	inputMap := map[string]any{
+		"user":           req.Input.User,
+		"agent":          req.Input.Agent,
+		"target_service": req.Input.TargetService,
+		"action":         req.Input.Action,
+	}
+
+	results, err := s.credGatewayQuery.Eval(r.Context(), rego.EvalInput(inputMap))
+	if err != nil {
+		s.logger.Error("Credential gateway policy evaluation failed", "error", err)
+		http.Error(w, "Policy evaluation failed", http.StatusInternalServerError)
+		return
+	}
+
+	if len(results) == 0 || len(results[0].Expressions) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"result": map[string]any{
+				"allow":               false,
+				"allowed_departments": []string{},
+				"reason":              "No policy decision available",
+			},
+		})
+		return
+	}
+
+	resultMap, ok := results[0].Expressions[0].Value.(map[string]any)
+	if !ok {
+		http.Error(w, "Invalid policy result format", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"result": resultMap,
+	})
 }
