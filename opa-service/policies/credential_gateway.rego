@@ -5,7 +5,7 @@ import rego.v1
 import data.demo.agents
 import data.demo.users
 
-# Credential Gateway policy: compute permission intersection for
+# Credential Gateway policy: compute permission permission_intersection for
 # service-specific credential scoping.
 #
 # Input:
@@ -25,16 +25,16 @@ import data.demo.users
 
 default allow := false
 
-# Compute the intersection of user departments and agent capabilities
-intersection := result if {
+# Compute the permission_intersection of user departments and agent capabilities
+permission_intersection := result if {
 	user_depts := users.user_departments_fallback[input.user]
 	agent_caps := agents.agent_capabilities[input.agent]
 	result := [d | some d in user_depts; d in agent_caps]
 }
 
-# Allow if intersection is non-empty
+# Allow if permission_intersection is non-empty
 allow if {
-	count(intersection) > 0
+	count(permission_intersection) > 0
 }
 
 # Decision result
@@ -44,8 +44,8 @@ decision := {
 	"reason": reason,
 }
 
-# Allowed departments from the intersection
-allowed_departments := intersection if {
+# Allowed departments from the permission_intersection
+allowed_departments := permission_intersection if {
 	allow
 }
 
@@ -54,7 +54,7 @@ allowed_departments := [] if {
 }
 
 # Reason messages
-reason := sprintf("Intersection of %s's departments and %s's capabilities: %v", [input.user, input.agent, intersection]) if {
+reason := sprintf("Intersection of %s's departments and %s's capabilities: %v", [input.user, input.agent, permission_intersection]) if {
 	allow
 }
 

@@ -247,9 +247,18 @@ spec:
       labels:
         app: credential-gateway
     spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: credential-gateway
           image: credential-gateway
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           resources:
             requests:
               cpu: 100m
@@ -270,6 +279,8 @@ spec:
               value: "opa-service"
             - name: SPIFFE_DEMO_OPA_PORT
               value: "8180"
+            - name: SPIFFE_DEMO_SERVICE_MOCK_SPIFFE
+              value: "true"
           envFrom:
             - secretRef:
                 name: credential-gateway-aws

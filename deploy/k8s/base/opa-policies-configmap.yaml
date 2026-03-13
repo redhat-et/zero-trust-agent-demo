@@ -293,14 +293,14 @@ data:
 
     default allow := false
 
-    intersection := result if {
+    permission_intersection := result if {
         user_depts := users.user_departments_fallback[input.user]
         agent_caps := agents.agent_capabilities[input.agent]
         result := [d | some d in user_depts; d in agent_caps]
     }
 
     allow if {
-        count(intersection) > 0
+        count(permission_intersection) > 0
     }
 
     decision := {
@@ -309,7 +309,7 @@ data:
         "reason": reason,
     }
 
-    allowed_departments := intersection if {
+    allowed_departments := permission_intersection if {
         allow
     }
 
@@ -317,7 +317,7 @@ data:
         not allow
     }
 
-    reason := sprintf("Intersection of %s's departments and %s's capabilities: %v", [input.user, input.agent, intersection]) if {
+    reason := sprintf("Intersection of %s's departments and %s's capabilities: %v", [input.user, input.agent, permission_intersection]) if {
         allow
     }
 

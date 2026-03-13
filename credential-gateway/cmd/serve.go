@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -93,12 +94,16 @@ type OPAIntersectionResponse struct {
 	} `json:"result"`
 }
 
+// errOPAUnavailable signals that OPA could not be reached (distinct from policy deny)
+var errOPAUnavailable = errors.New("OPA service unavailable")
+
 // Gateway is the credential gateway service
 type Gateway struct {
 	stsClient    *sts.Client
 	opaClient    *http.Client
 	opaURL       string
 	jwtValidator *auth.JWTValidator
+	devMode      bool
 	log          *logger.Logger
 	awsCfg       AWSConfig
 }
@@ -154,12 +159,17 @@ func runServe(cmd *cobra.Command, args []string) error {
 		awsCfg:    cfg.AWS,
 	}
 
-	// Initialize JWT validator if enabled
+	// Initialize JWT validator
 	if cfg.JWT.ValidationEnabled && cfg.JWT.IssuerURL != "" {
 		gw.jwtValidator = auth.NewJWTValidatorFromIssuer(cfg.JWT.IssuerURL, cfg.JWT.ExpectedAudience)
 		log.Info("JWT validation enabled",
 			"issuer", cfg.JWT.IssuerURL,
 			"audience", cfg.JWT.ExpectedAudience)
+	} else if cfg.Service.MockSPIFFE {
+		gw.devMode = true
+		log.Warn("JWT validation DISABLED (dev mode) -- tokens are not verified")
+	} else {
+		return fmt.Errorf("jwt validation is required in production (set --jwt-validation-enabled and --jwt-issuer-url, or use --mock-spiffe for dev mode)")
 	}
 
 	mux := http.NewServeMux()
@@ -276,8 +286,13 @@ func (gw *Gateway) handleCredentials(w http.ResponseWriter, r *http.Request) {
 	// Query OPA for permission intersection
 	departments, err := gw.queryOPAIntersection(r.Context(), user, agent, req.TargetService, req.Action)
 	if err != nil {
-		gw.log.Error("OPA query failed", "error", err)
-		jsonError(w, "Authorization failed: "+err.Error(), http.StatusForbidden)
+		if errors.Is(err, errOPAUnavailable) {
+			gw.log.Error("OPA service unavailable", "error", err)
+			jsonError(w, "Policy engine unavailable", http.StatusServiceUnavailable)
+		} else {
+			gw.log.Error("OPA policy denied", "error", err)
+			jsonError(w, "Authorization failed: "+err.Error(), http.StatusForbidden)
+		}
 		return
 	}
 
@@ -307,14 +322,18 @@ func (gw *Gateway) handleCredentials(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(creds)
 }
 
-// extractClaims parses JWT claims, validating signature if validator is configured
+// extractClaims parses JWT claims, validating signature if validator is configured.
+// In dev mode (mock-spiffe), it decodes without verification for local testing.
 func (gw *Gateway) extractClaims(tokenStr string) (*auth.AccessTokenClaims, error) {
 	if gw.jwtValidator != nil {
 		return gw.jwtValidator.ValidateAccessToken(tokenStr)
 	}
 
-	// No validator configured — decode payload without signature verification
-	// This is for local dev/testing only
+	if !gw.devMode {
+		return nil, fmt.Errorf("JWT validation not configured")
+	}
+
+	// Dev mode only: decode payload without signature verification
 	parts := strings.Split(tokenStr, ".")
 	if len(parts) != 3 {
 		return nil, fmt.Errorf("invalid JWT format")
@@ -372,12 +391,12 @@ func (gw *Gateway) queryOPAIntersection(ctx context.Context, user, agent, target
 
 	resp, err := gw.opaClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("OPA request failed: %w", err)
+		return nil, fmt.Errorf("%w: %v", errOPAUnavailable, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("OPA returned status %d", resp.StatusCode)
+		return nil, fmt.Errorf("%w: status %d", errOPAUnavailable, resp.StatusCode)
 	}
 
 	var opaResp OPAIntersectionResponse
@@ -399,16 +418,14 @@ func (gw *Gateway) assumeRoleWithSessionPolicy(ctx context.Context, user, agent 
 	sessionName := sanitizeSessionName(fmt.Sprintf("%s-via-%s", user, agent))
 
 	// Build S3 resource ARNs for each department prefix
-	resources := []string{
-		fmt.Sprintf("arn:aws:s3:::%s", gw.awsCfg.S3Bucket),
-	}
-	for _, dept := range departments {
-		resources = append(resources,
-			fmt.Sprintf("arn:aws:s3:::%s/%s/*", gw.awsCfg.S3Bucket, dept))
+	bucketARN := fmt.Sprintf("arn:aws:s3:::%s", gw.awsCfg.S3Bucket)
+	objectARNs := make([]string, len(departments))
+	for i, dept := range departments {
+		objectARNs[i] = fmt.Sprintf("arn:aws:s3:::%s/%s/*", gw.awsCfg.S3Bucket, dept)
 	}
 
 	// Build session policy JSON
-	sessionPolicy := buildSessionPolicy(resources)
+	sessionPolicy := buildSessionPolicy(bucketARN, objectARNs, departments)
 
 	input := &sts.AssumeRoleInput{
 		RoleArn:         aws.String(gw.awsCfg.RoleARN),
@@ -437,11 +454,18 @@ func (gw *Gateway) assumeRoleWithSessionPolicy(ctx context.Context, user, agent 
 	}, nil
 }
 
-// buildSessionPolicy creates an IAM session policy JSON document
-func buildSessionPolicy(resources []string) string {
-	quotedResources := make([]string, len(resources))
-	for i, r := range resources {
-		quotedResources[i] = fmt.Sprintf("%q", r)
+// buildSessionPolicy creates an IAM session policy JSON document.
+// ListBucket is restricted to allowed prefixes via s3:prefix condition.
+// GetObject is restricted via object-level ARNs.
+func buildSessionPolicy(bucketARN string, objectARNs, prefixes []string) string {
+	quotedObjectARNs := make([]string, len(objectARNs))
+	for i, r := range objectARNs {
+		quotedObjectARNs[i] = fmt.Sprintf("%q", r)
+	}
+
+	quotedPrefixes := make([]string, len(prefixes))
+	for i, p := range prefixes {
+		quotedPrefixes[i] = fmt.Sprintf("%q", p+"*")
 	}
 
 	return fmt.Sprintf(`{
@@ -449,11 +473,21 @@ func buildSessionPolicy(resources []string) string {
   "Statement": [
     {
       "Effect": "Allow",
-      "Action": ["s3:GetObject", "s3:ListBucket"],
+      "Action": "s3:GetObject",
       "Resource": [%s]
+    },
+    {
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": %q,
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": [%s]
+        }
+      }
     }
   ]
-}`, strings.Join(quotedResources, ", "))
+}`, strings.Join(quotedObjectARNs, ", "), bucketARN, strings.Join(quotedPrefixes, ", "))
 }
 
 // sanitizeSessionName ensures the session name is valid for AWS

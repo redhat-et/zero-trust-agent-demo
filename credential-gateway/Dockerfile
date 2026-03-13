@@ -10,10 +10,13 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /credential-gateway ./credential-gatewa
 
 FROM alpine:3.23
 
-RUN apk --no-cache add ca-certificates curl
+RUN apk --no-cache add ca-certificates curl && \
+    adduser -D -u 1000 appuser
 
 WORKDIR /app
 COPY --from=builder /credential-gateway /app/credential-gateway
+
+USER appuser
 
 EXPOSE 8080
 
