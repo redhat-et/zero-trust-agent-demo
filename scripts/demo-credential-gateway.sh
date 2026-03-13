@@ -119,7 +119,7 @@ echo -e "  This demo shows how the ${BOLD}permission intersection${RESET} model"
 echo -e "  translates JWT delegation claims into ${BOLD}scoped AWS credentials${RESET}."
 echo ""
 echo -e "  ${BOLD}Core principle:${RESET}"
-echo -e "    Effective Permissions = User Departments ${CYAN}\u2229${RESET} Agent Capabilities"
+echo -e "    Effective Permissions = User Departments ${CYAN}∩${RESET} Agent Capabilities"
 echo ""
 echo -e "  The credential gateway:"
 echo -e "    1. Validates the JWT and extracts the delegation chain"
@@ -166,7 +166,7 @@ banner "Scenario 1: Alice + Summarizer"
 
 echo -e "  ${BLUE}Alice${RESET} (engineering, finance) delegates to ${MAGENTA}Summarizer${RESET} (finance)"
 echo ""
-echo -e "  Intersection: {engineering, finance} ${CYAN}\u2229${RESET} {finance} = ${BOLD}${GREEN}{finance}${RESET}"
+echo -e "  Intersection: {engineering, finance} ${CYAN}∩${RESET} {finance} = ${BOLD}${GREEN}{finance}${RESET}"
 echo ""
 echo -e "  The summarizer should only get S3 access to ${GREEN}finance/${RESET} prefixes."
 
@@ -246,7 +246,7 @@ fi
 
 echo ""
 echo -e "  ${GREEN}The STS session policy restricts access to finance/ only.${RESET}"
-echo -e "  ${DIM}AWS enforces: Role Policy \u2229 Session Policy = finance/* only${RESET}"
+echo -e "  ${DIM}AWS enforces: Role Policy ∩ Session Policy = finance/* only${RESET}"
 
 pause
 
@@ -258,7 +258,7 @@ banner "Scenario 2: Alice + Claude"
 
 echo -e "  ${BLUE}Alice${RESET} (engineering, finance) delegates to ${MAGENTA}Claude${RESET} (engineering, finance, admin, hr)"
 echo ""
-echo -e "  Intersection: {engineering, finance} ${CYAN}\u2229${RESET} {engineering, finance, admin, hr}"
+echo -e "  Intersection: {engineering, finance} ${CYAN}∩${RESET} {engineering, finance, admin, hr}"
 echo -e "               = ${BOLD}${GREEN}{engineering, finance}${RESET}"
 echo ""
 echo -e "  Claude has broad capabilities, but is limited to Alice's departments."
@@ -332,7 +332,7 @@ banner "Scenario 3: Carol + Summarizer (Denied)"
 
 echo -e "  ${BLUE}Carol${RESET} (hr) delegates to ${MAGENTA}Summarizer${RESET} (finance)"
 echo ""
-echo -e "  Intersection: {hr} ${CYAN}\u2229${RESET} {finance} = ${BOLD}${RED}{}  (empty!)${RESET}"
+echo -e "  Intersection: {hr} ${CYAN}∩${RESET} {finance} = ${BOLD}${RED}{}  (empty!)${RESET}"
 echo ""
 echo -e "  No overlap -- the credential gateway should deny the request."
 
@@ -363,7 +363,7 @@ banner "Scenario 4: Bob + GPT-4"
 
 echo -e "  ${BLUE}Bob${RESET} (finance, admin) delegates to ${MAGENTA}GPT-4${RESET} (engineering, finance)"
 echo ""
-echo -e "  Intersection: {finance, admin} ${CYAN}\u2229${RESET} {engineering, finance} = ${BOLD}${GREEN}{finance}${RESET}"
+echo -e "  Intersection: {finance, admin} ${CYAN}∩${RESET} {engineering, finance} = ${BOLD}${GREEN}{finance}${RESET}"
 echo ""
 echo -e "  Bob has admin access, but GPT-4 doesn't. GPT-4 has engineering, but Bob doesn't."
 echo -e "  Only finance is in common."
@@ -427,31 +427,31 @@ cat <<'DIAGRAM'
 
      JWT with delegation          OPA Policy Engine
      ┌──────────────────┐        ┌──────────────────────┐
-     │ sub: alice        │───────►│ user_depts(alice)     │
-     │ azp: summarizer   │       │   = [engineering,     │
-     │                   │       │      finance]         │
+     │ sub: alice       │───────►│ user_depts(alice)    │
+     │ azp: summarizer  │        │   = [engineering,    │
+     │                  │        │      finance]        │
      └──────────────────┘        │                      │
-                                 │ agent_caps(summarizer)│
-                                 │   = [finance]         │
+                                 │agent_caps(summarizer)│
+                                 │   = [finance]        │
                                  │                      │
                                  │ intersection:        │
-                                 │   = [finance]         │
+                                 │   = [finance]        │
                                  └──────────┬───────────┘
                                             │
                                             ▼
                                  ┌──────────────────────┐
-                                 │ AWS STS AssumeRole    │
+                                 │ AWS STS AssumeRole   │
                                  │                      │
-                                 │ Session Policy:       │
-                                 │  Allow s3:GetObject   │
-                                 │  Resource:            │
-                                 │   arn:...:bucket      │
-                                 │   arn:...:bucket/     │
-                                 │     finance/*         │
+                                 │ Session Policy:      │
+                                 │  Allow s3:GetObject  │
+                                 │  Resource:           │
+                                 │   arn:...:bucket     │
+                                 │   arn:...:bucket/    │
+                                 │     finance/*        │
                                  │                      │
-                                 │ Effective:            │
-                                 │  Role ∩ Session       │
-                                 │  = finance/* only     │
+                                 │ Effective:           │
+                                 │  Role ∩ Session      │
+                                 │  = finance/* only    │
                                  └──────────┬───────────┘
                                             │
                                             ▼
@@ -467,7 +467,7 @@ echo -e "  the intersection, AWS itself will deny the request."
 echo ""
 echo -e "  ${BOLD}Components:${RESET}"
 echo -e "    ${CYAN}Credential Gateway${RESET}  ${H_LINE} JWT validation + OPA query + STS call"
-echo -e "    ${CYAN}OPA Policy Engine${RESET}   ${H_LINE} Computes user ${CYAN}\u2229${RESET} agent departments"
+echo -e "    ${CYAN}OPA Policy Engine${RESET}   ${H_LINE} Computes user ${CYAN}∩${RESET} agent departments"
 echo -e "    ${CYAN}AWS STS${RESET}             ${H_LINE} Issues scoped temporary credentials"
 echo -e "    ${CYAN}S3${RESET}                  ${H_LINE} Enforces session policy on every request"
 echo ""
