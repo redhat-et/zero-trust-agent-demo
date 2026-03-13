@@ -5,9 +5,9 @@
 # Variables
 BINARY_DIR := bin
 GO := go
-SERVICES := opa-service document-service user-service agent-service summarizer-service reviewer-service web-dashboard
+SERVICES := opa-service document-service user-service agent-service summarizer-service reviewer-service web-dashboard credential-gateway
 # Services that come from base (already transformed to ghcr.io names by ghcr overlay)
-BASE_SERVICES := opa-service document-service user-service agent-service web-dashboard
+BASE_SERVICES := opa-service document-service user-service agent-service web-dashboard credential-gateway
 # Services that come from ai-agents overlay (still have simple names)
 AI_SERVICES := summarizer-service reviewer-service
 

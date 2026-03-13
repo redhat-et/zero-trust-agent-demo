@@ -556,6 +556,100 @@ Step-by-step for the Alice + Summarizer + S3 example:
 4. **Summarizer** receives a GitHub token that only works for
   `eng-roadmap` with read-only access
 
+## Implementation status: AWS S3
+
+Phases 1 and 2 are implemented. The credential gateway service lives
+in `credential-gateway/` and the OPA policy in
+`opa-service/policies/credential_gateway.rego`.
+
+### Testing locally
+
+The E2E test script starts OPA and the credential gateway, sends
+test requests with unsigned JWTs, and verifies scoped S3 access.
+
+Prerequisites: AWS credentials configured, S3 bucket seeded, IAM
+role created (see `scripts/setup-aws-iam.sh` and
+`scripts/seed-s3.sh`).
+
+```bash
+S3_BUCKET=zt-demo-documents \
+AWS_ROLE_ARN=arn:aws:iam::991393792704:role/zt-demo-delegated-access \
+  ./scripts/test-credential-gateway.sh
+```
+
+### Testing on OpenShift
+
+Port-forward to the credential gateway and send test requests:
+
+```bash
+oc port-forward -n spiffe-demo svc/credential-gateway 8090:8080 &
+
+# Helper to create unsigned test JWTs
+mk_jwt() {
+  local h=$(echo -n '{"alg":"none","typ":"JWT"}' | base64 | tr -d '=' | tr '+/' '-_')
+  local b=$(echo -n "$1" | base64 | tr -d '=' | tr '+/' '-_')
+  echo "${h}.${b}."
+}
+```
+
+**Test 1: alice + summarizer (intersection: finance)**
+
+```bash
+JWT=$(mk_jwt '{"sub":"alice","preferred_username":"alice","azp":"summarizer","exp":9999999999}')
+curl -s -X POST http://localhost:8090/credentials \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"target_service":"s3","action":"read"}' | python3 -m json.tool
+```
+
+Expected: `scoped_prefixes: ["finance/"]`, session name
+`alice-via-summarizer`.
+
+**Test 2: alice + claude (intersection: engineering, finance)**
+
+```bash
+JWT=$(mk_jwt '{"sub":"alice","preferred_username":"alice","azp":"claude","exp":9999999999}')
+curl -s -X POST http://localhost:8090/credentials \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"target_service":"s3","action":"read"}' | python3 -m json.tool
+```
+
+Expected: `scoped_prefixes: ["engineering/", "finance/"]`.
+
+**Test 3: carol + summarizer (no overlap, denied)**
+
+```bash
+JWT=$(mk_jwt '{"sub":"carol","preferred_username":"carol","azp":"summarizer","exp":9999999999}')
+curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:8090/credentials \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"target_service":"s3","action":"read"}'
+```
+
+Expected: HTTP 403 (carol has `hr`, summarizer has `finance`,
+intersection is empty).
+
+**Test 4: verify scoped credentials enforce S3 access**
+
+Using credentials from Test 1 (alice + summarizer = finance only):
+
+```bash
+export AWS_ACCESS_KEY_ID=<access_key_id from Test 1>
+export AWS_SECRET_ACCESS_KEY=<secret_access_key>
+export AWS_SESSION_TOKEN=<session_token>
+
+# finance/ should succeed
+aws s3 cp s3://zt-demo-documents/finance/q4-report.md - --region us-east-1
+
+# engineering/ should be denied (AccessDenied)
+aws s3 cp s3://zt-demo-documents/engineering/roadmap.md - --region us-east-1
+
+unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+```
+
+All tests verified on OpenShift (2026-03-13).
+
 ## Implementation phases
 
 | Phase | Description                                                         | Complexity   |

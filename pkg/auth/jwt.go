@@ -13,17 +13,24 @@ import (
 	"github.com/go-jose/go-jose/v4"
 )
 
+// ActClaim represents a nested RFC 8693 actor claim
+type ActClaim struct {
+	Sub string    `json:"sub"`
+	Act *ActClaim `json:"act,omitempty"`
+}
+
 // AccessTokenClaims represents claims extracted from an access token
 type AccessTokenClaims struct {
-	Subject           string   `json:"sub"`
-	PreferredUsername  string   `json:"preferred_username"`
-	Issuer            string   `json:"iss"`
-	Audience          audience `json:"aud"`
-	Groups            []string `json:"groups"`
-	ExpiresAt         int64    `json:"exp"`
-	IssuedAt          int64    `json:"iat"`
-	AuthorizedParty   string   `json:"azp"`
-	Scope             string   `json:"scope"`
+	Subject           string    `json:"sub"`
+	PreferredUsername  string    `json:"preferred_username"`
+	Issuer            string    `json:"iss"`
+	Audience          audience  `json:"aud"`
+	Groups            []string  `json:"groups"`
+	ExpiresAt         int64     `json:"exp"`
+	IssuedAt          int64     `json:"iat"`
+	AuthorizedParty   string    `json:"azp"`
+	Scope             string    `json:"scope"`
+	Act               *ActClaim `json:"act,omitempty"`
 }
 
 // audience handles both string and []string forms of the "aud" claim

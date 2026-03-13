@@ -229,3 +229,58 @@ spec:
               value: "8080"
             - name: SPIFFE_DEMO_LOG_FORMAT
               value: "json"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: credential-gateway
+  namespace: spiffe-demo
+  labels:
+    app: credential-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: credential-gateway
+  template:
+    metadata:
+      labels:
+        app: credential-gateway
+    spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: credential-gateway
+          image: credential-gateway
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          ports:
+            - containerPort: 8080
+          args:
+            - serve
+          env:
+            - name: SPIFFE_DEMO_SERVICE_PORT
+              value: "8080"
+            - name: SPIFFE_DEMO_LOG_FORMAT
+              value: "json"
+            - name: SPIFFE_DEMO_OPA_HOST
+              value: "opa-service"
+            - name: SPIFFE_DEMO_OPA_PORT
+              value: "8080"
+            - name: SPIFFE_DEMO_SERVICE_MOCK_SPIFFE
+              value: "true"
+          envFrom:
+            - secretRef:
+                name: credential-gateway-aws

@@ -26,6 +26,7 @@ const (
 	ComponentOPADecision Component = "OPA-DECISION"
 	ComponentSummarizer  Component = "SUMMARIZER"
 	ComponentReviewer    Component = "REVIEWER"
+	ComponentCredGateway Component = "CRED-GATEWAY"
 )
 
 // ANSI color codes
@@ -56,6 +57,7 @@ var componentColors = map[Component]string{
 	ComponentOPADecision: colorGreen,
 	ComponentSummarizer:  colorCyan,
 	ComponentReviewer:    colorMagenta,
+	ComponentCredGateway: colorGreen,
 }
 
 // Direction indicates the flow of a request
