@@ -189,10 +189,19 @@ info "Authorization: Bearer <JWT>"
 info "Body: {\"target_service\": \"s3\", \"action\": \"read\"}"
 echo ""
 
-RESULT=$(curl -sf -X POST "${GW_URL}/credentials" \
+HTTP_CODE=$(curl -s -o /tmp/demo-cg-result.json -w "%{http_code}" -X POST "${GW_URL}/credentials" \
   -H "Authorization: Bearer ${JWT}" \
   -H "Content-Type: application/json" \
   -d '{"target_service":"s3","action":"read"}')
+
+if [ "$HTTP_CODE" != "200" ]; then
+  echo -e "  ${RED}ERROR: Credential gateway returned HTTP ${HTTP_CODE}${RESET}"
+  show_json "$(cat /tmp/demo-cg-result.json)"
+  echo ""
+  echo -e "  ${DIM}Check credential-gateway and OPA logs for details.${RESET}"
+  exit 1
+fi
+RESULT=$(cat /tmp/demo-cg-result.json)
 
 echo -e "  ${BOLD}Response:${RESET}"
 
@@ -268,10 +277,17 @@ pause
 step "Calling credential gateway"
 
 JWT=$(mk_jwt '{"sub":"alice","preferred_username":"alice","azp":"claude","exp":9999999999}')
-RESULT=$(curl -sf -X POST "${GW_URL}/credentials" \
+HTTP_CODE=$(curl -s -o /tmp/demo-cg-result.json -w "%{http_code}" -X POST "${GW_URL}/credentials" \
   -H "Authorization: Bearer ${JWT}" \
   -H "Content-Type: application/json" \
   -d '{"target_service":"s3","action":"read"}')
+
+if [ "$HTTP_CODE" != "200" ]; then
+  echo -e "  ${RED}ERROR: Credential gateway returned HTTP ${HTTP_CODE}${RESET}"
+  show_json "$(cat /tmp/demo-cg-result.json)"
+  exit 1
+fi
+RESULT=$(cat /tmp/demo-cg-result.json)
 
 SESSION=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['session_name'])")
 PREFIXES=$(echo "$RESULT" | python3 -c "import sys,json; print(', '.join(json.load(sys.stdin)['scoped_prefixes']))")
@@ -373,10 +389,17 @@ pause
 step "Calling credential gateway"
 
 JWT=$(mk_jwt '{"sub":"bob","preferred_username":"bob","azp":"gpt4","exp":9999999999}')
-RESULT=$(curl -sf -X POST "${GW_URL}/credentials" \
+HTTP_CODE=$(curl -s -o /tmp/demo-cg-result.json -w "%{http_code}" -X POST "${GW_URL}/credentials" \
   -H "Authorization: Bearer ${JWT}" \
   -H "Content-Type: application/json" \
   -d '{"target_service":"s3","action":"read"}')
+
+if [ "$HTTP_CODE" != "200" ]; then
+  echo -e "  ${RED}ERROR: Credential gateway returned HTTP ${HTTP_CODE}${RESET}"
+  show_json "$(cat /tmp/demo-cg-result.json)"
+  exit 1
+fi
+RESULT=$(cat /tmp/demo-cg-result.json)
 
 SESSION=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['session_name'])")
 PREFIXES=$(echo "$RESULT" | python3 -c "import sys,json; print(', '.join(json.load(sys.stdin)['scoped_prefixes']))")
@@ -472,7 +495,7 @@ echo -e "    ${CYAN}AWS STS${RESET}             ${H_LINE} Issues scoped temporar
 echo -e "    ${CYAN}S3${RESET}                  ${H_LINE} Enforces session policy on every request"
 echo ""
 
-rm -f /tmp/demo-cg-deny.json
+rm -f /tmp/demo-cg-deny.json /tmp/demo-cg-result.json
 
 echo -e "${BOLD}${GREEN}Demo complete.${RESET}"
 echo ""
