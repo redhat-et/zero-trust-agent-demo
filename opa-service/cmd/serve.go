@@ -175,8 +175,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 	healthMux.HandleFunc("/health", svc.handleHealth)
 	healthMux.HandleFunc("/ready", svc.handleHealth)
 	healthMux.Handle("/metrics", promhttp.Handler())
-	// Credential gateway endpoint on plain HTTP for non-mTLS callers
-	healthMux.HandleFunc("/v1/data/demo/credential_gateway/decision", svc.handleCredentialGatewayDecision)
 	healthServer := &http.Server{
 		Addr:         cfg.Service.HealthAddr(),
 		Handler:      healthMux,

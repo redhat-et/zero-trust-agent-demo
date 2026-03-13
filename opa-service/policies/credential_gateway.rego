@@ -27,8 +27,8 @@ default allow := false
 
 # Compute the permission_intersection of user departments and agent capabilities
 permission_intersection := result if {
-	user_depts := users.user_departments_fallback[input.user]
-	agent_caps := agents.agent_capabilities[input.agent]
+	user_depts := users.get_departments(input.user)
+	agent_caps := agents.get_capabilities(input.agent)
 	result := [d | some d in user_depts; d in agent_caps]
 }
 
@@ -60,17 +60,17 @@ reason := sprintf("Intersection of %s's departments and %s's capabilities: %v", 
 
 reason := sprintf("No overlapping permissions between %s and %s", [input.user, input.agent]) if {
 	not allow
-	users.user_departments_fallback[input.user]
-	agents.agent_capabilities[input.agent]
+	count(users.get_departments(input.user)) > 0
+	count(agents.get_capabilities(input.agent)) > 0
 }
 
 reason := sprintf("Unknown user: %s", [input.user]) if {
 	not allow
-	not users.user_departments_fallback[input.user]
+	count(users.get_departments(input.user)) == 0
 }
 
 reason := sprintf("Unknown agent: %s", [input.agent]) if {
 	not allow
-	users.user_departments_fallback[input.user]
-	not agents.agent_capabilities[input.agent]
+	count(users.get_departments(input.user)) > 0
+	count(agents.get_capabilities(input.agent)) == 0
 }

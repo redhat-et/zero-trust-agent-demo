@@ -21,6 +21,7 @@ import (
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/auth"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/config"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/logger"
+	"github.com/redhat-et/zero-trust-agent-demo/pkg/spiffe"
 )
 
 var serveCmd = &cobra.Command{
@@ -151,10 +152,35 @@ func runServe(cmd *cobra.Command, args []string) error {
 		"account", *identity.Account,
 		"arn", *identity.Arn)
 
+	// Initialize SPIFFE workload client (for mTLS to OPA)
+	spiffeCfg := spiffe.Config{
+		SocketPath:  cfg.SPIFFE.SocketPath,
+		TrustDomain: cfg.SPIFFE.TrustDomain,
+		MockMode:    cfg.Service.MockSPIFFE,
+	}
+	workloadClient := spiffe.NewWorkloadClient(spiffeCfg, log)
+
+	if !cfg.Service.MockSPIFFE {
+		identity, err := workloadClient.FetchIdentity(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to fetch SPIFFE identity: %w", err)
+		}
+		log.Info("SPIFFE identity acquired", "spiffe_id", identity.SPIFFEID)
+	} else {
+		workloadClient.SetMockIdentity("spiffe://" + cfg.SPIFFE.TrustDomain + "/service/credential-gateway")
+	}
+
+	// Create mTLS HTTP client for OPA requests (follows document-service pattern)
+	opaClient := workloadClient.CreateMTLSClient(5 * time.Second)
+	opaScheme := "http"
+	if !cfg.Service.MockSPIFFE {
+		opaScheme = "https"
+	}
+
 	gw := &Gateway{
 		stsClient: stsClient,
-		opaClient: &http.Client{Timeout: 5 * time.Second},
-		opaURL:    fmt.Sprintf("http://%s:%d/v1/data/demo/credential_gateway/decision", cfg.OPA.Host, cfg.OPA.Port),
+		opaClient: opaClient,
+		opaURL:    fmt.Sprintf("%s://%s:%d/v1/data/demo/credential_gateway/decision", opaScheme, cfg.OPA.Host, cfg.OPA.Port),
 		log:       log,
 		awsCfg:    cfg.AWS,
 	}
@@ -353,15 +379,19 @@ func (gw *Gateway) extractClaims(tokenStr string) (*auth.AccessTokenClaims, erro
 }
 
 // extractDelegationChain extracts user and agent from JWT claims.
-// With act claims: sub=user, act.sub=agent (innermost actor)
-// Without act claims: sub=user, azp=agent (authorized party)
+// With act claims (RFC 8693): sub=user, act.sub=immediate actor
+// Without act claims: sub=user, azp=agent (authorized party fallback)
 func (gw *Gateway) extractDelegationChain(claims *auth.AccessTokenClaims) (user, agent string) {
 	user = claims.Subject
-	agent = claims.AuthorizedParty
-
-	// If preferred_username is set, use it as a more readable identifier
 	if claims.PreferredUsername != "" {
 		user = claims.PreferredUsername
+	}
+
+	// Prefer act claim (RFC 8693) over azp for agent identity
+	if claims.Act != nil && claims.Act.Sub != "" {
+		agent = claims.Act.Sub
+	} else {
+		agent = claims.AuthorizedParty
 	}
 
 	return user, agent
@@ -465,7 +495,7 @@ func buildSessionPolicy(bucketARN string, objectARNs, prefixes []string) string 
 
 	quotedPrefixes := make([]string, len(prefixes))
 	for i, p := range prefixes {
-		quotedPrefixes[i] = fmt.Sprintf("%q", p+"*")
+		quotedPrefixes[i] = fmt.Sprintf("%q", p+"/*")
 	}
 
 	return fmt.Sprintf(`{
