@@ -38,6 +38,7 @@ This ensures agents can never exceed the permissions of either the user OR the a
 | opa-service        | 8080 | 8180   | Policy evaluation engine (Rego policies)   |
 | summarizer-service | 8000 | 8100   | AI document summarization (A2A agent)      |
 | reviewer-service   | 8000 | 8100   | AI document review (A2A agent)             |
+| credential-gateway | 8080 | 8180   | JWT to scoped AWS STS credentials          |
 
 ## Quick Start
 

@@ -19,7 +19,7 @@ This demo showcases a document management system where:
 └─────────────────┘     └─────────────────┘     └────────┬────────┘
                                                          │
                         ┌─────────────────┐              │
-                        │  OPA Service    │◀─────────────┘
+                        │  OPA Service    │◀─────────────┤
                         │     :8080       │              │
                         └────────┬────────┘              │
                                  │                       │
@@ -27,6 +27,15 @@ This demo showcases a document management system where:
                         │ Document Service│◀─────────────┘
                         │     :8080       │
                         └─────────────────┘
+
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  Agent (JWT)    │────▶│  Credential     │────▶│  AWS STS        │
+│                 │     │  Gateway :8080  │     │  (AssumeRole)   │
+└─────────────────┘     └────────┬────────┘     └────────┬────────┘
+                                 │                       │
+                        ┌────────▼────────┐     ┌────────▼────────┐
+                        │  OPA Service    │     │  S3 (scoped)    │
+                        └─────────────────┘     └─────────────────┘
 ```
 
 ## Quick Start
@@ -88,6 +97,29 @@ See [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) for all deployment options includin
 3. **Delegated Access**: Alice delegates to GPT-4 for Engineering doc → ✅ ALLOWED
 4. **Permission Reduction**: Bob (Admin) delegates to Summarizer (Finance only) for Admin doc → ❌ DENIED
 
+### Credential Gateway (AWS S3)
+
+The credential gateway extends the permission intersection model to external services.
+It translates JWT delegation claims into scoped AWS STS credentials:
+
+```text
+Effective S3 Access = User Departments ∩ Agent Capabilities → STS Session Policy
+```
+
+| Scenario             | Intersection           | S3 Prefixes Accessible   |
+| -------------------- | ---------------------- | ------------------------ |
+| Alice + Summarizer   | {finance}              | `finance/*`              |
+| Alice + Claude       | {engineering, finance} | `engineering/*, finance/*` |
+| Carol + Summarizer   | {} (empty)             | None (403 Denied)        |
+| Bob + GPT-4          | {finance}              | `finance/*`              |
+
+Run the interactive demo:
+
+```bash
+oc port-forward -n spiffe-demo svc/credential-gateway 8090:8080 &
+./scripts/demo-credential-gateway.sh
+```
+
 ## Zero Trust Principles
 
 1. **Cryptographic Workload Identity**: SPIFFE IDs backed by X.509 certificates
@@ -96,6 +128,7 @@ See [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) for all deployment options includin
 4. **Permission Intersection**: Agent access = User permissions ∩ Agent capabilities
 5. **Agents Cannot Act Autonomously**: Agents MUST have user delegation context
 6. **Short-Lived Credentials**: SVIDs have 1-hour TTLs and auto-rotate
+7. **Scoped External Credentials**: AWS STS session policies enforce permission intersection natively
 
 ## Documentation
 
@@ -126,6 +159,9 @@ See [docs/README.md](docs/README.md) for the full documentation index.
 | [ADR-0003](docs/adr/0003-opa-policy-evaluation.md)              | OPA for Policy Evaluation                       |
 | [ADR-0004](docs/adr/0004-kustomize-deployment-variants.md)      | Kustomize for Deployment Variants               |
 | [ADR-0005](docs/adr/0005-separate-health-ports-mtls.md)         | Separate Health Ports for mTLS Services         |
+| [ADR-0006](docs/adr/0006-s3-document-storage.md)                | S3 Document Storage                             |
+| [ADR-0009](docs/adr/0009-otel-token-viz.md)                     | OpenTelemetry Token Visualization               |
+| [ADR-0010](docs/adr/0010-act-claim-chaining.md)                 | RFC 8693 Act Claim Chaining                     |
 
 ### Additional Resources
 
@@ -180,6 +216,8 @@ zero-trust-agent-demo/
 ├── user-service/          # User workload simulation
 ├── agent-service/         # AI agent workload simulation
 ├── web-dashboard/         # Interactive demo UI
+├── credential-gateway/    # JWT → scoped AWS credentials
+├── sample-documents/      # Markdown docs with YAML front matter
 ├── deploy/                # Deployment configurations
 │   ├── kind/             # Kind cluster config
 │   ├── k8s/              # Kustomize base and overlays
