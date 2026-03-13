@@ -269,7 +269,7 @@ spec:
             - name: SPIFFE_DEMO_OPA_HOST
               value: "opa-service"
             - name: SPIFFE_DEMO_OPA_PORT
-              value: "8080"
+              value: "8180"
           envFrom:
             - secretRef:
                 name: credential-gateway-aws
