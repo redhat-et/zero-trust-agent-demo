@@ -191,11 +191,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 		log.Info("JWT validation enabled",
 			"issuer", cfg.JWT.IssuerURL,
 			"audience", cfg.JWT.ExpectedAudience)
-	} else if cfg.Service.MockSPIFFE {
+	} else if !cfg.JWT.ValidationEnabled {
 		gw.devMode = true
 		log.Warn("JWT validation DISABLED (dev mode) -- tokens are not verified")
 	} else {
-		return fmt.Errorf("jwt validation is required in production (set --jwt-validation-enabled and --jwt-issuer-url, or use --mock-spiffe for dev mode)")
+		return fmt.Errorf("jwt validation is required (set --jwt-issuer-url or disable with --jwt-validation-enabled=false)")
 	}
 
 	mux := http.NewServeMux()

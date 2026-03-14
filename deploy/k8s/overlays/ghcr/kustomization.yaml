@@ -334,7 +334,7 @@ patches:
           name: SPIFFE_DEMO_OTEL_COLLECTOR_ENDPOINT
           value: "otel-collector:4317"
 
-  # Credential Gateway - plain HTTP (no SPIFFE mTLS)
+  # Credential Gateway - SPIFFE mTLS for OPA communication
   - target:
       kind: Deployment
       name: credential-gateway
@@ -342,6 +342,16 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/imagePullPolicy
         value: IfNotPresent
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_SERVICE_MOCK_SPIFFE
+          value: "false"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: SPIFFE_DEMO_SPIFFE_SOCKET_PATH
+          value: "unix:///run/spire/agent-sockets/spire-agent.sock"
       - op: add
         path: /spec/template/spec/containers/0/ports/-
         value:
@@ -352,6 +362,19 @@ patches:
         value:
           name: SPIFFE_DEMO_SERVICE_HEALTH_PORT
           value: "8180"
+      - op: add
+        path: /spec/template/spec/containers/0/volumeMounts
+        value:
+          - name: spire-agent-socket
+            mountPath: /run/spire/agent-sockets
+            readOnly: true
+      - op: add
+        path: /spec/template/spec/volumes
+        value:
+          - name: spire-agent-socket
+            csi:
+              driver: "csi.spiffe.io"
+              readOnly: true
       - op: add
         path: /spec/template/spec/containers/0/livenessProbe
         value:

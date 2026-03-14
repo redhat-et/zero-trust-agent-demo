@@ -97,6 +97,37 @@ mk_jwt() {
   echo "${header}.${body}."
 }
 
+# --- Secure temp files and cleanup ---
+
+umask 077
+TMPFILE=$(mktemp)
+TMPDENY=$(mktemp)
+trap 'rm -f "$TMPFILE" "$TMPDENY"' EXIT
+
+# Helper: call credential gateway and handle transport + HTTP errors.
+# Usage: call_gateway JWT TMPFILE
+# Sets RESULT on success, exits on failure.
+call_gateway() {
+  local jwt="$1" outfile="$2"
+  local http_code
+  if ! http_code=$(curl -s -o "$outfile" -w "%{http_code}" -X POST "${GW_URL}/credentials" \
+    -H "Authorization: Bearer ${jwt}" \
+    -H "Content-Type: application/json" \
+    -d '{"target_service":"s3","action":"read"}'); then
+    echo -e "  ${RED}ERROR: Cannot reach credential gateway at ${GW_URL}${RESET}"
+    echo -e "  ${DIM}Check network connectivity and port-forward.${RESET}"
+    exit 1
+  fi
+  if [ "$http_code" != "200" ]; then
+    echo -e "  ${RED}ERROR: Credential gateway returned HTTP ${http_code}${RESET}"
+    show_json "$(cat "$outfile")"
+    echo ""
+    echo -e "  ${DIM}Check credential-gateway and OPA logs for details.${RESET}"
+    exit 1
+  fi
+  RESULT=$(cat "$outfile")
+}
+
 # --- Pre-flight check ---
 
 if ! curl -sf "${GW_URL}/health" >/dev/null 2>&1; then
@@ -189,10 +220,7 @@ info "Authorization: Bearer <JWT>"
 info "Body: {\"target_service\": \"s3\", \"action\": \"read\"}"
 echo ""
 
-RESULT=$(curl -sf -X POST "${GW_URL}/credentials" \
-  -H "Authorization: Bearer ${JWT}" \
-  -H "Content-Type: application/json" \
-  -d '{"target_service":"s3","action":"read"}')
+call_gateway "$JWT" "$TMPFILE"
 
 echo -e "  ${BOLD}Response:${RESET}"
 
@@ -268,10 +296,7 @@ pause
 step "Calling credential gateway"
 
 JWT=$(mk_jwt '{"sub":"alice","preferred_username":"alice","azp":"claude","exp":9999999999}')
-RESULT=$(curl -sf -X POST "${GW_URL}/credentials" \
-  -H "Authorization: Bearer ${JWT}" \
-  -H "Content-Type: application/json" \
-  -d '{"target_service":"s3","action":"read"}')
+call_gateway "$JWT" "$TMPFILE"
 
 SESSION=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['session_name'])")
 PREFIXES=$(echo "$RESULT" | python3 -c "import sys,json; print(', '.join(json.load(sys.stdin)['scoped_prefixes']))")
@@ -341,14 +366,23 @@ pause
 step "Calling credential gateway"
 
 JWT=$(mk_jwt '{"sub":"carol","preferred_username":"carol","azp":"summarizer","exp":9999999999}')
-HTTP_CODE=$(curl -s -o /tmp/demo-cg-deny.json -w "%{http_code}" -X POST "${GW_URL}/credentials" \
+if ! HTTP_CODE=$(curl -s -o "$TMPDENY" -w "%{http_code}" -X POST "${GW_URL}/credentials" \
   -H "Authorization: Bearer ${JWT}" \
   -H "Content-Type: application/json" \
-  -d '{"target_service":"s3","action":"read"}')
+  -d '{"target_service":"s3","action":"read"}'); then
+  echo -e "  ${RED}ERROR: Cannot reach credential gateway at ${GW_URL}${RESET}"
+  exit 1
+fi
+
+if [ "$HTTP_CODE" != "403" ]; then
+  echo -e "  ${RED}ERROR: Expected HTTP 403 for deny scenario, got ${HTTP_CODE}${RESET}"
+  show_json "$(cat "$TMPDENY")"
+  exit 1
+fi
 
 echo -e "  ${BOLD}HTTP Status: ${RED}${HTTP_CODE}${RESET}"
 echo -e "  ${BOLD}Response:${RESET}"
-show_json "$(cat /tmp/demo-cg-deny.json)"
+show_json "$(cat "$TMPDENY")"
 echo ""
 echo -e "  ${GREEN}No credentials issued. The agent cannot access any S3 objects.${RESET}"
 echo -e "  ${DIM}Zero trust: no overlap means no access, regardless of either party's permissions.${RESET}"
@@ -373,10 +407,7 @@ pause
 step "Calling credential gateway"
 
 JWT=$(mk_jwt '{"sub":"bob","preferred_username":"bob","azp":"gpt4","exp":9999999999}')
-RESULT=$(curl -sf -X POST "${GW_URL}/credentials" \
-  -H "Authorization: Bearer ${JWT}" \
-  -H "Content-Type: application/json" \
-  -d '{"target_service":"s3","action":"read"}')
+call_gateway "$JWT" "$TMPFILE"
 
 SESSION=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['session_name'])")
 PREFIXES=$(echo "$RESULT" | python3 -c "import sys,json; print(', '.join(json.load(sys.stdin)['scoped_prefixes']))")
@@ -471,8 +502,6 @@ echo -e "    ${CYAN}OPA Policy Engine${RESET}   ${H_LINE} Computes user ${CYAN}â
 echo -e "    ${CYAN}AWS STS${RESET}             ${H_LINE} Issues scoped temporary credentials"
 echo -e "    ${CYAN}S3${RESET}                  ${H_LINE} Enforces session policy on every request"
 echo ""
-
-rm -f /tmp/demo-cg-deny.json
 
 echo -e "${BOLD}${GREEN}Demo complete.${RESET}"
 echo ""
