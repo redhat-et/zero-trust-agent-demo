@@ -374,6 +374,12 @@ if ! HTTP_CODE=$(curl -s -o "$TMPDENY" -w "%{http_code}" -X POST "${GW_URL}/cred
   exit 1
 fi
 
+if [ "$HTTP_CODE" != "403" ]; then
+  echo -e "  ${RED}ERROR: Expected HTTP 403 for deny scenario, got ${HTTP_CODE}${RESET}"
+  show_json "$(cat "$TMPDENY")"
+  exit 1
+fi
+
 echo -e "  ${BOLD}HTTP Status: ${RED}${HTTP_CODE}${RESET}"
 echo -e "  ${BOLD}Response:${RESET}"
 show_json "$(cat "$TMPDENY")"
