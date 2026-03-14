@@ -342,8 +342,8 @@ patches:
       - op: add
         path: /spec/template/spec/containers/0/imagePullPolicy
         value: IfNotPresent
-      - op: replace
-        path: /spec/template/spec/containers/0/env/4
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
         value:
           name: SPIFFE_DEMO_SERVICE_MOCK_SPIFFE
           value: "false"

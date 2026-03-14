@@ -279,8 +279,6 @@ spec:
               value: "opa-service"
             - name: SPIFFE_DEMO_OPA_PORT
               value: "8080"
-            - name: SPIFFE_DEMO_SERVICE_MOCK_SPIFFE
-              value: "true"
           envFrom:
             - secretRef:
                 name: credential-gateway-aws
