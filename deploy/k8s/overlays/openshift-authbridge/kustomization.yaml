@@ -22,6 +22,7 @@ resources:
 - authbridge-secrets.yaml
 - ai-agents-scc.yaml
 - agent-service-routes-configmap.yaml
+- ai-agents-agentcard-signing.yaml
 - settings.yaml
 
   # OpenShift-specific agent-service sidecar patch (SELinux + port 443)
@@ -36,6 +37,7 @@ patches:
 - path: user-service-authbridge-patch.yaml
 - path: ai-agents-authbridge-patch.yaml
 - path: ai-agents-sidecars-patch.yaml
+- path: ai-agents-agentcard-signing-patch.yaml
 - path: agent-service-discovery-scheme-patch.yaml
 - path: agent-service-routes-patch.yaml
 

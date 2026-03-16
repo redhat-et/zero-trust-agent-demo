@@ -1,0 +1,85 @@
+# ClusterSPIFFEIDs for AI agent SPIRE registration
+# Uses {{ .TrustDomain }} template to match the cluster's SPIRE trust domain.
+---
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: spiffe-demo-summarizer-service
+spec:
+  className: spire-system-spire
+  spiffeIDTemplate: "spiffe://{{ .TrustDomain }}/ns/{{ .PodMeta.Namespace }}/sa/{{ .PodSpec.ServiceAccountName }}"
+  podSelector:
+    matchLabels:
+      app: summarizer-service
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: spiffe-demo
+---
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: spiffe-demo-reviewer-service
+spec:
+  className: spire-system-spire
+  spiffeIDTemplate: "spiffe://{{ .TrustDomain }}/ns/{{ .PodMeta.Namespace }}/sa/{{ .PodSpec.ServiceAccountName }}"
+  podSelector:
+    matchLabels:
+      app: reviewer-service
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: spiffe-demo
+---
+# Unsigned agent card ConfigMaps (input for the agentcard-signer init-container)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: summarizer-agent-card-unsigned
+  namespace: spiffe-demo
+data:
+  agent.json: |
+    {
+      "name": "Summarizer Agent",
+      "description": "Specialized agent for summarizing documents with AI",
+      "url": "http://summarizer-service.spiffe-demo.svc.cluster.local:8000",
+      "version": "1.0.0",
+      "protocolVersion": "0.3.0",
+      "capabilities": {},
+      "defaultInputModes": ["application/json"],
+      "defaultOutputModes": ["text/plain"],
+      "skills": [
+        {
+          "id": "document-summarization",
+          "name": "Document Summarization",
+          "description": "Summarizes documents with AI",
+          "tags": ["finance"],
+          "examples": ["Summarize DOC-002"]
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: reviewer-agent-card-unsigned
+  namespace: spiffe-demo
+data:
+  agent.json: |
+    {
+      "name": "Reviewer Agent",
+      "description": "Specialized agent for reviewing documents for compliance, security, and quality",
+      "url": "http://reviewer-service.spiffe-demo.svc.cluster.local:8000",
+      "version": "1.0.0",
+      "protocolVersion": "0.3.0",
+      "capabilities": {},
+      "defaultInputModes": ["application/json"],
+      "defaultOutputModes": ["text/plain"],
+      "skills": [
+        {
+          "id": "document-review",
+          "name": "Document Review",
+          "description": "Reviews documents for compliance, security, and general quality",
+          "tags": ["engineering", "finance", "admin", "hr"],
+          "examples": ["Review DOC-001", "Compliance review of DOC-006"]
+        }
+      ]
+    }
