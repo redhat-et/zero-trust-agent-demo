@@ -9,9 +9,10 @@ metadata:
 spec:
   template:
     spec:
+      serviceAccountName: summarizer-service
       initContainers:
         - name: sign-agentcard
-          image: ttl.sh/kcogan-agentcard-signer:24h
+          image: ghcr.io/pavelanni/agentcard-signer:latest
           imagePullPolicy: IfNotPresent
           env:
             - name: SPIFFE_ENDPOINT_SOCKET
@@ -73,9 +74,10 @@ metadata:
 spec:
   template:
     spec:
+      serviceAccountName: reviewer-service
       initContainers:
         - name: sign-agentcard
-          image: ttl.sh/kcogan-agentcard-signer:24h
+          image: ghcr.io/pavelanni/agentcard-signer:latest
           imagePullPolicy: IfNotPresent
           env:
             - name: SPIFFE_ENDPOINT_SOCKET

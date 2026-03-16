@@ -1,3 +1,18 @@
+# ServiceAccounts for AI agents — required so each agent gets a unique SPIFFE ID
+# via the {{ .PodSpec.ServiceAccountName }} template in ClusterSPIFFEID.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: summarizer-service
+  namespace: spiffe-demo
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: reviewer-service
+  namespace: spiffe-demo
+---
 # ClusterSPIFFEIDs for AI agent SPIRE registration
 # Uses {{ .TrustDomain }} template to match the cluster's SPIRE trust domain.
 ---
