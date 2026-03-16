@@ -107,14 +107,18 @@ replacements:
       name: oidc-urls
 images:
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/agent-service
-  newTag: fb63b22-dirty
-- name: ghcr.io/redhat-et/zero-trust-agent-demo/document-service
-  newTag: fb63b22-dirty
-- name: ghcr.io/redhat-et/zero-trust-agent-demo/opa-service
-  newTag: fb63b22-dirty
-- name: ghcr.io/redhat-et/zero-trust-agent-demo/user-service
-  newTag: fb63b22-dirty
-- name: ghcr.io/redhat-et/zero-trust-agent-demo/web-dashboard
-  newTag: fb63b22-dirty
+  newTag: 4441ad7
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/credential-gateway
-  newTag: fb63b22-dirty
+  newTag: 4441ad7
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/document-service
+  newTag: 4441ad7
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/opa-service
+  newTag: 4441ad7
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/user-service
+  newTag: 4441ad7
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/web-dashboard
+  newTag: 4441ad7
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/reviewer-service
+  newTag: 4441ad7
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/summarizer-service
+  newTag: 4441ad7
