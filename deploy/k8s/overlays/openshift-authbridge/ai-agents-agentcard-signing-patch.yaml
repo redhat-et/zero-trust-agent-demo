@@ -1,0 +1,132 @@
+# Strategic merge patch to add agentcard-signer init-container to AI agents.
+# Signs the agent card with a SPIFFE x5c certificate for kagenti operator verification.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: summarizer-service
+  namespace: spiffe-demo
+spec:
+  template:
+    spec:
+      serviceAccountName: summarizer-service
+      initContainers:
+        - name: sign-agentcard
+          image: ghcr.io/pavelanni/agentcard-signer:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SPIFFE_ENDPOINT_SOCKET
+              value: unix:///run/spire/agent-sockets/spire-agent.sock
+            - name: UNSIGNED_CARD_PATH
+              value: /etc/agentcard/agent.json
+            - name: AGENT_CARD_PATH
+              value: /app/.well-known/agent-card.json
+            - name: SIGN_TIMEOUT
+              value: "30s"
+          volumeMounts:
+            - name: spire-agent-socket
+              mountPath: /run/spire/agent-sockets
+              readOnly: true
+            - name: unsigned-card
+              mountPath: /etc/agentcard
+              readOnly: true
+            - name: signed-card
+              mountPath: /app/.well-known
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            seLinuxOptions:
+              type: spc_t
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 32Mi
+      containers:
+        - name: summarizer-service
+          env:
+            - name: AGENT_CARD_SIGNED_PATH
+              value: /app/.well-known/agent-card.json
+          volumeMounts:
+            - name: signed-card
+              mountPath: /app/.well-known
+              readOnly: true
+      volumes:
+        - name: unsigned-card
+          configMap:
+            name: summarizer-agent-card-unsigned
+        - name: signed-card
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reviewer-service
+  namespace: spiffe-demo
+spec:
+  template:
+    spec:
+      serviceAccountName: reviewer-service
+      initContainers:
+        - name: sign-agentcard
+          image: ghcr.io/pavelanni/agentcard-signer:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SPIFFE_ENDPOINT_SOCKET
+              value: unix:///run/spire/agent-sockets/spire-agent.sock
+            - name: UNSIGNED_CARD_PATH
+              value: /etc/agentcard/agent.json
+            - name: AGENT_CARD_PATH
+              value: /app/.well-known/agent-card.json
+            - name: SIGN_TIMEOUT
+              value: "30s"
+          volumeMounts:
+            - name: spire-agent-socket
+              mountPath: /run/spire/agent-sockets
+              readOnly: true
+            - name: unsigned-card
+              mountPath: /etc/agentcard
+              readOnly: true
+            - name: signed-card
+              mountPath: /app/.well-known
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            seLinuxOptions:
+              type: spc_t
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 32Mi
+      containers:
+        - name: reviewer-service
+          env:
+            - name: AGENT_CARD_SIGNED_PATH
+              value: /app/.well-known/agent-card.json
+          volumeMounts:
+            - name: signed-card
+              mountPath: /app/.well-known
+              readOnly: true
+      volumes:
+        - name: unsigned-card
+          configMap:
+            name: reviewer-agent-card-unsigned
+        - name: signed-card
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi

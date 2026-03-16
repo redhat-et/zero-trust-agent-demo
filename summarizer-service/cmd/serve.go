@@ -169,7 +169,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 	a2aHandler := a2asrv.NewHandler(executor)
 	jsonrpcHandler := a2asrv.NewJSONRPCHandler(a2aHandler)
-	mux.Handle("GET /.well-known/agent-card.json", a2asrv.NewStaticAgentCardHandler(card))
+	unsignedHandler := a2asrv.NewStaticAgentCardHandler(card)
+	cardHandler := a2abridge.SignedCardHandler(
+		os.Getenv("AGENT_CARD_SIGNED_PATH"),
+		unsignedHandler,
+		log.Logger,
+	)
+	mux.Handle("GET /.well-known/agent-card.json", cardHandler)
 	mux.Handle("POST /a2a", jsonrpcHandler)
 	mux.Handle("POST /{$}", jsonrpcHandler) // Kagenti sends JSON-RPC to root path
 

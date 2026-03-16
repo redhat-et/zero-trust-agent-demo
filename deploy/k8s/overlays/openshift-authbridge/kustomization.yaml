@@ -22,6 +22,7 @@ resources:
 - authbridge-secrets.yaml
 - ai-agents-scc.yaml
 - agent-service-routes-configmap.yaml
+- ai-agents-agentcard-signing.yaml
 - settings.yaml
 
   # OpenShift-specific agent-service sidecar patch (SELinux + port 443)
@@ -36,6 +37,7 @@ patches:
 - path: user-service-authbridge-patch.yaml
 - path: ai-agents-authbridge-patch.yaml
 - path: ai-agents-sidecars-patch.yaml
+- path: ai-agents-agentcard-signing-patch.yaml
 - path: agent-service-discovery-scheme-patch.yaml
 - path: agent-service-routes-patch.yaml
 
@@ -105,14 +107,18 @@ replacements:
       name: oidc-urls
 images:
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/agent-service
-  newTag: fb63b22-dirty
-- name: ghcr.io/redhat-et/zero-trust-agent-demo/document-service
-  newTag: fb63b22-dirty
-- name: ghcr.io/redhat-et/zero-trust-agent-demo/opa-service
-  newTag: fb63b22-dirty
-- name: ghcr.io/redhat-et/zero-trust-agent-demo/user-service
-  newTag: fb63b22-dirty
-- name: ghcr.io/redhat-et/zero-trust-agent-demo/web-dashboard
-  newTag: fb63b22-dirty
+  newTag: 4441ad7
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/credential-gateway
-  newTag: fb63b22-dirty
+  newTag: 4441ad7
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/document-service
+  newTag: 4441ad7
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/opa-service
+  newTag: 4441ad7
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/user-service
+  newTag: 4441ad7
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/web-dashboard
+  newTag: 4441ad7
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/reviewer-service
+  newTag: 4441ad7
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/summarizer-service
+  newTag: 4441ad7
