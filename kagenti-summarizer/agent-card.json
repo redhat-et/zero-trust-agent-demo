@@ -3,6 +3,7 @@
   "description": "Summarizes documents from any URL. Auth-unaware.",
   "url": "http://kagenti-summarizer:8000",
   "version": "1.0.0",
+  "capabilities": {},
   "defaultInputModes": ["application/json"],
   "defaultOutputModes": ["text/plain"],
   "skills": [{

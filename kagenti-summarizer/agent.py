@@ -1,20 +1,41 @@
 """A2A-compatible agent server for the S3 document summarizer.
 
-Serves:
-  GET  /.well-known/agent-card.json  — static agent card
-  GET  /health                       — health check
-  POST /                             — JSON-RPC 2.0 (A2A message/send)
+Uses the official a2a-sdk to serve:
+  GET  /.well-known/agent-card.json  -- static agent card
+  GET  /health                       -- health check
+  POST /                             -- JSON-RPC 2.0 (A2A protocol)
 
 Run with:  uv run python agent.py
 """
 
-import asyncio
 import json
 import logging
 import os
-import uuid
-from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
+
+import uvicorn
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+from starlette.routing import Route
+
+from a2a.server.agent_execution.agent_executor import AgentExecutor
+from a2a.server.agent_execution.context import RequestContext
+from a2a.server.apps.jsonrpc.starlette_app import A2AStarletteApplication
+from a2a.server.events.event_queue import EventQueue
+from a2a.server.request_handlers.default_request_handler import (
+    DefaultRequestHandler,
+)
+from a2a.server.tasks.inmemory_task_store import InMemoryTaskStore
+from a2a.types import (
+    AgentCard,
+    Artifact,
+    Part,
+    TaskArtifactUpdateEvent,
+    TaskState,
+    TaskStatus,
+    TaskStatusUpdateEvent,
+    TextPart,
+)
 
 from summarizer import fetch_and_summarize
 
@@ -27,134 +48,121 @@ logger = logging.getLogger("agent")
 _AGENT_CARD_PATH = Path(__file__).parent / "agent-card.json"
 
 
-def _load_agent_card() -> dict:
-    """Load the agent card JSON from disk."""
+def _load_agent_card() -> AgentCard:
+    """Load the agent card JSON from disk and return an AgentCard model."""
     with open(_AGENT_CARD_PATH) as f:
-        return json.load(f)
+        data = json.load(f)
+    return AgentCard(**data)
 
 
-AGENT_CARD = _load_agent_card()
+class SummarizerExecutor(AgentExecutor):
+    """Execute summarization requests via the A2A protocol."""
 
+    async def execute(
+        self, context: RequestContext, event_queue: EventQueue
+    ) -> None:
+        # Signal that work is in progress.
+        await event_queue.enqueue_event(
+            TaskStatusUpdateEvent(
+                status=TaskStatus(state=TaskState.working),
+            )
+        )
 
-def _extract_text(message: dict) -> str:
-    """Extract concatenated text from A2A message parts."""
-    parts = message.get("parts", [])
-    texts = []
-    for part in parts:
-        if part.get("type") == "text" or "text" in part:
-            texts.append(part.get("text", ""))
-    return "\n".join(texts).strip()
-
-
-def _build_task_result(task_id: str, text: str) -> dict:
-    """Build an A2A Task result with a text artifact."""
-    return {
-        "id": task_id,
-        "status": {"state": "completed"},
-        "artifacts": [
-            {
-                "parts": [{"type": "text", "text": text}],
-            }
-        ],
-    }
-
-
-def _handle_jsonrpc(body: dict) -> dict:
-    """Dispatch a JSON-RPC 2.0 request and return a response."""
-    rpc_id = body.get("id")
-    method = body.get("method", "")
-    params = body.get("params", {})
-
-    if method in ("message/send", "tasks/send"):
-        message = params.get("message", {})
-        user_text = _extract_text(message)
+        # Extract text from the incoming message parts.
+        user_text = self._extract_text(context)
         if not user_text:
-            return {
-                "jsonrpc": "2.0",
-                "id": rpc_id,
-                "error": {
-                    "code": -32602,
-                    "message": "No text found in message parts",
-                },
-            }
+            await event_queue.enqueue_event(
+                TaskStatusUpdateEvent(
+                    status=TaskStatus(
+                        state=TaskState.failed,
+                        message="No text found in message parts",
+                    ),
+                )
+            )
+            return
 
         logger.info("Processing message: %s", user_text[:120])
 
-        # Run the async summarizer in a new event loop
         try:
-            result_text = asyncio.run(fetch_and_summarize(user_text))
+            result_text = await fetch_and_summarize(user_text)
         except Exception as exc:
             logger.error("Summarization failed: %s", exc)
-            return {
-                "jsonrpc": "2.0",
-                "id": rpc_id,
-                "error": {"code": -32000, "message": str(exc)},
-            }
-
-        task_id = params.get("id", str(uuid.uuid4()))
-        task = _build_task_result(task_id, result_text)
-        return {"jsonrpc": "2.0", "id": rpc_id, "result": task}
-
-    # Unknown method
-    return {
-        "jsonrpc": "2.0",
-        "id": rpc_id,
-        "error": {"code": -32601, "message": f"Method not found: {method}"},
-    }
-
-
-class AgentHandler(BaseHTTPRequestHandler):
-    """HTTP request handler for the A2A agent."""
-
-    def do_GET(self):
-        if self.path == "/.well-known/agent-card.json":
-            self._json_response(200, AGENT_CARD)
-        elif self.path == "/health":
-            self._json_response(200, {"status": "healthy"})
-        else:
-            self._json_response(404, {"error": "not found"})
-
-    def do_POST(self):
-        if self.path not in ("/", "/a2a"):
-            self._json_response(404, {"error": "not found"})
+            await event_queue.enqueue_event(
+                TaskStatusUpdateEvent(
+                    status=TaskStatus(
+                        state=TaskState.failed,
+                        message=str(exc),
+                    ),
+                )
+            )
             return
 
-        content_length = int(self.headers.get("Content-Length", 0))
-        raw = self.rfile.read(content_length)
+        # Publish the result artifact.
+        await event_queue.enqueue_event(
+            TaskArtifactUpdateEvent(
+                artifact=Artifact(
+                    parts=[Part(root=TextPart(text=result_text))],
+                ),
+            )
+        )
 
-        try:
-            body = json.loads(raw)
-        except json.JSONDecodeError:
-            self._json_response(400, {"error": "invalid JSON"})
-            return
+        # Mark the task as completed.
+        await event_queue.enqueue_event(
+            TaskStatusUpdateEvent(
+                status=TaskStatus(state=TaskState.completed),
+            )
+        )
 
-        response = _handle_jsonrpc(body)
-        self._json_response(200, response)
+    async def cancel(
+        self, context: RequestContext, event_queue: EventQueue
+    ) -> None:
+        await event_queue.enqueue_event(
+            TaskStatusUpdateEvent(
+                status=TaskStatus(
+                    state=TaskState.canceled,
+                    message="Task was canceled",
+                ),
+            )
+        )
 
-    def _json_response(self, status: int, data: dict):
-        payload = json.dumps(data).encode()
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(payload)))
-        self.end_headers()
-        self.wfile.write(payload)
+    @staticmethod
+    def _extract_text(context: RequestContext) -> str:
+        """Extract concatenated text from the request message parts."""
+        parts = context.request.params.message.parts
+        texts: list[str] = []
+        for part in parts:
+            root = part.root
+            if hasattr(root, "text"):
+                texts.append(root.text)
+        return "\n".join(texts).strip()
 
-    def log_message(self, format, *args):
-        """Route HTTP access logs through the module logger."""
-        logger.info(format, *args)
+
+async def _health(request: Request) -> JSONResponse:
+    """Health check endpoint."""
+    return JSONResponse({"status": "healthy"})
 
 
-def main():
+def main() -> None:
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8000"))
 
-    server = HTTPServer((host, port), AgentHandler)
+    agent_card = _load_agent_card()
+
+    handler = DefaultRequestHandler(
+        agent_executor=SummarizerExecutor(),
+        task_store=InMemoryTaskStore(),
+    )
+
+    app_builder = A2AStarletteApplication(
+        agent_card=agent_card, http_handler=handler
+    )
+    app = app_builder.build()
+
+    # Add a health endpoint alongside the SDK-provided routes.
+    app.routes.append(Route("/health", _health, methods=["GET"]))
+
     logger.info("A2A agent listening on %s:%d", host, port)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        logger.info("Shutting down")
-        server.server_close()
+    uvicorn.run(app, host=host, port=port)
 
 
 if __name__ == "__main__":

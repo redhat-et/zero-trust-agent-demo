@@ -4,10 +4,11 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.12"
 dependencies = [
-    "a2a-python>=0.0.1",
+    "a2a-sdk[http-server]>=0.3.25",
     "anthropic>=0.85.0",
     "httpx>=0.28.1",
     "openai>=2.29.0",
+    "uvicorn>=0.34.0",
 ]
 
 [dependency-groups]
