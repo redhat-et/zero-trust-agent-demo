@@ -678,7 +678,9 @@ func (gw *Gateway) handleS3Proxy(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", *result.ContentLength))
 	}
 	w.WriteHeader(http.StatusOK)
-	io.Copy(w, result.Body)
+	if _, err := io.Copy(w, result.Body); err != nil {
+		gw.log.Error("Failed to stream S3 object", "error", err, "key", s3Key)
+	}
 }
 
 // queryOPAProxy asks OPA for a per-object S3 proxy decision
