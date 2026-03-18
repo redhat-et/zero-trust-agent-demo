@@ -118,21 +118,23 @@ Key fields explained:
 
 #### Grant the SCC to agent service accounts
 
-When Kagenti creates an agent with SPIRE enabled, it creates a
-service account named `<agent-name>-sa`. Without SPIRE, it uses
-`<agent-name>`. You must grant the SCC **after** the agent is
-created, because the SA doesn't exist beforehand.
+The SCC must be granted **after** the agent is created, because the
+SA doesn't exist beforehand. The SA name varies depending on how the
+agent was created (UI vs API, SPIRE enabled or not). Always check
+the actual SA name from the deployment:
 
 ```bash
-# After creating the agent (with SPIRE enabled):
-oc adm policy add-scc-to-user kagenti-authbridge \
-  -z <agent-name>-sa -n $NAMESPACE
+# Check which SA the deployment uses:
+oc get deployment <agent-name> -n $NAMESPACE \
+  -o jsonpath='{.spec.template.spec.serviceAccountName}'
 
-# After creating the agent (without SPIRE):
+# Grant the SCC to that SA:
+SA_NAME=$(oc get deployment <agent-name> -n $NAMESPACE \
+  -o jsonpath='{.spec.template.spec.serviceAccountName}')
 oc adm policy add-scc-to-user kagenti-authbridge \
-  -z <agent-name> -n $NAMESPACE
+  -z $SA_NAME -n $NAMESPACE
 
-# Then restart the deployment to pick up the SCC:
+# Restart the deployment to pick up the SCC:
 oc rollout restart deployment/<agent-name> -n $NAMESPACE
 ```
 
@@ -234,12 +236,12 @@ Wait until the BuildRun shows `Succeeded: True`.
 After the build succeeds:
 
 ```bash
-# Grant SCC to the SA (created during finalize)
-# With spireEnabled=true, Kagenti creates <name>-sa
+# Grant SCC to the SA used by the deployment
+SA_NAME=$(oc get deployment ${AGENT_NAME} -n $NAMESPACE \
+  -o jsonpath='{.spec.template.spec.serviceAccountName}')
+echo "Granting SCC to SA: $SA_NAME"
 oc adm policy add-scc-to-user kagenti-authbridge \
-  -z ${AGENT_NAME}-sa -n $NAMESPACE 2>/dev/null || \
-oc adm policy add-scc-to-user kagenti-authbridge \
-  -z ${AGENT_NAME} -n $NAMESPACE
+  -z $SA_NAME -n $NAMESPACE
 
 # Finalize the build (creates Deployment + Service)
 curl -s -X POST \
@@ -505,6 +507,7 @@ oc create secret docker-registry openshift-registry-push \
 
 echo "Namespace $NAMESPACE is ready for Kagenti agents."
 echo "After creating each agent, run:"
-echo "  oc adm policy add-scc-to-user kagenti-authbridge -z <agent>-sa -n $NAMESPACE"
+echo "  SA=\$(oc get deployment <agent> -n $NAMESPACE -o jsonpath='{.spec.template.spec.serviceAccountName}')"
+echo "  oc adm policy add-scc-to-user kagenti-authbridge -z \$SA -n $NAMESPACE"
 echo "  oc rollout restart deployment/<agent> -n $NAMESPACE"
 ```
