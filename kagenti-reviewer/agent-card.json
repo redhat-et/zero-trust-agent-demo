@@ -1,0 +1,15 @@
+{
+  "name": "S3 Document Reviewer",
+  "description": "Reviews documents from any URL. Auth-unaware.",
+  "url": "http://kagenti-reviewer:8000",
+  "version": "1.0.0",
+  "capabilities": {},
+  "defaultInputModes": ["application/json"],
+  "defaultOutputModes": ["text/plain"],
+  "skills": [{
+    "id": "url-review",
+    "name": "URL Document Review",
+    "description": "Fetches a document from any URL and reviews it",
+    "tags": ["review", "compliance", "s3"]
+  }]
+}
