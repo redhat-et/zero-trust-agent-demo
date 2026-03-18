@@ -93,10 +93,7 @@ class ReviewerExecutor(AgentExecutor):
             await event_queue.enqueue_event(
                 TaskStatusUpdateEvent(
                     taskId=task_id, contextId=ctx_id, final=True,
-                    status=TaskStatus(
-                        state=TaskState.failed,
-                        message=str(exc),
-                    ),
+                    status=TaskStatus(state=TaskState.failed),
                 )
             )
             return

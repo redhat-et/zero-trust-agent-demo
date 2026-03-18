@@ -21,12 +21,12 @@ intercepts outbound S3 requests and enforces the permission intersection
 
 ```text
 ┌────────────┐    ┌───────────────────────────────────────────────┐
-│    Web      │    │  Agent Pod (Kagenti-managed)                  │
-│  Dashboard  │    │                                               │
+│    Web     │    │  Agent Pod (Kagenti-managed)                  │
+│  Dashboard │    │                                               │
 │            │───▶│  ┌─────────────┐     ┌──────────────────────┐ │
-│  (user picks│    │  │  Python     │────▶│  AuthBridge sidecar   │ │
-│   doc +     │    │  │  Agent      │     │                      │ │
-│   agent)    │    │  │  (auth-     │     │  1. Intercept GET    │ │
+│ (user picks│    │  │  Python     │────▶│  AuthBridge sidecar  │ │
+│  doc +     │    │  │  Agent      │     │                      │ │
+│  agent)    │    │  │  (auth-     │     │  1. Intercept GET    │ │
 │            │    │  │   unaware)  │     │  2. Token exchange   │ │
 └────────────┘    │  └─────────────┘     │  3. Route to cred-gw │ │
                   │                      └──────────┬───────────┘ │
@@ -34,17 +34,17 @@ intercepts outbound S3 requests and enforces the permission intersection
                                                     │
                          ┌──────────────────────────┼──────────┐
                          │                          ▼          │
-                         │  ┌──────────────┐  ┌──────────┐    │
-                         │  │  Credential  │  │   OPA    │    │
-                         │  │  Gateway     │──│ (policy) │    │
-                         │  │  (S3 proxy)  │  └──────────┘    │
+                         │  ┌──────────────┐  ┌──────────┐     │
+                         │  │  Credential  │  │   OPA    │     │
+                         │  │  Gateway     │──│ (policy) │     │
+                         │  │  (S3 proxy)  │  └──────────┘     │
                          │  └──────┬───────┘                   │
                          │         │                           │
                          │         ▼                           │
                          │  ┌──────────┐                       │
-                         │  │   AWS S3  │                       │
+                         │  │   AWS S3 │                       │
                          │  └──────────┘                       │
-                         │          Cluster services            │
+                         │          Cluster services           │
                          └─────────────────────────────────────┘
 ```
 
@@ -100,14 +100,14 @@ The reviewer additionally accepts an optional `review_type` parameter
 
 #### Configuration
 
-| Env var | Default | Purpose |
-| ------- | ------- | ------- |
-| `HOST` | `0.0.0.0` | Bind address |
-| `PORT` | `8000` | Listen port |
-| `LLM_PROVIDER` | `anthropic` | `anthropic`, `openai`, `litellm`, `mock` |
-| `LLM_API_KEY` | — | API key for chosen provider |
-| `LLM_BASE_URL` | — | Custom endpoint (LiteLLM/vLLM) |
-| `LLM_MODEL` | per-provider | Model override |
+| Env var        | Default      | Purpose                                  |
+| -------------- | ------------ | ---------------------------------------- |
+| `HOST`         | `0.0.0.0`    | Bind address                             |
+| `PORT`         | `8000`       | Listen port                              |
+| `LLM_PROVIDER` | `anthropic`  | `anthropic`, `openai`, `litellm`, `mock` |
+| `LLM_API_KEY`  | —            | API key for chosen provider              |
+| `LLM_BASE_URL` | —            | Custom endpoint (LiteLLM/vLLM)           |
+| `LLM_MODEL`    | per-provider | Model override                           |
 
 When `LLM_API_KEY` is not set, the agent falls back to mock mode:
 returns a canned response with document metadata (URL, content length,
@@ -235,12 +235,12 @@ type OPAIntersectionInput struct {
 
 #### Error responses
 
-| Condition | HTTP status | Body |
-| --------- | ----------- | ---- |
-| Missing/invalid JWT | 401 | `{"error": "unauthorized"}` |
-| OPA denies access | 403 | `{"error": "forbidden", "reason": "..."}` |
-| S3 object not found | 404 | `{"error": "not found"}` |
-| S3/STS failure | 502 | `{"error": "upstream error"}` |
+| Condition           | HTTP status | Body                                      |
+| ------------------- | ----------- | ----------------------------------------- |
+| Missing/invalid JWT | 401         | `{"error": "unauthorized"}`               |
+| OPA denies access   | 403         | `{"error": "forbidden", "reason": "..."}` |
+| S3 object not found | 404         | `{"error": "not found"}`                  |
+| S3/STS failure      | 502         | `{"error": "upstream error"}`             |
 
 ### OPA policy extension
 
@@ -335,14 +335,14 @@ no breaking changes.
 
 ## Test matrix
 
-| User | Agent | Document | S3 key | Expected |
-| ---- | ----- | -------- | ------ | -------- |
-| Alice | kagenti-summarizer | Q4 Report | `finance/q4-report.md` | Allowed |
-| Alice | kagenti-summarizer | Roadmap | `engineering/roadmap.md` | Denied |
-| Alice | kagenti-summarizer | Budget | `engineering/budget.md` | Allowed |
-| Alice | kagenti-reviewer | Roadmap | `engineering/roadmap.md` | Allowed |
-| Carol | kagenti-summarizer | Q4 Report | `finance/q4-report.md` | Denied |
-| Carol | kagenti-reviewer | HR Guide | `hr/guidelines.md` | Allowed |
+| User  | Agent              | Document  | S3 key                   | Expected |
+| ----- | ------------------ | --------- | ------------------------ | -------- |
+| Alice | kagenti-summarizer | Q4 Report | `finance/q4-report.md`   | Allowed  |
+| Alice | kagenti-summarizer | Roadmap   | `engineering/roadmap.md` | Denied   |
+| Alice | kagenti-summarizer | Budget    | `engineering/budget.md`  | Allowed  |
+| Alice | kagenti-reviewer   | Roadmap   | `engineering/roadmap.md` | Allowed  |
+| Carol | kagenti-summarizer | Q4 Report | `finance/q4-report.md`   | Denied   |
+| Carol | kagenti-reviewer   | HR Guide  | `hr/guidelines.md`       | Allowed  |
 
 **Alice + kagenti-summarizer**: intersection is `[finance]`. Q4 Report
 (finance) allowed. Roadmap (engineering) denied. Budget
@@ -359,11 +359,11 @@ is empty. All documents denied.
 
 ### Container images
 
-| Image | Base | Notes |
-| ----- | ---- | ----- |
-| `kagenti-summarizer` | `python:3.12-slim` + `uv` | A2A agent |
-| `kagenti-reviewer` | `python:3.12-slim` + `uv` | A2A agent |
-| `credential-gateway` | existing alpine image | Add proxy handler |
+| Image                | Base                      | Notes             |
+| -------------------- | ------------------------- | ----------------- |
+| `kagenti-summarizer` | `python:3.12-slim` + `uv` | A2A agent         |
+| `kagenti-reviewer`   | `python:3.12-slim` + `uv` | A2A agent         |
+| `credential-gateway` | existing alpine image     | Add proxy handler |
 
 ### Kubernetes manifests
 
@@ -386,25 +386,25 @@ gateway, OPA policy ConfigMap update, and Envoy route patches.
 
 ## Implementation phases
 
-| Phase | Description | Scope |
-| ----- | ----------- | ----- |
-| 1 | Python agents (summarizer + reviewer) | New code |
-| 2 | Credential gateway S3 proxy endpoint | Extend existing |
-| 3 | OPA policy with manifest-based lookup | Extend existing |
-| 4 | Document store `s3_url` field + dashboard | Extend existing |
-| 5 | Deployment manifests + Kagenti labels | New config |
-| 6 | AuthBridge route config + Envoy routing | Config only |
-| 7 | End-to-end testing | Integration test |
+| Phase | Description                               | Scope            |
+| ----- | ----------------------------------------- | ---------------- |
+| 1     | Python agents (summarizer + reviewer)     | New code         |
+| 2     | Credential gateway S3 proxy endpoint      | Extend existing  |
+| 3     | OPA policy with manifest-based lookup     | Extend existing  |
+| 4     | Document store `s3_url` field + dashboard | Extend existing  |
+| 5     | Deployment manifests + Kagenti labels     | New config       |
+| 6     | AuthBridge route config + Envoy routing   | Config only      |
+| 7     | End-to-end testing                        | Integration test |
 
 ## Change summary
 
-| Component | Change type | Scope |
-| --------- | ----------- | ----- |
-| `kagenti-summarizer/` | New | Self-contained Python agent |
-| `kagenti-reviewer/` | New | Self-contained Python agent |
-| `credential-gateway/` | Extend | Add S3 proxy endpoint |
-| `opa-service/policies/` | Extend | Manifest lookup, new agents |
-| `document-service/` | Extend | Add `s3_url` field |
-| `web-dashboard/` | Extend | Send S3 URL for kagenti agents |
-| `deploy/k8s/` | New overlay | Kagenti deployment config |
-| AuthBridge | **No code changes** | Route config only |
+| Component               | Change type         | Scope                          |
+| ----------------------- | ------------------- | ------------------------------ |
+| `kagenti-summarizer/`   | New                 | Self-contained Python agent    |
+| `kagenti-reviewer/`     | New                 | Self-contained Python agent    |
+| `credential-gateway/`   | Extend              | Add S3 proxy endpoint          |
+| `opa-service/policies/` | Extend              | Manifest lookup, new agents    |
+| `document-service/`     | Extend              | Add `s3_url` field             |
+| `web-dashboard/`        | Extend              | Send S3 URL for kagenti agents |
+| `deploy/k8s/`           | New overlay         | Kagenti deployment config      |
+| AuthBridge              | **No code changes** | Route config only              |
