@@ -52,9 +52,71 @@ oc label namespace $NAMESPACE agentcard=true --overwrite
 
 ### AuthBridge SCC
 
-AuthBridge sidecars require privileged init containers (iptables)
-and specific UIDs (1337 for Envoy, 1000 for go-processor). The
-`openclaw-authbridge` SCC allows this.
+AuthBridge sidecars require privileged init containers (iptables),
+specific UIDs (1337 for Envoy, 1000 for go-processor), and CSI
+volumes (SPIFFE). OpenShift's default `restricted-v2` SCC blocks
+all of these. You need a custom SCC that allows them.
+
+#### Create the SCC (cluster-wide, one-time)
+
+If the `kagenti-authbridge` SCC doesn't exist on your cluster,
+create it:
+
+```bash
+oc apply -f - <<'EOF'
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: kagenti-authbridge
+  annotations:
+    kubernetes.io/description: >-
+      Custom SCC for Kagenti agents with AuthBridge sidecars.
+      Allows privileged init container (iptables), RunAsAny UID
+      (Envoy 1337, go-processor 1000, agent 1000), and SPIFFE
+      CSI volumes.
+allowHostDirVolumePlugin: false
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+allowPrivilegeEscalation: true
+allowPrivilegedContainer: true
+allowedCapabilities:
+  - NET_ADMIN
+  - NET_RAW
+defaultAddCapabilities: []
+requiredDropCapabilities: []
+fsGroup:
+  type: MustRunAs
+runAsUser:
+  type: RunAsAny
+seLinuxContext:
+  type: RunAsAny
+supplementalGroups:
+  type: RunAsAny
+readOnlyRootFilesystem: false
+volumes:
+  - configMap
+  - csi
+  - downwardAPI
+  - emptyDir
+  - persistentVolumeClaim
+  - projected
+  - secret
+EOF
+```
+
+Key fields explained:
+
+- `allowPrivilegedContainer: true` — the proxy-init container runs
+  privileged to set up iptables rules
+- `NET_ADMIN, NET_RAW` — required by iptables for traffic capture
+- `runAsUser: RunAsAny` — allows UID 0 (init), 1337 (Envoy), 1000
+  (go-processor, agent)
+- `csi` in volumes — required for SPIFFE CSI driver to mount the
+  workload API socket
+
+#### Grant the SCC to agent service accounts
 
 When Kagenti creates an agent with SPIRE enabled, it creates a
 service account named `<agent-name>-sa`. Without SPIRE, it uses
@@ -63,11 +125,11 @@ created, because the SA doesn't exist beforehand.
 
 ```bash
 # After creating the agent (with SPIRE enabled):
-oc adm policy add-scc-to-user openclaw-authbridge \
+oc adm policy add-scc-to-user kagenti-authbridge \
   -z <agent-name>-sa -n $NAMESPACE
 
 # After creating the agent (without SPIRE):
-oc adm policy add-scc-to-user openclaw-authbridge \
+oc adm policy add-scc-to-user kagenti-authbridge \
   -z <agent-name> -n $NAMESPACE
 
 # Then restart the deployment to pick up the SCC:
@@ -174,9 +236,9 @@ After the build succeeds:
 ```bash
 # Grant SCC to the SA (created during finalize)
 # With spireEnabled=true, Kagenti creates <name>-sa
-oc adm policy add-scc-to-user openclaw-authbridge \
+oc adm policy add-scc-to-user kagenti-authbridge \
   -z ${AGENT_NAME}-sa -n $NAMESPACE 2>/dev/null || \
-oc adm policy add-scc-to-user openclaw-authbridge \
+oc adm policy add-scc-to-user kagenti-authbridge \
   -z ${AGENT_NAME} -n $NAMESPACE
 
 # Finalize the build (creates Deployment + Service)
@@ -339,6 +401,6 @@ oc create secret docker-registry openshift-registry-push \
 
 echo "Namespace $NAMESPACE is ready for Kagenti agents."
 echo "After creating each agent, run:"
-echo "  oc adm policy add-scc-to-user openclaw-authbridge -z <agent>-sa -n $NAMESPACE"
+echo "  oc adm policy add-scc-to-user kagenti-authbridge -z <agent>-sa -n $NAMESPACE"
 echo "  oc rollout restart deployment/<agent> -n $NAMESPACE"
 ```
