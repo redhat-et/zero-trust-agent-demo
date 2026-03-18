@@ -293,6 +293,110 @@ curl -s -X POST "${KAGENTI_API}/api/v1/agents" \
 # Then grant SCC and restart (same as above)
 ```
 
+## Deleting an agent
+
+Kagenti creates several resources per agent. When deleting an agent,
+remove all of them to avoid orphaned resources.
+
+### Delete a single agent
+
+```bash
+NAMESPACE=zt-test
+AGENT_NAME=kagenti-reviewer
+
+# Core workload resources
+oc delete deployment $AGENT_NAME -n $NAMESPACE --ignore-not-found
+oc delete svc $AGENT_NAME -n $NAMESPACE --ignore-not-found
+
+# AgentCard (named <agent>-deployment-card by convention)
+oc delete agentcard ${AGENT_NAME}-deployment-card -n $NAMESPACE \
+  --ignore-not-found
+
+# Shipwright build resources (from build-from-source)
+oc delete builds.shipwright.io $AGENT_NAME -n $NAMESPACE \
+  --ignore-not-found
+oc delete buildruns.shipwright.io -n $NAMESPACE \
+  -l kagenti.io/build-name=$AGENT_NAME
+
+# Service account (with or without -sa suffix)
+oc delete sa ${AGENT_NAME}-sa -n $NAMESPACE --ignore-not-found
+oc delete sa $AGENT_NAME -n $NAMESPACE --ignore-not-found
+
+# ConfigMaps (unsigned and signed agent cards)
+oc delete cm ${AGENT_NAME}-card-unsigned -n $NAMESPACE \
+  --ignore-not-found
+oc delete cm ${AGENT_NAME}-card-signed -n $NAMESPACE \
+  --ignore-not-found
+
+# ImageStream (if built to OpenShift internal registry)
+oc delete is $AGENT_NAME -n $NAMESPACE --ignore-not-found
+
+# SCC binding (cluster-scoped, won't cause issues if left)
+oc adm policy remove-scc-from-user kagenti-authbridge \
+  -z ${AGENT_NAME}-sa -n $NAMESPACE 2>/dev/null
+oc adm policy remove-scc-from-user kagenti-authbridge \
+  -z $AGENT_NAME -n $NAMESPACE 2>/dev/null
+```
+
+### Clean up all failed builds
+
+After experimenting, you may have multiple failed build attempts.
+To clean them all up:
+
+```bash
+NAMESPACE=zt-test
+
+# List what exists
+echo "=== Builds ===" && oc get builds.shipwright.io -n $NAMESPACE
+echo "=== BuildRuns ===" && oc get buildruns.shipwright.io -n $NAMESPACE
+echo "=== AgentCards ===" && oc get agentcards -n $NAMESPACE
+echo "=== Orphan SAs ===" && oc get sa -n $NAMESPACE | grep kagenti
+echo "=== Orphan CMs ===" && oc get cm -n $NAMESPACE | grep kagenti
+
+# Delete all Shipwright builds and buildruns
+oc delete builds.shipwright.io --all -n $NAMESPACE
+oc delete buildruns.shipwright.io --all -n $NAMESPACE
+
+# Delete unbound/unsynced agent cards (failed deployments)
+# Review the list first, then delete selectively:
+oc get agentcards -n $NAMESPACE -o name | while read card; do
+  synced=$(oc get $card -n $NAMESPACE -o jsonpath='{.status.synced}')
+  if [ "$synced" != "True" ]; then
+    echo "Deleting unsynced: $card"
+    oc delete $card -n $NAMESPACE
+  fi
+done
+
+# Delete orphaned SAs and ConfigMaps (review before deleting)
+# Only delete if the corresponding deployment doesn't exist:
+for sa in $(oc get sa -n $NAMESPACE -o name | grep kagenti); do
+  name=$(echo $sa | sed 's|serviceaccount/||; s|-sa$||')
+  if ! oc get deployment $name -n $NAMESPACE &>/dev/null; then
+    echo "Deleting orphan SA: $sa"
+    oc delete $sa -n $NAMESPACE
+  fi
+done
+
+for cm in $(oc get cm -n $NAMESPACE -o name | grep kagenti); do
+  echo "Deleting: $cm"
+  oc delete $cm -n $NAMESPACE
+done
+```
+
+### Delete via Kagenti API
+
+If the agent was created via the API, you can also delete it there:
+
+```bash
+curl -s -X DELETE \
+  "${KAGENTI_API}/api/v1/agents/${NAMESPACE}/${AGENT_NAME}" \
+  | python3 -m json.tool
+```
+
+This deletes the Deployment and Service but may leave behind
+Shipwright builds, ConfigMaps, and service accounts. Use the
+manual cleanup steps above for a complete removal.
+
 ## Known issues and workarounds
 
 ### SCC must be granted after agent creation
