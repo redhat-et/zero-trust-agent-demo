@@ -9,4 +9,4 @@ COPY *.py agent-card.json ./
 
 EXPOSE 8000
 USER 1000
-CMD ["uv", "run", "python", "agent.py"]
+CMD [".venv/bin/python", "agent.py"]
