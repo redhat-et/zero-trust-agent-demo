@@ -11,6 +11,7 @@ Run with:  uv run python agent.py
 import json
 import logging
 import os
+import uuid
 from pathlib import Path
 
 import uvicorn
@@ -61,9 +62,13 @@ class SummarizerExecutor(AgentExecutor):
     async def execute(
         self, context: RequestContext, event_queue: EventQueue
     ) -> None:
+        task_id = context.task_id
+        ctx_id = context.context_id
+
         # Signal that work is in progress.
         await event_queue.enqueue_event(
             TaskStatusUpdateEvent(
+                taskId=task_id, contextId=ctx_id, final=False,
                 status=TaskStatus(state=TaskState.working),
             )
         )
@@ -73,10 +78,8 @@ class SummarizerExecutor(AgentExecutor):
         if not user_text:
             await event_queue.enqueue_event(
                 TaskStatusUpdateEvent(
-                    status=TaskStatus(
-                        state=TaskState.failed,
-                        message="No text found in message parts",
-                    ),
+                    taskId=task_id, contextId=ctx_id, final=True,
+                    status=TaskStatus(state=TaskState.failed),
                 )
             )
             return
@@ -89,6 +92,7 @@ class SummarizerExecutor(AgentExecutor):
             logger.error("Summarization failed: %s", exc)
             await event_queue.enqueue_event(
                 TaskStatusUpdateEvent(
+                    taskId=task_id, contextId=ctx_id, final=True,
                     status=TaskStatus(
                         state=TaskState.failed,
                         message=str(exc),
@@ -100,7 +104,9 @@ class SummarizerExecutor(AgentExecutor):
         # Publish the result artifact.
         await event_queue.enqueue_event(
             TaskArtifactUpdateEvent(
+                taskId=task_id, contextId=ctx_id,
                 artifact=Artifact(
+                    artifactId=str(uuid.uuid4()),
                     parts=[Part(root=TextPart(text=result_text))],
                 ),
             )
@@ -109,6 +115,7 @@ class SummarizerExecutor(AgentExecutor):
         # Mark the task as completed.
         await event_queue.enqueue_event(
             TaskStatusUpdateEvent(
+                taskId=task_id, contextId=ctx_id, final=True,
                 status=TaskStatus(state=TaskState.completed),
             )
         )
@@ -118,17 +125,16 @@ class SummarizerExecutor(AgentExecutor):
     ) -> None:
         await event_queue.enqueue_event(
             TaskStatusUpdateEvent(
-                status=TaskStatus(
-                    state=TaskState.canceled,
-                    message="Task was canceled",
-                ),
+                taskId=context.task_id, contextId=context.context_id,
+                final=True,
+                status=TaskStatus(state=TaskState.canceled),
             )
         )
 
     @staticmethod
     def _extract_text(context: RequestContext) -> str:
         """Extract concatenated text from the request message parts."""
-        parts = context.request.params.message.parts
+        parts = context.message.parts
         texts: list[str] = []
         for part in parts:
             root = part.root
