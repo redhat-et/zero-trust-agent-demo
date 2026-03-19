@@ -335,25 +335,47 @@ no breaking changes.
 
 ## Test matrix
 
-| User  | Agent              | Document  | S3 key                   | Expected |
-| ----- | ------------------ | --------- | ------------------------ | -------- |
-| Alice | kagenti-summarizer | Q4 Report | `finance/q4-report.md`   | Allowed  |
-| Alice | kagenti-summarizer | Roadmap   | `engineering/roadmap.md` | Denied   |
-| Alice | kagenti-summarizer | Budget    | `engineering/budget.md`  | Allowed  |
-| Alice | kagenti-reviewer   | Roadmap   | `engineering/roadmap.md` | Allowed  |
-| Carol | kagenti-summarizer | Q4 Report | `finance/q4-report.md`   | Denied   |
-| Carol | kagenti-reviewer   | HR Guide  | `hr/guidelines.md`       | Allowed  |
+| User  | Agent              | Document  | S3 key                   | Expected | Actual   |
+| ----- | ------------------ | --------- | ------------------------ | -------- | -------- |
+| Alice | kagenti-summarizer | Q4 Report | `finance/q4-report.md`   | Allowed  | Allowed  |
+| Alice | kagenti-summarizer | Roadmap   | `engineering/roadmap.md` | Denied   | Denied   |
+| Alice | kagenti-summarizer | Budget    | `engineering/budget.md`  | Allowed  | Denied*  |
+| Alice | kagenti-reviewer   | Roadmap   | `engineering/roadmap.md` | Allowed  | Allowed  |
+| Carol | kagenti-summarizer | Q4 Report | `finance/q4-report.md`   | Denied   | Denied   |
+| Carol | kagenti-reviewer   | HR Guide  | `hr/guidelines.md`       | Allowed  | Allowed  |
+
+Tested on OpenShift (spiffe-demo namespace, 2026-03-19).
+5 of 6 tests pass. Test results include full S3 document content
+returned for allowed requests.
 
 **Alice + kagenti-summarizer**: intersection is `[finance]`. Q4 Report
-(finance) allowed. Roadmap (engineering) denied. Budget
-(finance + engineering) allowed because `finance` is in the
-intersection.
+(finance) allowed — document content returned. Roadmap (engineering)
+denied with message: `"engineering not in intersection [finance]"`.
 
 **Carol + kagenti-summarizer**: intersection of `[hr]` and `[finance]`
-is empty. All documents denied.
+is empty — denied with `"intersection []"`.
 
 **Carol + kagenti-reviewer**: intersection is `[hr]`. HR Guidelines
-(hr) allowed.
+(hr) allowed — document content returned.
+
+### Known limitation: multi-department documents and S3 prefixes (*)
+
+Test 3 (Budget) is an edge case. OPA **correctly allows** the request
+because `finance` is in both the document's departments
+`[finance, engineering]` and the intersection `[finance]`. However,
+the S3 session policy only grants access to the `finance/*` prefix,
+and the file lives at `engineering/budget.md`. AWS denies the
+`s3:GetObject` call because the S3 key doesn't match the session
+policy's allowed prefixes.
+
+This is a fundamental tension between OPA's department-based logic
+and S3's path-based session policies. Options to resolve:
+
+- Store multi-department documents under a `shared/` prefix and
+  include `shared/` in all session policies
+- Duplicate the document under both `finance/` and `engineering/`
+- Use S3 object tags instead of prefixes for department matching
+  (requires a different session policy approach)
 
 ## Deployment
 
