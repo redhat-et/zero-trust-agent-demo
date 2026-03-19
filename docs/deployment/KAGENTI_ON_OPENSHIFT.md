@@ -41,13 +41,18 @@ NAMESPACE=zt-test
 oc create namespace $NAMESPACE 2>/dev/null || true
 ```
 
-### Label for SPIRE identity
+### Namespace labels
 
-The `agentcard=true` label enables the ClusterSPIFFEID controller
-to issue SPIFFE identities to agent pods in this namespace.
+Two labels are required:
+
+- `kagenti-enabled=true` — enables the Kagenti operator's webhook
+  to inject sidecars (AuthBridge, SPIRE) into pods in this namespace
+- `agentcard=true` — enables the ClusterSPIFFEID controller to
+  issue SPIFFE identities to agent pods in this namespace
 
 ```bash
-oc label namespace $NAMESPACE agentcard=true --overwrite
+oc label namespace $NAMESPACE kagenti-enabled=true agentcard=true \
+  --overwrite
 ```
 
 ### AuthBridge SCC
