@@ -139,7 +139,20 @@ oc create configmap authbridge-config -n $NAMESPACE \
   --from-literal=EXPECTED_AUDIENCE="" \
   --from-literal=TARGET_AUDIENCE="" \
   --from-literal=TARGET_SCOPES="openid"
+
+oc create configmap environments -n $NAMESPACE \
+  --from-literal=KEYCLOAK_URL="${KEYCLOAK_URL}" \
+  --from-literal=KEYCLOAK_REALM="${REALM}" \
+  --from-literal=KEYCLOAK_ADMIN_USERNAME="admin" \
+  --from-literal=KEYCLOAK_ADMIN_PASSWORD="admin123" \
+  --from-literal=KEYCLOAK_CLIENT_REGISTRATION_ENABLED="true" \
+  --from-literal=KEYCLOAK_TOKEN_EXCHANGE_ENABLED="true" \
+  --from-literal=SPIRE_ENABLED="true"
 ```
+
+**Note**: `authbridge-config` is used by the go-processor (ext-proc)
+for JWT validation. `environments` is used by the client-registration
+sidecar for Keycloak client registration. Both are required.
 
 ### Registry push secret (for build-from-source)
 
@@ -577,13 +590,23 @@ REALM="spiffe-demo"
 oc create namespace $NAMESPACE
 oc label namespace $NAMESPACE agentcard=true kagenti-enabled=true
 
-# AuthBridge config
+# AuthBridge config (go-processor JWT validation)
 oc create configmap authbridge-config -n $NAMESPACE \
   --from-literal=ISSUER="${KEYCLOAK_URL}/realms/${REALM}" \
   --from-literal=TOKEN_URL="${KEYCLOAK_URL}/realms/${REALM}/protocol/openid-connect/token" \
   --from-literal=EXPECTED_AUDIENCE="" \
   --from-literal=TARGET_AUDIENCE="" \
   --from-literal=TARGET_SCOPES="openid"
+
+# Keycloak environment (client-registration sidecar)
+oc create configmap environments -n $NAMESPACE \
+  --from-literal=KEYCLOAK_URL="${KEYCLOAK_URL}" \
+  --from-literal=KEYCLOAK_REALM="${REALM}" \
+  --from-literal=KEYCLOAK_ADMIN_USERNAME="admin" \
+  --from-literal=KEYCLOAK_ADMIN_PASSWORD="admin123" \
+  --from-literal=KEYCLOAK_CLIENT_REGISTRATION_ENABLED="true" \
+  --from-literal=KEYCLOAK_TOKEN_EXCHANGE_ENABLED="true" \
+  --from-literal=SPIRE_ENABLED="true"
 
 # AuthBridge sidecar ConfigMaps
 oc create configmap spiffe-helper-config -n $NAMESPACE \
