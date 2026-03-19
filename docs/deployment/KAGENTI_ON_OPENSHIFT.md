@@ -277,6 +277,11 @@ kill %1
 If you've already built and pushed the image (e.g., to GHCR):
 
 ```bash
+KAGENTI_API="https://kagenti-api-kagenti-system.apps.ocp-beta-test.nerc.mghpcc.org"
+NAMESPACE="zt-test"
+AGENT_NAME="kagenti-summarizer"
+IMAGE="ghcr.io/redhat-et/zero-trust-agent-demo/kagenti-summarizer:dev"
+
 curl -s -X POST "${KAGENTI_API}/api/v1/agents" \
   -H "Content-Type: application/json" \
   -d "{
@@ -285,7 +290,7 @@ curl -s -X POST "${KAGENTI_API}/api/v1/agents" \
     \"protocol\": \"a2a\",
     \"framework\": \"Python\",
     \"deploymentMethod\": \"image\",
-    \"containerImage\": \"ghcr.io/redhat-et/zero-trust-agent-demo/kagenti-summarizer:dev\",
+    \"containerImage\": \"${IMAGE}\",
     \"authBridgeEnabled\": true,
     \"spireEnabled\": true,
     \"servicePorts\": [{
