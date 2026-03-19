@@ -556,9 +556,9 @@ Creating the ConfigMap manually before or after the Deployment does
 not trigger the webhook to inject the signing init container — the
 webhook decision appears to be made only at initial pod admission.
 
-**Status**: Needs further testing in a clean namespace to confirm
-whether this is an API vs UI issue, a deployment method issue
-(source vs image), or a timing issue with ConfigMap creation.
+**Status**: Confirmed in clean-namespace testing (zt-test2). Agents
+created via the API are functional and discoverable but unsigned,
+regardless of namespace or deployment method.
 
 **Workaround**: If your agent shows `Verified: false`, try creating
 it via the Kagenti UI instead. Agents without signing are still
