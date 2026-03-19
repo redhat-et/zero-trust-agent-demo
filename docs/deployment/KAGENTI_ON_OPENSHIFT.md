@@ -184,13 +184,11 @@ its own), and external registries require additional secret setup,
 the CLI/API path below lets you use the OpenShift internal registry
 directly.
 
-**Trade-off**: The CLI path does not create the `card-unsigned`
-ConfigMap or trigger the operator's agent card signing injection.
-Agents created via CLI will be discovered and functional but will
-show `Verified: false` in the Kagenti UI. To get full agent card
-signing, either create the agent via the UI (when the registry
-limitation is fixed) or manually add the signing init container
-(see the agent card signing section below).
+**Trade-off**: Agents created via the API may not get agent card
+signing (see known issues below). They will be discovered and
+functional but may show `Verified: false` in the Kagenti UI. This
+needs further investigation — it may be an API limitation or a
+timing issue with ConfigMap creation.
 
 ## Deploy an agent from source (CLI)
 
@@ -486,34 +484,32 @@ registry isn't an option.
 **Upstream fix**: Add an "OpenShift Internal Registry" option to
 `ImportAgentPage.tsx:REGISTRY_OPTIONS`.
 
-### Agent card signing not available via CLI/API
+### Agent card signing may not activate via API
 
-**Problem**: When creating agents via the Kagenti API (CLI), the
-agent card is not signed with a SPIRE SVID. The agent shows
+**Problem**: Agents created via the Kagenti API may not get their
+agent card signed with a SPIRE SVID. The agent shows
 `Verified: false` and `Bound: false` in the Kagenti UI. The agent
 is fully functional but not cryptographically verified.
 
 **Root cause**: Agent card signing requires a `sign-agentcard` init
 container injected by the Kagenti operator's webhook. The webhook
 only injects this init container when a `<agent-name>-card-unsigned`
-ConfigMap exists **at the time the Deployment is created**. The
-Kagenti UI creates this ConfigMap as part of the agent creation
-flow. The API does not.
+ConfigMap exists **at the time the Deployment is created**. In our
+testing, agents created via the UI had this ConfigMap and got
+signing; agents created via the API did not.
 
 Creating the ConfigMap manually before or after the Deployment does
 not trigger the webhook to inject the signing init container — the
 webhook decision appears to be made only at initial pod admission.
 
-**Workaround**: Create agents via the Kagenti UI when possible.
-Agents created via CLI will work but show as unverified. This is a
-cosmetic issue — the agent card content is still synced and the
-agent is discoverable and usable.
+**Status**: Needs further testing in a clean namespace to confirm
+whether this is an API vs UI issue, a deployment method issue
+(source vs image), or a timing issue with ConfigMap creation.
 
-**Context**: The CLI path exists because the Kagenti UI does not
-support the OpenShift internal registry for build-from-source
-deployments (see above). Once the UI adds OpenShift registry
-support, agents can be created entirely through the UI with full
-signing support.
+**Workaround**: If your agent shows `Verified: false`, try creating
+it via the Kagenti UI instead. Agents without signing are still
+discoverable and functional — this is a trust verification gap,
+not a functionality issue.
 
 **Upstream fix**: The Kagenti API should create the `card-unsigned`
 ConfigMap when `spireEnabled: true`, matching the UI behavior.
