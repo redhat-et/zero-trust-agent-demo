@@ -158,6 +158,47 @@ oc create secret docker-registry openshift-registry-push \
 access, use a bound SA token with longer duration or create a
 persistent dockercfg secret from the builder SA.
 
+### AuthBridge sidecar ConfigMaps
+
+The AuthBridge sidecars (envoy-proxy, spiffe-helper) expect two
+ConfigMaps in the namespace. The Kagenti UI creates these
+automatically, but when deploying via the API they must be created
+manually.
+
+**spiffe-helper-config** — tells spiffe-helper where to find the
+SPIRE agent socket and where to write SVIDs:
+
+```bash
+oc create configmap spiffe-helper-config -n $NAMESPACE \
+  --from-literal=helper.conf='agent_address = "/spiffe-workload-api/spire-agent.sock"
+cmd = ""
+cmd_args = ""
+svid_file_name = "/opt/svid.pem"
+svid_key_file_name = "/opt/svid_key.pem"
+svid_bundle_file_name = "/opt/svid_bundle.pem"
+jwt_svids = [{jwt_audience="kagenti", jwt_svid_file_name="/opt/jwt_svid.token"}]
+jwt_svid_file_mode = 0644
+include_federated_domains = true
+'
+```
+
+**envoy-config** — Envoy proxy configuration with inbound/outbound
+listeners and ext-proc integration. This is a large YAML file;
+copy it from an existing namespace:
+
+```bash
+# Copy from a working namespace (e.g., zt-test or spiffe-demo)
+oc get cm envoy-config -n zt-test -o json \
+  | jq '.metadata = {name: "envoy-config", namespace: "'$NAMESPACE'"}
+        | del(.metadata.uid, .metadata.resourceVersion,
+              .metadata.creationTimestamp)' \
+  | oc apply -f -
+```
+
+If no existing namespace is available, the envoy-config is also in
+the Kagenti source at
+`kagenti-extensions/AuthBridge/AuthProxy/k8s/`.
+
 ## Why CLI deployment?
 
 The Kagenti UI is the preferred way to deploy agents. However, on
@@ -543,6 +584,27 @@ oc create configmap authbridge-config -n $NAMESPACE \
   --from-literal=EXPECTED_AUDIENCE="" \
   --from-literal=TARGET_AUDIENCE="" \
   --from-literal=TARGET_SCOPES="openid"
+
+# AuthBridge sidecar ConfigMaps
+oc create configmap spiffe-helper-config -n $NAMESPACE \
+  --from-literal=helper.conf='agent_address = "/spiffe-workload-api/spire-agent.sock"
+cmd = ""
+cmd_args = ""
+svid_file_name = "/opt/svid.pem"
+svid_key_file_name = "/opt/svid_key.pem"
+svid_bundle_file_name = "/opt/svid_bundle.pem"
+jwt_svids = [{jwt_audience="kagenti", jwt_svid_file_name="/opt/jwt_svid.token"}]
+jwt_svid_file_mode = 0644
+include_federated_domains = true
+'
+
+# Copy envoy-config from an existing namespace (or create manually)
+SOURCE_NS="zt-test"  # change to any namespace that has it
+oc get cm envoy-config -n $SOURCE_NS -o json \
+  | jq '.metadata = {name: "envoy-config", namespace: "'$NAMESPACE'"}
+        | del(.metadata.uid, .metadata.resourceVersion,
+              .metadata.creationTimestamp)' \
+  | oc apply -f -
 
 # Registry push secret for build-from-source
 oc create secret docker-registry openshift-registry-push \
