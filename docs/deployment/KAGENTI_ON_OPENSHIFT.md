@@ -173,11 +173,29 @@ oc create secret docker-registry openshift-registry-push \
 access, use a bound SA token with longer duration or create a
 persistent dockercfg secret from the builder SA.
 
+## Why CLI deployment?
+
+The Kagenti UI is the preferred way to deploy agents. However, on
+OpenShift the UI's "build from source" flow only offers four registry
+options (Local/cr-system, Quay, Docker Hub, GHCR) and does not
+include the OpenShift internal registry. Since the Kagenti internal
+registry (`cr-system`) is not deployed on OpenShift (OpenShift has
+its own), and external registries require additional secret setup,
+the CLI/API path below lets you use the OpenShift internal registry
+directly.
+
+**Trade-off**: The CLI path does not create the `card-unsigned`
+ConfigMap or trigger the operator's agent card signing injection.
+Agents created via CLI will be discovered and functional but will
+show `Verified: false` in the Kagenti UI. To get full agent card
+signing, either create the agent via the UI (when the registry
+limitation is fixed) or manually add the signing init container
+(see the agent card signing section below).
+
 ## Deploy an agent from source (CLI)
 
-The Kagenti UI currently only offers four registry options and does
-not include the OpenShift internal registry. Until the UI is updated,
-use the Kagenti API directly.
+Use the Kagenti API directly to specify the OpenShift internal
+registry URL.
 
 ### Step-by-step
 
@@ -467,6 +485,38 @@ registry isn't an option.
 
 **Upstream fix**: Add an "OpenShift Internal Registry" option to
 `ImportAgentPage.tsx:REGISTRY_OPTIONS`.
+
+### Agent card signing not available via CLI/API
+
+**Problem**: When creating agents via the Kagenti API (CLI), the
+agent card is not signed with a SPIRE SVID. The agent shows
+`Verified: false` and `Bound: false` in the Kagenti UI. The agent
+is fully functional but not cryptographically verified.
+
+**Root cause**: Agent card signing requires a `sign-agentcard` init
+container injected by the Kagenti operator's webhook. The webhook
+only injects this init container when a `<agent-name>-card-unsigned`
+ConfigMap exists **at the time the Deployment is created**. The
+Kagenti UI creates this ConfigMap as part of the agent creation
+flow. The API does not.
+
+Creating the ConfigMap manually before or after the Deployment does
+not trigger the webhook to inject the signing init container — the
+webhook decision appears to be made only at initial pod admission.
+
+**Workaround**: Create agents via the Kagenti UI when possible.
+Agents created via CLI will work but show as unverified. This is a
+cosmetic issue — the agent card content is still synced and the
+agent is discoverable and usable.
+
+**Context**: The CLI path exists because the Kagenti UI does not
+support the OpenShift internal registry for build-from-source
+deployments (see above). Once the UI adds OpenShift registry
+support, agents can be created entirely through the UI with full
+signing support.
+
+**Upstream fix**: The Kagenti API should create the `card-unsigned`
+ConfigMap when `spireEnabled: true`, matching the UI behavior.
 
 ### Shipwright requires Tekton
 
