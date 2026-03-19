@@ -55,14 +55,12 @@ oc label namespace $NAMESPACE kagenti-enabled=true agentcard=true \
   --overwrite
 ```
 
-### AuthBridge SCC
+### AuthBridge SCC (cluster-wide, one-time)
 
 AuthBridge sidecars require privileged init containers (iptables),
 specific UIDs (1337 for Envoy, 1000 for go-processor), and CSI
 volumes (SPIFFE). OpenShift's default `restricted-v2` SCC blocks
 all of these. You need a custom SCC that allows them.
-
-#### Create the SCC (cluster-wide, one-time)
 
 If the `kagenti-authbridge` SCC doesn't exist on your cluster,
 create it:
@@ -121,27 +119,9 @@ Key fields explained:
 - `csi` in volumes — required for SPIFFE CSI driver to mount the
   workload API socket
 
-#### Grant the SCC to agent service accounts
-
-The SCC must be granted **after** the agent is created, because the
-SA doesn't exist beforehand. The SA name varies depending on how the
-agent was created (UI vs API, SPIRE enabled or not). Always check
-the actual SA name from the deployment:
-
-```bash
-# Check which SA the deployment uses:
-oc get deployment <agent-name> -n $NAMESPACE \
-  -o jsonpath='{.spec.template.spec.serviceAccountName}'
-
-# Grant the SCC to that SA:
-SA_NAME=$(oc get deployment <agent-name> -n $NAMESPACE \
-  -o jsonpath='{.spec.template.spec.serviceAccountName}')
-oc adm policy add-scc-to-user kagenti-authbridge \
-  -z $SA_NAME -n $NAMESPACE
-
-# Restart the deployment to pick up the SCC:
-oc rollout restart deployment/<agent-name> -n $NAMESPACE
-```
+**Note**: The SCC is cluster-scoped and only needs to be created
+once. Per-agent SCC grants happen after each agent is created
+(see the post-creation steps below).
 
 ### AuthBridge config
 
@@ -252,25 +232,28 @@ curl -s "${KAGENTI_API}/api/v1/agents/${NAMESPACE}/${AGENT_NAME}/build-status" \
 
 Wait until the BuildRun shows `Succeeded: True`.
 
-#### Phase two: Grant SCC and finalize
+#### Phase two: Finalize, grant SCC, restart
 
 After the build succeeds:
 
 ```bash
-# Grant SCC to the SA used by the deployment
-SA_NAME=$(oc get deployment ${AGENT_NAME} -n $NAMESPACE \
-  -o jsonpath='{.spec.template.spec.serviceAccountName}')
-echo "Granting SCC to SA: $SA_NAME"
-oc adm policy add-scc-to-user kagenti-authbridge \
-  -z $SA_NAME -n $NAMESPACE
-
 # Finalize the build (creates Deployment + Service)
 curl -s -X POST \
   "${KAGENTI_API}/api/v1/agents/${NAMESPACE}/${AGENT_NAME}/finalize-shipwright-build" \
   -H "Content-Type: application/json" \
   -d '{}' | python3 -m json.tool
 
-# Wait for rollout
+# The pod will fail with SCC errors — this is expected.
+# Grant the SCC to the SA that was just created:
+sleep 5
+SA_NAME=$(oc get deployment ${AGENT_NAME} -n $NAMESPACE \
+  -o jsonpath='{.spec.template.spec.serviceAccountName}')
+echo "Granting SCC to SA: $SA_NAME"
+oc adm policy add-scc-to-user kagenti-authbridge \
+  -z $SA_NAME -n $NAMESPACE
+
+# Restart to pick up the SCC
+oc rollout restart deployment/${AGENT_NAME} -n $NAMESPACE
 oc rollout status deployment/${AGENT_NAME} -n $NAMESPACE --timeout=120s
 ```
 
@@ -313,7 +296,14 @@ curl -s -X POST "${KAGENTI_API}/api/v1/agents" \
     }]
   }" | python3 -m json.tool
 
-# Then grant SCC and restart (same as above)
+# The pod will fail with SCC errors — grant and restart:
+sleep 5
+SA_NAME=$(oc get deployment ${AGENT_NAME} -n $NAMESPACE \
+  -o jsonpath='{.spec.template.spec.serviceAccountName}')
+oc adm policy add-scc-to-user kagenti-authbridge \
+  -z $SA_NAME -n $NAMESPACE
+oc rollout restart deployment/${AGENT_NAME} -n $NAMESPACE
+oc rollout status deployment/${AGENT_NAME} -n $NAMESPACE --timeout=120s
 ```
 
 ## Deleting an agent
