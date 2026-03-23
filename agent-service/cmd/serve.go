@@ -37,12 +37,10 @@ func init() {
 	serveCmd.Flags().Bool("enable-discovery", false, "Enable Kubernetes-based A2A agent discovery")
 	serveCmd.Flags().String("discovery-namespace", "spiffe-demo", "Namespace to discover A2A agents in")
 	serveCmd.Flags().Duration("discovery-interval", 30*time.Second, "Interval between discovery scans")
-	serveCmd.Flags().String("discovery-scheme", "https", "URL scheme for discovered agents (http or https)")
 	v.BindPFlag("document_service_url", serveCmd.Flags().Lookup("document-service-url"))
 	v.BindPFlag("enable_discovery", serveCmd.Flags().Lookup("enable-discovery"))
 	v.BindPFlag("discovery_namespace", serveCmd.Flags().Lookup("discovery-namespace"))
 	v.BindPFlag("discovery_interval", serveCmd.Flags().Lookup("discovery-interval"))
-	v.BindPFlag("discovery_scheme", serveCmd.Flags().Lookup("discovery-scheme"))
 }
 
 type Config struct {
@@ -51,7 +49,6 @@ type Config struct {
 	EnableDiscovery     bool          `mapstructure:"enable_discovery"`
 	DiscoveryNamespace  string        `mapstructure:"discovery_namespace"`
 	DiscoveryInterval   time.Duration `mapstructure:"discovery_interval"`
-	DiscoveryScheme     string        `mapstructure:"discovery_scheme"`
 }
 
 // DelegatedAccessRequest represents a request from a user to access a document via agent
@@ -147,11 +144,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if cfg.EnableDiscovery {
 		discovery, err := a2abridge.NewAgentDiscovery(
 			a2abridge.DiscoveryConfig{
-				Namespace:   cfg.DiscoveryNamespace,
-				TrustDomain: cfg.SPIFFE.TrustDomain,
-				Scheme:      cfg.DiscoveryScheme,
+				Namespace: cfg.DiscoveryNamespace,
 			},
-			httpClient,
 			log.Logger,
 		)
 		if err != nil {
@@ -213,8 +207,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if cfg.EnableDiscovery {
 		log.Info("Discovery config",
 			"namespace", cfg.DiscoveryNamespace,
-			"interval", cfg.DiscoveryInterval,
-			"scheme", cfg.DiscoveryScheme)
+			"interval", cfg.DiscoveryInterval)
 	}
 
 	for _, agent := range svc.store.List() {
@@ -649,7 +642,7 @@ func (s *AgentService) discoverAgents(ctx context.Context, discovery *a2abridge.
 			Description: discovered.Description,
 			Source:      store.SourceDiscovered,
 			A2AURL:      discovered.A2AURL,
-			AgentCard:   discovered.Card,
+			Version:     discovered.Version,
 		})
 		s.log.Info("Registered discovered agent",
 			"id", discovered.ID,
