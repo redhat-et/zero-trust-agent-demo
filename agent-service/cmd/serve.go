@@ -37,10 +37,12 @@ func init() {
 	serveCmd.Flags().Bool("enable-discovery", false, "Enable Kubernetes-based A2A agent discovery")
 	serveCmd.Flags().String("discovery-namespace", "spiffe-demo", "Namespace to discover A2A agents in")
 	serveCmd.Flags().Duration("discovery-interval", 30*time.Second, "Interval between discovery scans")
+	serveCmd.Flags().String("static-agents", "", "Path to JSON file with static agent definitions")
 	v.BindPFlag("document_service_url", serveCmd.Flags().Lookup("document-service-url"))
 	v.BindPFlag("enable_discovery", serveCmd.Flags().Lookup("enable-discovery"))
 	v.BindPFlag("discovery_namespace", serveCmd.Flags().Lookup("discovery-namespace"))
 	v.BindPFlag("discovery_interval", serveCmd.Flags().Lookup("discovery-interval"))
+	v.BindPFlag("static_agents", serveCmd.Flags().Lookup("static-agents"))
 }
 
 type Config struct {
@@ -49,6 +51,7 @@ type Config struct {
 	EnableDiscovery     bool          `mapstructure:"enable_discovery"`
 	DiscoveryNamespace  string        `mapstructure:"discovery_namespace"`
 	DiscoveryInterval   time.Duration `mapstructure:"discovery_interval"`
+	StaticAgents        string        `mapstructure:"static_agents"`
 }
 
 // DelegatedAccessRequest represents a request from a user to access a document via agent
@@ -82,6 +85,35 @@ func capitalize(s string) string {
 		return s
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+func loadStaticAgents(path string, agentStore *store.AgentStore, log *logger.Logger) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to read static agents file: %w", err)
+	}
+
+	var agents []struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		A2AURL      string `json:"a2a_url"`
+	}
+	if err := json.Unmarshal(data, &agents); err != nil {
+		return fmt.Errorf("failed to parse static agents: %w", err)
+	}
+
+	for _, a := range agents {
+		agentStore.Register(&store.Agent{
+			ID:          a.ID,
+			Name:        a.Name,
+			Description: a.Description,
+			Source:      store.SourceStatic,
+			A2AURL:      a.A2AURL,
+		})
+		log.Info("Loaded static agent", "id", a.ID, "name", a.Name)
+	}
+	return nil
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
@@ -145,6 +177,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 		trustDomain:        cfg.SPIFFE.TrustDomain,
 		workloadClient:     workloadClient,
 		a2aClient:          a2aClient,
+	}
+
+	if cfg.StaticAgents != "" {
+		if err := loadStaticAgents(cfg.StaticAgents, svc.store, log); err != nil {
+			return fmt.Errorf("failed to load static agents: %w", err)
+		}
 	}
 
 	// Start A2A agent discovery loop if enabled
