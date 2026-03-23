@@ -77,6 +77,13 @@ func extractBearerToken(r *http.Request) string {
 	return ""
 }
 
+func capitalize(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
 func runServe(cmd *cobra.Command, args []string) error {
 	var cfg Config
 	if err := config.Load(v, &cfg); err != nil {
@@ -490,6 +497,7 @@ func (s *AgentService) accessDocumentDelegated(ctx context.Context, agent *store
 type InvokeRequest struct {
 	UserSPIFFEID    string   `json:"user_spiffe_id"`
 	DocumentID      string   `json:"document_id"`
+	Action          string   `json:"action,omitempty"` // "summarize", "review", etc.
 	UserDepartments []string `json:"user_departments,omitempty"`
 	ReviewType      string   `json:"review_type,omitempty"`
 }
@@ -569,10 +577,31 @@ func (s *AgentService) handleInvoke(w http.ResponseWriter, r *http.Request, agen
 	// Authorization passed - invoke the A2A agent
 	s.log.Success("Authorization granted, forwarding to A2A agent")
 
+	// Extract s3_url from document metadata if available
+	var s3URL string
+	if doc, ok := accessResult.Document.(map[string]any); ok {
+		if u, ok := doc["s3_url"].(string); ok {
+			s3URL = u
+		}
+	}
+
+	// Build A2A message text
+	action := req.Action
+	if action == "" {
+		action = "summarize" // default action
+	}
+	messageText := ""
+	if s3URL != "" {
+		messageText = fmt.Sprintf("%s %s", capitalize(action), s3URL)
+	} else {
+		messageText = fmt.Sprintf("%s document %s", capitalize(action), req.DocumentID)
+	}
+
 	invokeResult, err := s.a2aClient.Invoke(ctx, &a2abridge.InvokeRequest{
 		AgentURL:      agent.A2AURL,
 		Card:          agent.AgentCard,
 		DocumentID:    req.DocumentID,
+		MessageText:   messageText,
 		ReviewType:    req.ReviewType,
 		BearerToken:   bearerToken,
 		UserSPIFFEID:  req.UserSPIFFEID,
