@@ -18,14 +18,14 @@ const (
 
 // Agent represents an AI agent in the system
 type Agent struct {
-	ID           string          `json:"id"`
-	Name         string          `json:"name"`
-	Capabilities []string        `json:"capabilities"`
-	SPIFFEID     string          `json:"spiffe_id"`
-	Description  string          `json:"description"`
-	Source       AgentSource     `json:"source"`
-	A2AURL       string          `json:"a2a_url,omitempty"`
-	AgentCard    *a2a.AgentCard  `json:"-"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	SPIFFEID    string         `json:"spiffe_id,omitempty"`
+	Source      AgentSource    `json:"source"`
+	A2AURL      string         `json:"a2a_url,omitempty"`
+	Version     string         `json:"version,omitempty"`
+	AgentCard   *a2a.AgentCard `json:"-"`
 }
 
 // AgentStore is an in-memory agent store with thread-safe access.
@@ -34,51 +34,10 @@ type AgentStore struct {
 	agents map[string]*Agent
 }
 
-// NewAgentStore creates a new agent store with sample agents
-func NewAgentStore(trustDomain string) *AgentStore {
-	store := &AgentStore{
+// NewAgentStore creates a new agent store
+func NewAgentStore() *AgentStore {
+	return &AgentStore{
 		agents: make(map[string]*Agent),
-	}
-	store.loadSampleAgents(trustDomain)
-	return store
-}
-
-func (s *AgentStore) loadSampleAgents(trustDomain string) {
-	// Agents as defined in the design document
-	s.agents["gpt4"] = &Agent{
-		ID:           "gpt4",
-		Name:         "GPT-4 Agent",
-		Capabilities: []string{"engineering", "finance"},
-		SPIFFEID:     "spiffe://" + trustDomain + "/agent/gpt4",
-		Description:  "General-purpose AI assistant with engineering and finance access",
-		Source:       SourceStatic,
-	}
-
-	s.agents["claude"] = &Agent{
-		ID:           "claude",
-		Name:         "Claude Agent",
-		Capabilities: []string{"engineering", "finance", "admin", "hr"},
-		SPIFFEID:     "spiffe://" + trustDomain + "/agent/claude",
-		Description:  "Unrestricted AI assistant with access to all departments",
-		Source:       SourceStatic,
-	}
-
-	s.agents["summarizer"] = &Agent{
-		ID:           "summarizer",
-		Name:         "Summarizer Agent",
-		Capabilities: []string{"finance"},
-		SPIFFEID:     "spiffe://" + trustDomain + "/agent/summarizer",
-		Description:  "Specialized agent for summarizing financial documents only",
-		Source:       SourceStatic,
-	}
-
-	s.agents["reviewer"] = &Agent{
-		ID:           "reviewer",
-		Name:         "Reviewer Agent",
-		Capabilities: []string{"engineering", "finance", "admin", "hr"},
-		SPIFFEID:     "spiffe://" + trustDomain + "/agent/reviewer",
-		Description:  "Reviews documents for compliance, security, and general issues",
-		Source:       SourceStatic,
 	}
 }
 

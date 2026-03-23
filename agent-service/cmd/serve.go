@@ -134,7 +134,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	a2aClient := a2abridge.NewA2AClient(httpClient, log.Logger)
 
 	svc := &AgentService{
-		store:              store.NewAgentStore(cfg.SPIFFE.TrustDomain),
+		store:              store.NewAgentStore(),
 		httpClient:         httpClient,
 		documentServiceURL: cfg.DocumentServiceURL,
 		log:                log,
@@ -221,7 +221,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		log.Info("Registered agent",
 			"id", agent.ID,
 			"name", agent.Name,
-			"capabilities", agent.Capabilities)
+			"description", agent.Description)
 	}
 
 	// Start separate plain HTTP health server for Kubernetes probes
@@ -364,7 +364,7 @@ func (s *AgentService) handleDelegatedAccess(w http.ResponseWriter, r *http.Requ
 	s.log.Section("DELEGATED AGENT ACCESS")
 	s.log.Info("Agent accepting delegation",
 		"agent", agent.Name,
-		"agent_capabilities", agent.Capabilities)
+		"description", agent.Description)
 	s.log.SVID(req.UserSPIFFEID, "Delegation from user")
 	s.log.SVID(agent.SPIFFEID, "Agent SVID for request")
 
@@ -643,19 +643,18 @@ func (s *AgentService) discoverAgents(ctx context.Context, discovery *a2abridge.
 	for _, discovered := range agents {
 		foundIDs[discovered.ID] = true
 		s.store.Register(&store.Agent{
-			ID:           discovered.ID,
-			Name:         discovered.Name,
-			Capabilities: discovered.Capabilities,
-			SPIFFEID:     discovered.SPIFFEID,
-			Description:  discovered.Description,
-			Source:       store.SourceDiscovered,
-			A2AURL:       discovered.A2AURL,
-			AgentCard:    discovered.Card,
+			ID:          discovered.ID,
+			Name:        discovered.Name,
+			SPIFFEID:    discovered.SPIFFEID,
+			Description: discovered.Description,
+			Source:      store.SourceDiscovered,
+			A2AURL:      discovered.A2AURL,
+			AgentCard:   discovered.Card,
 		})
 		s.log.Info("Registered discovered agent",
 			"id", discovered.ID,
 			"name", discovered.Name,
-			"capabilities", discovered.Capabilities,
+			"description", discovered.Description,
 			"a2a_url", discovered.A2AURL)
 	}
 
