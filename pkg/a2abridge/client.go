@@ -28,7 +28,8 @@ func NewA2AClient(httpClient *http.Client, log *slog.Logger) *A2AClient {
 type InvokeRequest struct {
 	AgentURL      string
 	Card          *a2a.AgentCard
-	DocumentID    string
+	DocumentID    string // Legacy: used by Go agents
+	MessageText   string // New: used by gateway mode (e.g., "Summarize s3://...")
 	ReviewType    string
 	BearerToken   string // Optional JWT forwarded from the caller (user delegation)
 	UserSPIFFEID  string // User SPIFFE ID — sent as X-Delegation-User header
@@ -43,15 +44,20 @@ type InvokeResult struct {
 
 // Invoke sends a message/send request to an A2A agent.
 func (c *A2AClient) Invoke(ctx context.Context, req *InvokeRequest) (*InvokeResult, error) {
-	// Build the request as a DataPart with document_id (no delegation fields)
-	data := map[string]any{
-		"document_id": req.DocumentID,
+	var msg *a2a.Message
+	if req.MessageText != "" {
+		// Gateway mode: send plain text message
+		msg = a2a.NewMessage(a2a.MessageRoleUser, a2a.TextPart{Text: req.MessageText})
+	} else {
+		// Legacy mode: send structured DataPart
+		data := map[string]any{
+			"document_id": req.DocumentID,
+		}
+		if req.ReviewType != "" {
+			data["review_type"] = req.ReviewType
+		}
+		msg = a2a.NewMessage(a2a.MessageRoleUser, &a2a.DataPart{Data: data})
 	}
-	if req.ReviewType != "" {
-		data["review_type"] = req.ReviewType
-	}
-
-	msg := a2a.NewMessage(a2a.MessageRoleUser, &a2a.DataPart{Data: data})
 
 	params := &a2a.MessageSendParams{
 		Message: msg,
