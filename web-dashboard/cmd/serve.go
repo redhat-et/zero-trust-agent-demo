@@ -36,8 +36,6 @@ func init() {
 	serveCmd.Flags().String("user-service-url", "http://localhost:8080", "User service URL")
 	serveCmd.Flags().String("agent-service-url", "http://localhost:8080", "Agent service URL")
 	serveCmd.Flags().String("document-service-url", "http://localhost:8080", "Document service URL")
-	serveCmd.Flags().String("summarizer-service-url", "http://localhost:8000", "Summarizer service URL")
-	serveCmd.Flags().String("reviewer-service-url", "http://localhost:8000", "Reviewer service URL")
 	serveCmd.Flags().Bool("oidc-enabled", false, "Enable OIDC authentication")
 	serveCmd.Flags().String("oidc-issuer-url", "http://localhost:8180/realms/spiffe-demo", "OIDC issuer URL")
 	serveCmd.Flags().String("oidc-client-id", "spiffe-demo-dashboard", "OIDC client ID")
@@ -46,8 +44,6 @@ func init() {
 	v.BindPFlag("user_service_url", serveCmd.Flags().Lookup("user-service-url"))
 	v.BindPFlag("agent_service_url", serveCmd.Flags().Lookup("agent-service-url"))
 	v.BindPFlag("document_service_url", serveCmd.Flags().Lookup("document-service-url"))
-	v.BindPFlag("summarizer_service_url", serveCmd.Flags().Lookup("summarizer-service-url"))
-	v.BindPFlag("reviewer_service_url", serveCmd.Flags().Lookup("reviewer-service-url"))
 	v.BindPFlag("oidc.enabled", serveCmd.Flags().Lookup("oidc-enabled"))
 	v.BindPFlag("oidc.issuer_url", serveCmd.Flags().Lookup("oidc-issuer-url"))
 	v.BindPFlag("oidc.client_id", serveCmd.Flags().Lookup("oidc-client-id"))
@@ -60,8 +56,6 @@ type Config struct {
 	UserServiceURL        string          `mapstructure:"user_service_url"`
 	AgentServiceURL       string          `mapstructure:"agent_service_url"`
 	DocumentServiceURL    string          `mapstructure:"document_service_url"`
-	SummarizerServiceURL  string          `mapstructure:"summarizer_service_url"`
-	ReviewerServiceURL    string          `mapstructure:"reviewer_service_url"`
 	OIDC                  auth.OIDCConfig `mapstructure:"oidc"`
 }
 
@@ -72,8 +66,6 @@ type Dashboard struct {
 	userServiceURL       string
 	agentServiceURL      string
 	documentServiceURL   string
-	summarizerServiceURL string
-	reviewerServiceURL   string
 	log                  *logger.Logger
 	sseClients           map[chan string]bool
 	sseMutex             sync.Mutex
@@ -110,13 +102,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if cfg.DocumentServiceURL == "" {
 		cfg.DocumentServiceURL = "http://localhost:8080"
 	}
-	if cfg.SummarizerServiceURL == "" {
-		cfg.SummarizerServiceURL = "http://localhost:8000"
-	}
-	if cfg.ReviewerServiceURL == "" {
-		cfg.ReviewerServiceURL = "http://localhost:8000"
-	}
-
 	log := logger.New(logger.ComponentDashboard)
 
 	// Initialize SPIFFE workload client
@@ -154,8 +139,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 		userServiceURL:       cfg.UserServiceURL,
 		agentServiceURL:      cfg.AgentServiceURL,
 		documentServiceURL:   cfg.DocumentServiceURL,
-		summarizerServiceURL: cfg.SummarizerServiceURL,
-		reviewerServiceURL:   cfg.ReviewerServiceURL,
 		log:                  log,
 		sseClients:           make(map[chan string]bool),
 		workloadClient:       workloadClient,
@@ -194,8 +177,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	mux.HandleFunc("/api/access-delegated", dashboard.handleDelegatedAccess)
 	mux.HandleFunc("/api/status", dashboard.handleStatus)
 	mux.HandleFunc("/api/session", dashboard.handleGetSession)
-	mux.HandleFunc("/api/summarize", dashboard.handleSummarize)
-	mux.HandleFunc("/api/review", dashboard.handleReview)
+	mux.HandleFunc("/api/invoke", dashboard.handleInvoke)
 
 	// Auth routes (only if OIDC is enabled)
 	if cfg.OIDC.Enabled {
@@ -236,8 +218,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 	log.Info("User service", "url", cfg.UserServiceURL)
 	log.Info("Agent service", "url", cfg.AgentServiceURL)
 	log.Info("Document service", "url", cfg.DocumentServiceURL)
-	log.Info("Summarizer service", "url", cfg.SummarizerServiceURL)
-	log.Info("Reviewer service", "url", cfg.ReviewerServiceURL)
 	log.Info("Dashboard ready at", "url", fmt.Sprintf("http://localhost:%d", cfg.Service.Port))
 
 	if err := server.ListenAndServe(); err != http.ErrServerClosed {
@@ -718,11 +698,9 @@ func (d *Dashboard) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	services := map[string]string{
-		"user-service":       d.userServiceURL + "/health",
-		"agent-service":      d.agentServiceURL + "/health",
-		"document-service":   d.documentServiceURL + "/health",
-		"summarizer-service": d.summarizerServiceURL + "/health",
-		"reviewer-service":   d.reviewerServiceURL + "/health",
+		"user-service":     d.userServiceURL + "/health",
+		"agent-service":    d.agentServiceURL + "/health",
+		"document-service": d.documentServiceURL + "/health",
 	}
 
 	// Forward JWT token for services behind AuthBridge (Envoy inbound
@@ -980,62 +958,68 @@ func (d *Dashboard) handleLogout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 }
 
-func (d *Dashboard) handleSummarize(w http.ResponseWriter, r *http.Request) {
-	d.log.Info("Summarize request", "remote", r.RemoteAddr)
+func (d *Dashboard) handleInvoke(w http.ResponseWriter, r *http.Request) {
+	d.log.Info("Invoke request", "remote", r.RemoteAddr)
 	if r.Method != http.MethodPost {
-		d.log.Error("Method not allowed", "method", r.Method)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	var req struct {
 		UserID     string `json:"user_id"`
+		AgentID    string `json:"agent_id"`
 		DocumentID string `json:"document_id"`
+		Action     string `json:"action"`
+		ReviewType string `json:"review_type,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		d.log.Error("Invalid request body", "error", err)
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
-	d.log.Info("Summarize params", "user", req.UserID, "document", req.DocumentID)
 
-	// Get user departments from session (JWT groups) if OIDC is enabled
+	if req.AgentID == "" || req.DocumentID == "" {
+		http.Error(w, "agent_id and document_id required", http.StatusBadRequest)
+		return
+	}
+
+	// Get user departments from session if OIDC enabled
 	var userDepartments []string
 	if d.oidcEnabled {
 		if cookie, err := r.Cookie("session_id"); err == nil {
 			if session := d.sessionStore.Get(cookie.Value); session != nil {
 				userDepartments = session.Groups
-				d.log.Info("Using JWT groups as user departments", "groups", userDepartments)
 			}
 		}
 	}
+
+	userSPIFFEID := "spiffe://" + d.trustDomain + "/user/" + req.UserID
 
 	d.broadcastLog(LogEntry{
 		Timestamp: time.Now().Format(time.RFC3339),
 		Component: "DASHBOARD",
 		Level:     "INFO",
-		Message:   fmt.Sprintf("Initiating AI summarization: User=%s, Document=%s", req.UserID, req.DocumentID),
+		Message:   fmt.Sprintf("Invoking agent %s: action=%s, user=%s, doc=%s", req.AgentID, req.Action, req.UserID, req.DocumentID),
 		Color:     "white",
 	})
 
-	// Build the user's SPIFFE ID
-	userSPIFFEID := "spiffe://" + d.trustDomain + "/user/" + req.UserID
-
-	// Build request for summarizer service
-	summarizeReq := map[string]any{
-		"document_id":    req.DocumentID,
+	// Build request for agent-service
+	invokeReq := map[string]any{
 		"user_spiffe_id": userSPIFFEID,
+		"document_id":    req.DocumentID,
+		"action":         req.Action,
+	}
+	if req.ReviewType != "" {
+		invokeReq["review_type"] = req.ReviewType
 	}
 	if len(userDepartments) > 0 {
-		summarizeReq["user_departments"] = userDepartments
+		invokeReq["user_departments"] = userDepartments
 	}
-	body, _ := json.Marshal(summarizeReq)
+	body, _ := json.Marshal(invokeReq)
 
-	d.log.Info("Calling summarizer service", "url", d.summarizerServiceURL+"/summarize")
-	outReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
-		d.summarizerServiceURL+"/summarize", bytes.NewReader(body))
+	url := fmt.Sprintf("%s/agents/%s/invoke", d.agentServiceURL, req.AgentID)
+	d.log.Info("Calling agent-service invoke", "url", url)
+	outReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		d.log.Error("Failed to create request", "error", err)
 		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
 	}
@@ -1043,14 +1027,14 @@ func (d *Dashboard) handleSummarize(w http.ResponseWriter, r *http.Request) {
 	if token := d.getAccessToken(r); token != "" {
 		outReq.Header.Set("Authorization", "Bearer "+token)
 	}
+
 	resp, err := d.httpClient.Do(outReq)
 	if err != nil {
-		d.log.Error("Summarizer service request failed", "error", err)
 		d.broadcastLog(LogEntry{
 			Timestamp: time.Now().Format(time.RFC3339),
 			Component: "DASHBOARD",
 			Level:     "ERROR",
-			Message:   fmt.Sprintf("Summarizer request failed: %v", err),
+			Message:   fmt.Sprintf("Agent invocation failed: %v", err),
 			Color:     "red",
 		})
 		http.Error(w, "Request failed", http.StatusServiceUnavailable)
@@ -1058,133 +1042,23 @@ func (d *Dashboard) handleSummarize(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	d.log.Info("Summarizer service response", "status", resp.StatusCode)
 	var result map[string]any
 	json.NewDecoder(resp.Body).Decode(&result)
 
-	if resp.StatusCode == http.StatusForbidden || (result["allowed"] != nil && result["allowed"] == false) {
-		reason := result["reason"]
+	if resp.StatusCode == http.StatusForbidden || result["granted"] == false {
 		d.broadcastLog(LogEntry{
 			Timestamp: time.Now().Format(time.RFC3339),
 			Component: "DASHBOARD",
 			Level:     "WARN",
-			Message:   fmt.Sprintf("Summarization DENIED: %v", reason),
+			Message:   fmt.Sprintf("Agent invocation DENIED: %v", result["reason"]),
 			Color:     "red",
 		})
-	} else if result["allowed"] == true {
+	} else if result["granted"] == true {
 		d.broadcastLog(LogEntry{
 			Timestamp: time.Now().Format(time.RFC3339),
 			Component: "DASHBOARD",
 			Level:     "INFO",
-			Message:   "Summarization completed successfully",
-			Color:     "green",
-		})
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(resp.StatusCode)
-	json.NewEncoder(w).Encode(result)
-}
-
-func (d *Dashboard) handleReview(w http.ResponseWriter, r *http.Request) {
-	d.log.Info("Review request", "remote", r.RemoteAddr)
-	if r.Method != http.MethodPost {
-		d.log.Error("Method not allowed", "method", r.Method)
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req struct {
-		UserID     string `json:"user_id"`
-		DocumentID string `json:"document_id"`
-		ReviewType string `json:"review_type"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		d.log.Error("Invalid request body", "error", err)
-		http.Error(w, "Invalid request", http.StatusBadRequest)
-		return
-	}
-	d.log.Info("Review params", "user", req.UserID, "document", req.DocumentID, "review_type", req.ReviewType)
-
-	// Get user departments from session (JWT groups) if OIDC is enabled
-	var userDepartments []string
-	if d.oidcEnabled {
-		if cookie, err := r.Cookie("session_id"); err == nil {
-			if session := d.sessionStore.Get(cookie.Value); session != nil {
-				userDepartments = session.Groups
-				d.log.Info("Using JWT groups as user departments", "groups", userDepartments)
-			}
-		}
-	}
-
-	d.broadcastLog(LogEntry{
-		Timestamp: time.Now().Format(time.RFC3339),
-		Component: "DASHBOARD",
-		Level:     "INFO",
-		Message:   fmt.Sprintf("Initiating AI review (%s): User=%s, Document=%s", req.ReviewType, req.UserID, req.DocumentID),
-		Color:     "white",
-	})
-
-	// Build the user's SPIFFE ID
-	userSPIFFEID := "spiffe://" + d.trustDomain + "/user/" + req.UserID
-
-	// Build request for reviewer service
-	reviewReq := map[string]any{
-		"document_id":    req.DocumentID,
-		"user_spiffe_id": userSPIFFEID,
-		"review_type":    req.ReviewType,
-	}
-	if len(userDepartments) > 0 {
-		reviewReq["user_departments"] = userDepartments
-	}
-	body, _ := json.Marshal(reviewReq)
-
-	d.log.Info("Calling reviewer service", "url", d.reviewerServiceURL+"/review")
-	outReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
-		d.reviewerServiceURL+"/review", bytes.NewReader(body))
-	if err != nil {
-		d.log.Error("Failed to create request", "error", err)
-		http.Error(w, "Internal error", http.StatusInternalServerError)
-		return
-	}
-	outReq.Header.Set("Content-Type", "application/json")
-	if token := d.getAccessToken(r); token != "" {
-		outReq.Header.Set("Authorization", "Bearer "+token)
-	}
-	resp, err := d.httpClient.Do(outReq)
-	if err != nil {
-		d.log.Error("Reviewer service request failed", "error", err)
-		d.broadcastLog(LogEntry{
-			Timestamp: time.Now().Format(time.RFC3339),
-			Component: "DASHBOARD",
-			Level:     "ERROR",
-			Message:   fmt.Sprintf("Reviewer request failed: %v", err),
-			Color:     "red",
-		})
-		http.Error(w, "Request failed", http.StatusServiceUnavailable)
-		return
-	}
-	defer resp.Body.Close()
-
-	d.log.Info("Reviewer service response", "status", resp.StatusCode)
-	var result map[string]any
-	json.NewDecoder(resp.Body).Decode(&result)
-
-	if resp.StatusCode == http.StatusForbidden || (result["allowed"] != nil && result["allowed"] == false) {
-		reason := result["reason"]
-		d.broadcastLog(LogEntry{
-			Timestamp: time.Now().Format(time.RFC3339),
-			Component: "DASHBOARD",
-			Level:     "WARN",
-			Message:   fmt.Sprintf("Review DENIED: %v", reason),
-			Color:     "red",
-		})
-	} else if result["allowed"] == true {
-		d.broadcastLog(LogEntry{
-			Timestamp: time.Now().Format(time.RFC3339),
-			Component: "DASHBOARD",
-			Level:     "INFO",
-			Message:   fmt.Sprintf("Review completed - %d issues found (%s severity)", result["issues_found"], result["severity"]),
+			Message:   fmt.Sprintf("Agent %s completed %s successfully", req.AgentID, req.Action),
 			Color:     "green",
 		})
 	}
