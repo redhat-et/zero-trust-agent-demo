@@ -61,7 +61,7 @@ class Dashboard {
                 this.agents = await response.json();
                 this.populateSelect('agent-select', this.agents, a => ({
                     value: a.id,
-                    label: `${a.name} (${a.capabilities.join(', ')})`
+                    label: `${a.name}${a.description ? ' — ' + a.description : ''}`
                 }), true);
                 this.log('success', `Loaded ${this.agents.length} agents`);
             }
@@ -316,6 +316,15 @@ class Dashboard {
                 }
             }
         }
+
+        const summarizeBtn = document.getElementById('summarize-btn');
+        const reviewBtn = document.getElementById('review-btn');
+        if (summarizeBtn) {
+            summarizeBtn.disabled = !hasRealUser || !hasAgent;
+        }
+        if (reviewBtn) {
+            reviewBtn.disabled = !hasRealUser || !hasAgent;
+        }
     }
 
     async handleDirectAccess() {
@@ -424,6 +433,8 @@ class Dashboard {
 
     async handleSummarize() {
         const userId = document.getElementById('user-select')?.value;
+        const agentSelect = document.getElementById('agent-select');
+        const agentId = agentSelect?.value;
         const documentId = document.getElementById('document-select')?.value;
 
         if (!userId || userId === '__no_user__' || !documentId) {
@@ -431,18 +442,28 @@ class Dashboard {
             return;
         }
 
-        this.log('info', `Initiating AI summarization: User=${userId}, Document=${documentId}`);
-        this.showProcessingIndicator('Summarizing document with AI...', 'summarizer');
+        if (!agentId) {
+            this.log('error', 'Please select an agent for summarization');
+            return;
+        }
+
+        this.log('info', `Initiating AI summarization: Agent=${agentId}, User=${userId}, Document=${documentId}`);
+        this.showProcessingIndicator('Summarizing document with AI...', agentId);
 
         try {
-            const response = await fetch('/api/summarize', {
+            const response = await fetch('/api/invoke', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user_id: userId, document_id: documentId })
+                body: JSON.stringify({
+                    agent_id: agentId,
+                    user_id: userId,
+                    document_id: documentId,
+                    action: 'summarize'
+                })
             });
 
             const result = await response.json();
-            this.displayAIResult(result, 'summary');
+            this.displayInvokeResult(result, 'summary');
         } catch (err) {
             this.log('error', `Summarization failed: ${err.message}`);
             this.hideProcessingIndicator();
@@ -451,6 +472,8 @@ class Dashboard {
 
     async handleReview() {
         const userId = document.getElementById('user-select')?.value;
+        const agentSelect = document.getElementById('agent-select');
+        const agentId = agentSelect?.value;
         const documentId = document.getElementById('document-select')?.value;
 
         if (!userId || userId === '__no_user__' || !documentId) {
@@ -458,32 +481,41 @@ class Dashboard {
             return;
         }
 
-        // Default to general review
+        if (!agentId) {
+            this.log('error', 'Please select an agent for review');
+            return;
+        }
+
         const reviewType = 'general';
 
-        this.log('info', `Initiating AI review (${reviewType}): User=${userId}, Document=${documentId}`);
-        this.showProcessingIndicator('Reviewing document with AI...', 'reviewer');
+        this.log('info', `Initiating AI review (${reviewType}): Agent=${agentId}, User=${userId}, Document=${documentId}`);
+        this.showProcessingIndicator('Reviewing document with AI...', agentId);
 
         try {
-            const response = await fetch('/api/review', {
+            const response = await fetch('/api/invoke', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ user_id: userId, document_id: documentId, review_type: reviewType })
+                body: JSON.stringify({
+                    agent_id: agentId,
+                    user_id: userId,
+                    document_id: documentId,
+                    action: 'review',
+                    review_type: reviewType
+                })
             });
 
             const result = await response.json();
-            this.displayAIResult(result, 'review');
+            this.displayInvokeResult(result, 'review');
         } catch (err) {
             this.log('error', `Review failed: ${err.message}`);
             this.hideProcessingIndicator();
         }
     }
 
-    showProcessingIndicator(message, agentType) {
+    showProcessingIndicator(message, agentId) {
         const panel = document.getElementById('result-panel');
         if (!panel) return;
 
-        // Disable AI action buttons
         const summarizeBtn = document.getElementById('summarize-btn');
         const reviewBtn = document.getElementById('review-btn');
         if (summarizeBtn) summarizeBtn.disabled = true;
@@ -494,7 +526,7 @@ class Dashboard {
             <div class="processing-indicator">
                 <div class="spinner"></div>
                 <h4>${message}</h4>
-                <p>Using <strong>${agentType === 'summarizer' ? 'Summarizer Agent' : 'Reviewer Agent'}</strong></p>
+                <p>Using agent: <strong>${agentId}</strong></p>
                 <p class="processing-note">This may take 10-30 seconds depending on document size...</p>
             </div>
         `;
@@ -506,6 +538,33 @@ class Dashboard {
         const reviewBtn = document.getElementById('review-btn');
         if (summarizeBtn) summarizeBtn.disabled = false;
         if (reviewBtn) reviewBtn.disabled = false;
+    }
+
+    displayInvokeResult(result, type) {
+        this.hideProcessingIndicator();
+
+        const panel = document.getElementById('result-panel');
+        if (!panel) return;
+
+        const isGranted = result.granted === true;
+        panel.className = `result-panel-inline ${isGranted ? 'granted' : 'denied'}`;
+
+        if (isGranted && result.result) {
+            const htmlContent = this.markdownToHtml(result.result);
+            panel.innerHTML = `
+                <h4>${type === 'summary' ? 'Document Summary' : 'Document Review'}</h4>
+                <p style="color: var(--rh-gray); font-size: 12px;">Agent: ${result.agent} | State: ${result.state || 'completed'}</p>
+                <div class="ai-content">${htmlContent}</div>
+            `;
+        } else {
+            panel.innerHTML = `
+                <h4>${type === 'summary' ? 'Summarization' : 'Review'} Denied</h4>
+                <p>${result.reason || 'Permission denied'}</p>
+                <div class="alert alert-info" style="margin-top: 16px; margin-bottom: 0;">
+                    <strong>Zero Trust:</strong> Both user AND agent must have the required permissions.
+                </div>
+            `;
+        }
     }
 
     displayAIResult(result, type) {
