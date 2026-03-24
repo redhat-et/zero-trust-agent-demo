@@ -68,6 +68,35 @@ Replace the Deployment-label polling with AgentCard CR list/watch:
 - Fallback: if watch is unavailable (e.g., local dev without K8s),
   support periodic list polling (existing `--discovery-interval`)
 
+**RBAC requirement:** The agent-service service account must have
+permission to list AgentCard CRs. Apply this Role and RoleBinding
+in the target namespace:
+
+```bash
+oc apply -n spiffe-demo -f - <<'EOF'
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: agentcard-reader
+rules:
+- apiGroups: ["agent.kagenti.dev"]
+  resources: ["agentcards"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agent-service-agentcard-reader
+subjects:
+- kind: ServiceAccount
+  name: agent-service
+roleRef:
+  kind: Role
+  name: agentcard-reader
+  apiGroup: rbac.authorization.k8s.io
+EOF
+```
+
 **Configuration flags** (replace existing discovery flags):
 
 | Flag | Default | Description |
