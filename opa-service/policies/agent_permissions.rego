@@ -12,6 +12,7 @@ agent_capabilities := {
     "reviewer-service": ["engineering", "admin"],
     "summarizer-tech": ["finance", "engineering"],
     "reviewer-general": ["engineering", "finance", "admin", "hr"],
+    "kagenti-summarizer": ["finance", "engineering"],
 }
 
 # Helper rule: Check if an agent has a specific capability
