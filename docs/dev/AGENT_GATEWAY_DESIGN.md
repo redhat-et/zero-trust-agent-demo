@@ -245,6 +245,23 @@ loads agents from a JSON file for local testing:
 This replaces the hardcoded agents with a configurable file that
 mirrors the AgentCard CR structure.
 
+## Verified test results (2026-03-24, spiffe-demo namespace)
+
+**Agent-service deployed:** image `:4f5cfa6` on OpenShift.
+
+| Test | Result | Notes |
+|------|--------|-------|
+| AgentCard CR discovery | Pass | 3 agents found: kagenti-summarizer, reviewer-service, summarizer-service |
+| RBAC for agentcards | Pass | Required Role `agentcard-reader` with get/list/watch |
+| `/agents` endpoint | Pass | Returns all 3 discovered agents with metadata |
+| `/agents/{id}/invoke` routing | Pass | Correctly routes through document-service to OPA |
+| OPA policy evaluation | Pass | Denies mismatched trust domain (expected) |
+| Kubeconfig fallback (local dev) | Pass | Discovers agents from workstation via `~/.kube/config` |
+
+Full E2E invoke (authorization + A2A forwarding) requires dashboard
+with OIDC — the JWT `user_departments` claim bypasses SPIFFE-based
+user lookup in OPA.
+
 ## Roadmap (out of scope)
 
 - Expose deny reasons in API response (security trade-off: leaks
