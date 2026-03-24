@@ -702,10 +702,19 @@ func (s *AgentService) discoverAgents(ctx context.Context, discovery *a2abridge.
 
 	for _, discovered := range agents {
 		foundIDs[discovered.ID] = true
+
+		// OPA policies expect SPIFFE IDs in the form spiffe://{domain}/agent/{name}.
+		// If the AgentCard binding provides a different format (e.g., /sa/{name}-sa)
+		// or no SPIFFE ID at all, construct one that OPA can parse.
+		spiffeID := discovered.SPIFFEID
+		if spiffeID == "" || !strings.Contains(spiffeID, "/agent/") {
+			spiffeID = "spiffe://" + s.trustDomain + "/agent/" + discovered.ID
+		}
+
 		s.store.Register(&store.Agent{
 			ID:          discovered.ID,
 			Name:        discovered.Name,
-			SPIFFEID:    discovered.SPIFFEID,
+			SPIFFEID:    spiffeID,
 			Description: discovered.Description,
 			Source:      store.SourceDiscovered,
 			A2AURL:      discovered.A2AURL,
