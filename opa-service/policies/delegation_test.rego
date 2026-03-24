@@ -59,15 +59,15 @@ test_delegation_both_allowed if {
     }
 }
 
-# Test: Delegation fails when agent lacks capability (summarizer-service is hr-only)
+# Test: Delegation fails when agent lacks capability (summarizer-hr is hr-only)
 test_delegation_agent_lacks_capability if {
     not allow with input as {
-        "caller_spiffe_id": "spiffe://demo.example.com/agent/summarizer-service",
+        "caller_spiffe_id": "spiffe://demo.example.com/agent/summarizer-hr",
         "document_id": "DOC-003",
         "document_metadata": doc_admin,
         "delegation": {
             "user_spiffe_id": "spiffe://demo.example.com/user/bob",
-            "agent_spiffe_id": "spiffe://demo.example.com/agent/summarizer-service"
+            "agent_spiffe_id": "spiffe://demo.example.com/agent/summarizer-hr"
         }
     }
 }
@@ -90,41 +90,41 @@ test_carol_hr_access if {
     }
 }
 
-# Test: Bob + reviewer-service can access admin (both have admin)
+# Test: Bob + reviewer-ops can access admin (both have admin)
 test_bob_reviewer_admin if {
     allow with input as {
-        "caller_spiffe_id": "spiffe://demo.example.com/agent/reviewer-service",
+        "caller_spiffe_id": "spiffe://demo.example.com/agent/reviewer-ops",
         "document_id": "DOC-003",
         "document_metadata": doc_admin,
         "delegation": {
             "user_spiffe_id": "spiffe://demo.example.com/user/bob",
-            "agent_spiffe_id": "spiffe://demo.example.com/agent/reviewer-service"
+            "agent_spiffe_id": "spiffe://demo.example.com/agent/reviewer-ops"
         }
     }
 }
 
-# Test: Carol + summarizer-service CAN access HR (both have hr)
+# Test: Carol + summarizer-hr CAN access HR (both have hr)
 test_carol_summarizer_hr if {
     allow with input as {
-        "caller_spiffe_id": "spiffe://demo.example.com/agent/summarizer-service",
+        "caller_spiffe_id": "spiffe://demo.example.com/agent/summarizer-hr",
         "document_id": "DOC-004",
         "document_metadata": doc_hr,
         "delegation": {
             "user_spiffe_id": "spiffe://demo.example.com/user/carol",
-            "agent_spiffe_id": "spiffe://demo.example.com/agent/summarizer-service"
+            "agent_spiffe_id": "spiffe://demo.example.com/agent/summarizer-hr"
         }
     }
 }
 
-# Test: Alice + summarizer-service cannot access engineering (summarizer-service is hr-only)
+# Test: Alice + summarizer-hr cannot access engineering (summarizer-hr is hr-only)
 test_alice_summarizer_no_engineering if {
     not allow with input as {
-        "caller_spiffe_id": "spiffe://demo.example.com/agent/summarizer-service",
+        "caller_spiffe_id": "spiffe://demo.example.com/agent/summarizer-hr",
         "document_id": "DOC-001",
         "document_metadata": doc_engineering,
         "delegation": {
             "user_spiffe_id": "spiffe://demo.example.com/user/alice",
-            "agent_spiffe_id": "spiffe://demo.example.com/agent/summarizer-service"
+            "agent_spiffe_id": "spiffe://demo.example.com/agent/summarizer-hr"
         }
     }
 }
