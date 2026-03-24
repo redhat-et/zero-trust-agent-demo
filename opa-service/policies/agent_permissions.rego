@@ -8,10 +8,10 @@ import rego.v1
 # Actual access is further restricted by user permissions via intersection
 
 agent_capabilities := {
-    "summarizer-service": ["finance"],
-    "reviewer-service": ["engineering", "finance", "admin", "hr"],
-    "kagenti-summarizer": ["finance", "engineering"],
-    "kagenti-reviewer": ["engineering", "finance", "admin", "hr"],
+    "summarizer-service": ["hr"],
+    "reviewer-service": ["engineering", "admin"],
+    "summarizer-tech": ["finance", "engineering"],
+    "reviewer-general": ["engineering", "finance", "admin", "hr"],
 }
 
 # Helper rule: Check if an agent has a specific capability
