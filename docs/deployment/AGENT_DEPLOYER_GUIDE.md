@@ -158,7 +158,26 @@ Kagenti will:
 4. Sign the agent card for verification
 5. Bind the SPIFFE identity
 
-### 7. Verify discovery
+### 7. Grant SCC to the agent service account
+
+On OpenShift, the Kagenti-injected sidecars (envoy proxy,
+spiffe-helper) require the `kagenti-authbridge` SCC. Without it,
+pods will fail with `unable to validate against any security context
+constraint`.
+
+```bash
+# Check the SA name Kagenti created
+oc get deployment summarizer-tech -n spiffe-demo \
+  -o jsonpath='{.spec.template.spec.serviceAccountName}'
+
+# Grant the SCC (replace SA name if different)
+oc adm policy add-scc-to-user kagenti-authbridge \
+  -z summarizer-tech-sa -n spiffe-demo
+```
+
+Pods should start automatically after granting the SCC.
+
+### 8. Verify discovery
 
 After deployment, the agent-service discovers the new agent within
 30 seconds (the discovery poll interval). Verify:
@@ -173,7 +192,7 @@ curl -s http://<agent-service>/agents | jq .
 
 The new agent should appear in the dashboard dropdown.
 
-### 8. Grant RBAC (first time only)
+### 9. Grant RBAC (first time only)
 
 The agent-service needs permission to list AgentCard CRs. If not
 already done, apply the RBAC:
