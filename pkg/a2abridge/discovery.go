@@ -101,6 +101,15 @@ func (d *AgentDiscovery) Discover(ctx context.Context) ([]DiscoveredAgent, error
 		url, _ := card["url"].(string)
 		version, _ := card["version"].(string)
 
+		// Prefer the zero-trust-demo/description annotation over the
+		// card description. This allows per-deployment scope descriptions
+		// (e.g., "HR document summarizer") while the agent card describes
+		// only the generic functionality.
+		annotations := item.GetAnnotations()
+		if ann, ok := annotations["zero-trust-demo/description"]; ok && ann != "" {
+			description = ann
+		}
+
 		if url == "" {
 			d.log.Warn("AgentCard has no URL", "name", item.GetName())
 			continue
