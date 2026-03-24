@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 var agentCardGVR = schema.GroupVersionResource{
@@ -42,11 +43,18 @@ type DiscoveryConfig struct {
 	Namespace string
 }
 
-// NewAgentDiscovery creates a new discovery instance using in-cluster config.
+// NewAgentDiscovery creates a new discovery instance.
+// It tries in-cluster config first, then falls back to kubeconfig for local development.
 func NewAgentDiscovery(cfg DiscoveryConfig, log *slog.Logger) (*AgentDiscovery, error) {
 	restConfig, err := rest.InClusterConfig()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get in-cluster config: %w", err)
+		log.Info("In-cluster config not available, trying kubeconfig", "error", err)
+		loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+		restConfig, err = clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+			loadingRules, &clientcmd.ConfigOverrides{}).ClientConfig()
+		if err != nil {
+			return nil, fmt.Errorf("failed to build kubeconfig: %w", err)
+		}
 	}
 
 	client, err := dynamic.NewForConfig(restConfig)
