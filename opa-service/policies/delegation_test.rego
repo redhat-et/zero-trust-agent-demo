@@ -40,7 +40,7 @@ test_user_direct_access_denied if {
 # Test: Agent without user delegation is denied
 test_agent_without_delegation_denied if {
     not allow with input as {
-        "caller_spiffe_id": "spiffe://demo.example.com/agent/gpt4",
+        "caller_spiffe_id": "spiffe://demo.example.com/agent/kagenti-summarizer",
         "document_id": "DOC-002",
         "document_metadata": doc_finance
     }
@@ -49,12 +49,12 @@ test_agent_without_delegation_denied if {
 # Test: Delegation with both having access succeeds
 test_delegation_both_allowed if {
     allow with input as {
-        "caller_spiffe_id": "spiffe://demo.example.com/agent/gpt4",
+        "caller_spiffe_id": "spiffe://demo.example.com/agent/kagenti-summarizer",
         "document_id": "DOC-001",
         "document_metadata": doc_engineering,
         "delegation": {
             "user_spiffe_id": "spiffe://demo.example.com/user/alice",
-            "agent_spiffe_id": "spiffe://demo.example.com/agent/gpt4"
+            "agent_spiffe_id": "spiffe://demo.example.com/agent/kagenti-summarizer"
         }
     }
 }
@@ -62,12 +62,12 @@ test_delegation_both_allowed if {
 # Test: Delegation fails when agent lacks capability
 test_delegation_agent_lacks_capability if {
     not allow with input as {
-        "caller_spiffe_id": "spiffe://demo.example.com/agent/summarizer",
+        "caller_spiffe_id": "spiffe://demo.example.com/agent/summarizer-service",
         "document_id": "DOC-003",
         "document_metadata": doc_admin,
         "delegation": {
             "user_spiffe_id": "spiffe://demo.example.com/user/bob",
-            "agent_spiffe_id": "spiffe://demo.example.com/agent/summarizer"
+            "agent_spiffe_id": "spiffe://demo.example.com/agent/summarizer-service"
         }
     }
 }
@@ -90,15 +90,15 @@ test_carol_hr_access if {
     }
 }
 
-# Test: Claude agent with delegation to Bob can access admin
-test_bob_claude_admin if {
+# Test: Reviewer-service with delegation to Bob can access admin
+test_bob_reviewer_admin if {
     allow with input as {
-        "caller_spiffe_id": "spiffe://demo.example.com/agent/claude",
+        "caller_spiffe_id": "spiffe://demo.example.com/agent/reviewer-service",
         "document_id": "DOC-003",
         "document_metadata": doc_admin,
         "delegation": {
             "user_spiffe_id": "spiffe://demo.example.com/user/bob",
-            "agent_spiffe_id": "spiffe://demo.example.com/agent/claude"
+            "agent_spiffe_id": "spiffe://demo.example.com/agent/reviewer-service"
         }
     }
 }
@@ -106,12 +106,12 @@ test_bob_claude_admin if {
 # Test: Alice + Summarizer cannot access engineering (summarizer lacks eng)
 test_alice_summarizer_no_engineering if {
     not allow with input as {
-        "caller_spiffe_id": "spiffe://demo.example.com/agent/summarizer",
+        "caller_spiffe_id": "spiffe://demo.example.com/agent/summarizer-service",
         "document_id": "DOC-001",
         "document_metadata": doc_engineering,
         "delegation": {
             "user_spiffe_id": "spiffe://demo.example.com/user/alice",
-            "agent_spiffe_id": "spiffe://demo.example.com/agent/summarizer"
+            "agent_spiffe_id": "spiffe://demo.example.com/agent/summarizer-service"
         }
     }
 }
@@ -119,12 +119,12 @@ test_alice_summarizer_no_engineering if {
 # Test: Alice + Summarizer CAN access finance
 test_alice_summarizer_finance if {
     allow with input as {
-        "caller_spiffe_id": "spiffe://demo.example.com/agent/summarizer",
+        "caller_spiffe_id": "spiffe://demo.example.com/agent/summarizer-service",
         "document_id": "DOC-002",
         "document_metadata": doc_finance,
         "delegation": {
             "user_spiffe_id": "spiffe://demo.example.com/user/alice",
-            "agent_spiffe_id": "spiffe://demo.example.com/agent/summarizer"
+            "agent_spiffe_id": "spiffe://demo.example.com/agent/summarizer-service"
         }
     }
 }

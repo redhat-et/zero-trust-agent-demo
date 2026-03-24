@@ -8,11 +8,9 @@ import rego.v1
 # Actual access is further restricted by user permissions via intersection
 
 agent_capabilities := {
-    "gpt4": ["engineering", "finance"],
-    "claude": ["engineering", "finance", "admin", "hr"],  # Unrestricted agent
-    "summarizer": ["finance"],  # Highly restricted agent
-    "reviewer": ["engineering", "finance", "admin", "hr"],  # Unrestricted reviewer
-    "kagenti-summarizer": ["finance"],
+    "summarizer-service": ["finance"],
+    "reviewer-service": ["engineering", "finance", "admin", "hr"],
+    "kagenti-summarizer": ["finance", "engineering"],
     "kagenti-reviewer": ["engineering", "finance", "admin", "hr"],
 }
 
