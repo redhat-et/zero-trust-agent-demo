@@ -192,7 +192,34 @@ curl -s http://<agent-service>/agents | jq .
 
 The new agent should appear in the dashboard dropdown.
 
-### 9. Grant RBAC (first time only)
+### 9. Set the agent description
+
+The dashboard dropdown shows the agent ID and description. By
+default, Kagenti sets the description to `"Agent '{name}'"`. To
+show a scope-specific description (e.g., "HR document summarizer"),
+annotate the AgentCard CR:
+
+```bash
+oc annotate agentcard summarizer-tech-deployment-card \
+  "zero-trust-demo/description=Technical document summarizer" \
+  -n spiffe-demo
+```
+
+The AgentCard CR name follows the pattern
+`{deployment-name}-deployment-card`. The agent-service reads this
+annotation on the next discovery cycle (within 30 seconds).
+
+The agent's own `agent-card.json` should describe the **generic
+functionality** (e.g., "Document Summarizer"), not the scope. The
+annotation provides the per-deployment scope description. This
+separation allows the same agent image to be deployed multiple
+times with different names and descriptions.
+
+> **Note**: This annotation is not yet supported in the Kagenti UI.
+> Set it manually with `oc annotate` after deployment. A Kagenti UI
+> enhancement is planned.
+
+### 10. Grant RBAC (first time only)
 
 The agent-service needs permission to list AgentCard CRs. If not
 already done, apply the RBAC:
