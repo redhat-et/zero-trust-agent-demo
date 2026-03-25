@@ -74,3 +74,39 @@ reason := sprintf("Unknown agent: %s", [input.agent]) if {
 	count(users.get_departments(input.user)) > 0
 	count(agents.get_capabilities(input.agent)) == 0
 }
+
+# --- S3 proxy per-object decision ---
+# Used by the credential gateway proxy endpoint.
+# Looks up document departments from manifest data and checks
+# whether any department is in the user-agent permission intersection.
+
+s3_doc_departments(key) := depts if {
+	some doc in data.demo.s3_documents
+	doc.key == key
+	depts := doc.departments
+}
+
+proxy_decision := {"allow": true, "reason": reason} if {
+	depts := s3_doc_departments(input.s3_key)
+	some dept in depts
+	dept in permission_intersection
+	reason := sprintf("S3 access allowed: %s (department %s in intersection %v)",
+		[input.s3_key, dept, permission_intersection])
+}
+
+proxy_decision := {"allow": false, "reason": reason} if {
+	depts := s3_doc_departments(input.s3_key)
+	not _any_dept_in_intersection(depts)
+	reason := sprintf("S3 access denied: %s departments %v not in intersection %v",
+		[input.s3_key, depts, permission_intersection])
+}
+
+proxy_decision := {"allow": false, "reason": reason} if {
+	not s3_doc_departments(input.s3_key)
+	reason := sprintf("Unknown S3 key: %s", [input.s3_key])
+}
+
+_any_dept_in_intersection(depts) if {
+	some dept in depts
+	dept in permission_intersection
+}

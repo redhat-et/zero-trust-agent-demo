@@ -11,7 +11,9 @@ agent_capabilities := {
     "gpt4": ["engineering", "finance"],
     "claude": ["engineering", "finance", "admin", "hr"],  # Unrestricted agent
     "summarizer": ["finance"],  # Highly restricted agent
-    "reviewer": ["engineering", "finance", "admin", "hr"]  # Unrestricted reviewer
+    "reviewer": ["engineering", "finance", "admin", "hr"],  # Unrestricted reviewer
+    "kagenti-summarizer": ["finance"],
+    "kagenti-reviewer": ["engineering", "finance", "admin", "hr"],
 }
 
 # Helper rule: Check if an agent has a specific capability

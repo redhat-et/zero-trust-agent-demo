@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/open-policy-agent/opa/v1/rego"
+	"github.com/open-policy-agent/opa/v1/storage"
+	"github.com/open-policy-agent/opa/v1/storage/inmem"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
 
@@ -71,6 +73,7 @@ type OPAService struct {
 	query               rego.PreparedEvalQuery
 	managementQuery     rego.PreparedEvalQuery
 	credGatewayQuery    rego.PreparedEvalQuery
+	credGatewayProxyQ   rego.PreparedEvalQuery
 	decisionLog         *logger.Logger
 	workloadClient      *spiffe.WorkloadClient
 }
@@ -131,6 +134,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	mux.HandleFunc("/v1/data/demo/authorization/decision", svc.handleDecision)
 	mux.HandleFunc("/v1/data/demo/authorization/management/decision", svc.handleManagementDecision)
 	mux.HandleFunc("/v1/data/demo/credential_gateway/decision", svc.handleCredentialGatewayDecision)
+	mux.HandleFunc("/v1/data/demo/credential_gateway/proxy_decision", svc.handleCredentialGatewayProxyDecision)
 
 	// Wrap with SPIFFE identity middleware
 	var handler http.Handler = spiffe.IdentityMiddleware(cfg.Service.MockSPIFFE)(mux)
@@ -268,11 +272,39 @@ func newOPAService(log *logger.Logger, policyDir string, workloadClient *spiffe.
 		return nil, fmt.Errorf("failed to prepare credential gateway query: %w", err)
 	}
 
+	// Prepare the credential gateway proxy query (per-object S3 access)
+	// Load s3_documents.json as OPA data
+	s3DocsPath := filepath.Join(policyDir, "s3_documents.json")
+	var s3DocsStore storage.Store
+	if s3DocsData, err := os.ReadFile(s3DocsPath); err == nil {
+		var s3Docs map[string]interface{}
+		if err := json.Unmarshal(s3DocsData, &s3Docs); err != nil {
+			return nil, fmt.Errorf("failed to parse s3_documents.json: %w", err)
+		}
+		s3DocsStore = inmem.NewFromObject(s3Docs)
+		log.Info("Loading data: s3_documents.json")
+	} else {
+		log.Warn("s3_documents.json not found, proxy_decision will not work", "error", err)
+		s3DocsStore = inmem.NewFromObject(map[string]interface{}{})
+	}
+
+	credGatewayProxyQ, err := rego.New(
+		rego.Query("data.demo.credential_gateway.proxy_decision"),
+		rego.Module("user_permissions.rego", string(userPerms)),
+		rego.Module("agent_permissions.rego", string(agentPerms)),
+		rego.Module("credential_gateway.rego", string(credGateway)),
+		rego.Store(s3DocsStore),
+	).PrepareForEval(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare credential gateway proxy query: %w", err)
+	}
+
 	return &OPAService{
-		logger:           log,
-		query:            query,
-		managementQuery:  managementQuery,
-		credGatewayQuery: credGatewayQuery,
+		logger:            log,
+		query:             query,
+		managementQuery:   managementQuery,
+		credGatewayQuery:  credGatewayQuery,
+		credGatewayProxyQ: credGatewayProxyQ,
 		decisionLog:      logger.New(logger.ComponentOPADecision),
 		workloadClient:   workloadClient,
 	}, nil
@@ -547,6 +579,7 @@ type CredentialGatewayInput struct {
 	Agent         string `json:"agent"`
 	TargetService string `json:"target_service"`
 	Action        string `json:"action"`
+	S3Key         string `json:"s3_key,omitempty"`
 }
 
 func (s *OPAService) handleCredentialGatewayDecision(w http.ResponseWriter, r *http.Request) {
@@ -591,6 +624,65 @@ func (s *OPAService) handleCredentialGatewayDecision(w http.ResponseWriter, r *h
 				"allow":               false,
 				"allowed_departments": []string{},
 				"reason":              "No policy decision available",
+			},
+		})
+		return
+	}
+
+	resultMap, ok := results[0].Expressions[0].Value.(map[string]any)
+	if !ok {
+		http.Error(w, "Invalid policy result format", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"result": resultMap,
+	})
+}
+
+func (s *OPAService) handleCredentialGatewayProxyDecision(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Input CredentialGatewayInput `json:"input"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.logger.Error("Invalid request body", "error", err)
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	queryLog := logger.New(logger.ComponentOPAQuery)
+	queryLog.Info("Evaluating credential gateway proxy policy",
+		"user", req.Input.User,
+		"agent", req.Input.Agent,
+		"s3_key", req.Input.S3Key)
+
+	inputMap := map[string]any{
+		"user":           req.Input.User,
+		"agent":          req.Input.Agent,
+		"target_service": req.Input.TargetService,
+		"action":         req.Input.Action,
+		"s3_key":         req.Input.S3Key,
+	}
+
+	results, err := s.credGatewayProxyQ.Eval(r.Context(), rego.EvalInput(inputMap))
+	if err != nil {
+		s.logger.Error("Credential gateway proxy policy evaluation failed", "error", err)
+		http.Error(w, "Policy evaluation failed", http.StatusInternalServerError)
+		return
+	}
+
+	if len(results) == 0 || len(results[0].Expressions) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"result": map[string]any{
+				"allow":  false,
+				"reason": "No proxy policy decision available",
 			},
 		})
 		return

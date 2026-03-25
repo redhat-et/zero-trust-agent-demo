@@ -1,5 +1,10 @@
 package store
 
+import (
+	"fmt"
+	"os"
+)
+
 // Document represents a protected document in the system
 type Document struct {
 	ID                  string   `json:"id"`
@@ -8,6 +13,15 @@ type Document struct {
 	RequiredDepartment  string   `json:"required_department,omitempty"`
 	RequiredDepartments []string `json:"required_departments,omitempty"`
 	Sensitivity         string   `json:"sensitivity"`
+	S3URL               string   `json:"s3_url,omitempty"`
+}
+
+func s3URL(key string) string {
+	bucket := os.Getenv("S3_BUCKET")
+	if bucket == "" {
+		bucket = "zt-demo-documents"
+	}
+	return fmt.Sprintf("s3://%s/%s", bucket, key)
 }
 
 // DocumentStore is an in-memory document store
@@ -31,6 +45,7 @@ func (s *DocumentStore) loadSampleDocuments() {
 		Title:              "Engineering Roadmap",
 		RequiredDepartment: "engineering",
 		Sensitivity:        "medium",
+		S3URL:              s3URL("engineering/roadmap.md"),
 		Content: `# Engineering Roadmap 2026
 
 ## Q1 Goals
@@ -55,6 +70,7 @@ func (s *DocumentStore) loadSampleDocuments() {
 		Title:              "Q4 Financial Report",
 		RequiredDepartment: "finance",
 		Sensitivity:        "high",
+		S3URL:              s3URL("finance/q4-report.md"),
 		Content: `# Q4 Financial Report
 
 ## Revenue Summary
@@ -78,6 +94,7 @@ func (s *DocumentStore) loadSampleDocuments() {
 		Title:              "Admin Policies",
 		RequiredDepartment: "admin",
 		Sensitivity:        "critical",
+		S3URL:              s3URL("admin/policies.md"),
 		Content: `# Administrative Policies
 
 ## Access Control
@@ -102,6 +119,7 @@ func (s *DocumentStore) loadSampleDocuments() {
 		Title:              "HR Guidelines",
 		RequiredDepartment: "hr",
 		Sensitivity:        "medium",
+		S3URL:              s3URL("hr/guidelines.md"),
 		Content: `# HR Guidelines
 
 ## Hiring Process
@@ -129,6 +147,7 @@ func (s *DocumentStore) loadSampleDocuments() {
 		Title:               "Budget Projections",
 		RequiredDepartments: []string{"finance", "engineering"},
 		Sensitivity:         "high",
+		S3URL:               s3URL("engineering/budget.md"),
 		Content: `# Budget Projections 2026
 
 ## Engineering Budget
@@ -152,6 +171,7 @@ func (s *DocumentStore) loadSampleDocuments() {
 		Title:               "Compliance Audit",
 		RequiredDepartments: []string{"admin", "finance"},
 		Sensitivity:         "critical",
+		S3URL:               s3URL("admin/compliance-audit.md"),
 		Content: `# Compliance Audit Report
 
 ## SOC 2 Findings
@@ -176,6 +196,7 @@ func (s *DocumentStore) loadSampleDocuments() {
 		Title:              "All-Hands Summary",
 		RequiredDepartment: "", // Public document
 		Sensitivity:        "public",
+		S3URL:              s3URL("public/all-hands.md"),
 		Content: `# All-Hands Meeting Summary
 
 ## Company Updates
@@ -213,6 +234,7 @@ func (s *DocumentStore) List() []*Document {
 			RequiredDepartment:  doc.RequiredDepartment,
 			RequiredDepartments: doc.RequiredDepartments,
 			Sensitivity:         doc.Sensitivity,
+			S3URL:               doc.S3URL,
 		})
 	}
 	return docs

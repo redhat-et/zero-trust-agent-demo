@@ -1,0 +1,13 @@
+{
+  "demo": {
+    "s3_documents": [
+      {"id": "DOC-001", "key": "engineering/roadmap.md", "departments": ["engineering"]},
+      {"id": "DOC-002", "key": "finance/q4-report.md", "departments": ["finance"]},
+      {"id": "DOC-003", "key": "admin/policies.md", "departments": ["admin"]},
+      {"id": "DOC-004", "key": "hr/guidelines.md", "departments": ["hr"]},
+      {"id": "DOC-005", "key": "engineering/budget.md", "departments": ["finance", "engineering"]},
+      {"id": "DOC-006", "key": "admin/compliance-audit.md", "departments": ["admin", "finance"]},
+      {"id": "DOC-007", "key": "public/all-hands.md", "departments": []}
+    ]
+  }
+}
