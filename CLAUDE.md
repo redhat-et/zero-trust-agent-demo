@@ -33,12 +33,19 @@ This ensures agents can never exceed the permissions of either the user OR the a
 | ------------------ | ---- | ------ | ------------------------------------------ |
 | web-dashboard      | 8080 | 8180   | Interactive UI for demo                    |
 | user-service       | 8080 | 8180   | User management, direct access, delegation |
-| agent-service      | 8080 | 8180   | AI agent management, delegated access      |
+| agent-service      | 8080 | 8180   | Agent gateway: discovery, delegation, A2A invoke |
 | document-service   | 8080 | 8180   | Protected documents with OPA authorization |
 | opa-service        | 8080 | 8180   | Policy evaluation engine (Rego policies)   |
-| summarizer-service | 8000 | 8100   | AI document summarization (A2A agent)      |
-| reviewer-service   | 8000 | 8100   | AI document review (A2A agent)             |
 | credential-gateway | 8080 | 8180   | JWT to scoped AWS STS credentials          |
+
+A2A agents (discovered dynamically from Kagenti AgentCard CRs):
+
+| Agent | Scope | Description |
+| ----- | ----- | ----------- |
+| summarizer-hr | hr | HR document summarizer |
+| summarizer-tech | finance, engineering | Technical document summarizer |
+| reviewer-ops | engineering, admin | Operations document reviewer |
+| reviewer-general | all | General document reviewer |
 
 ## Quick Start
 
@@ -77,6 +84,12 @@ zero-trust-agent-demo/
 ├── document-service/      # Document service
 │   ├── cmd/
 │   └── internal/store/    # In-memory document store
+├── kagenti-summarizer/    # Python A2A summarizer agent
+│   ├── agent.py           # A2A server entry point
+│   └── summarizer.py      # URL fetch + LLM summarization
+├── kagenti-reviewer/      # Python A2A reviewer agent
+│   ├── agent.py           # A2A server entry point
+│   └── reviewer.py        # URL fetch + LLM review
 ├── opa-service/           # OPA policy service
 │   ├── cmd/
 │   └── policies/          # Rego policy files
@@ -187,10 +200,17 @@ Variables: `DEV_TAG` (default: git SHA), `REGISTRY` (default: `ghcr.io/redhat-et
 - **Bob**: finance, admin
 - **Carol**: hr
 
-### AI Agents
-- **GPT-4**: engineering, finance
-- **Claude**: engineering, finance, admin, hr (unrestricted)
-- **Summarizer**: finance (highly restricted)
+### AI Agents (dynamically discovered)
+
+Agents follow the `{function}-{scope}` naming scheme. Same agent
+code can be deployed multiple times with different names and OPA
+scopes. See `docs/deployment/AGENT_DEPLOYER_GUIDE.md` for the full
+deployment workflow.
+
+- **summarizer-hr**: hr (Python)
+- **summarizer-tech**: finance, engineering (Python)
+- **reviewer-ops**: engineering, admin (Python)
+- **reviewer-general**: all departments (Python)
 
 ### Documents
 - DOC-001: Engineering Roadmap (engineering)
@@ -204,9 +224,10 @@ Variables: `DEV_TAG` (default: git SHA), `REGISTRY` (default: `ghcr.io/redhat-et
 ### Example Flows
 
 1. **Direct Access**: Alice → DOC-001 ✓ (Alice has engineering)
-2. **Delegated Access**: Alice → GPT-4 → DOC-001 ✓ (both have engineering)
-3. **Denied Delegation**: Alice → GPT-4 → DOC-004 ✗ (GPT-4 lacks hr)
-4. **Agent Without User**: GPT-4 → DOC-001 ✗ (agents require delegation)
+2. **Delegated Access**: Alice → summarizer-tech → DOC-001 ✓ (both have engineering)
+3. **Denied Delegation**: Alice → summarizer-hr → DOC-001 ✗ (summarizer-hr lacks engineering)
+4. **Agent Without User**: reviewer-general → DOC-001 ✗ (agents require delegation)
+5. **Cross-scope**: Carol → summarizer-hr → DOC-004 ✓ (both have hr)
 
 ## OPA Policies
 
@@ -223,11 +244,11 @@ curl -X POST http://localhost:8080/v1/data/demo/authorization/decision \
   -H "Content-Type: application/json" \
   -d '{
     "input": {
-      "caller_spiffe_id": "spiffe://demo.example.com/agent/gpt4",
+      "caller_spiffe_id": "spiffe://demo.example.com/agent/summarizer-tech",
       "document_id": "DOC-001",
       "delegation": {
         "user_spiffe_id": "spiffe://demo.example.com/user/alice",
-        "agent_spiffe_id": "spiffe://demo.example.com/agent/gpt4"
+        "agent_spiffe_id": "spiffe://demo.example.com/agent/summarizer-tech"
       }
     }
   }'
@@ -246,11 +267,14 @@ Common flags:
 
 ## Key Technologies
 
-- **Go 1.21+** - All services
+- **Go 1.21+** - Infrastructure services (agent-service, document-service, etc.)
+- **Python 3.12** - A2A agents (kagenti-summarizer, kagenti-reviewer)
 - **Cobra/Viper** - CLI and configuration
 - **log/slog** - Structured logging with colors
 - **OPA (Open Policy Agent)** - Policy evaluation
 - **SPIFFE/SPIRE** - Workload identity (mock mode for local dev)
+- **A2A (Agent-to-Agent)** - Google a2a-python SDK for agent protocol
+- **Kagenti** - Agent lifecycle management and AgentCard discovery
 - **SSE (Server-Sent Events)** - Real-time dashboard updates
 
 ## Security Standards (RFCs)
@@ -282,8 +306,18 @@ and `opa-service/policies/user_permissions.rego` (fallback map).
 
 ### Adding a new agent
 
-Edit `agent-service/internal/store/agents.go` and
-`opa-service/policies/agent_permissions.rego`.
+Agents are discovered dynamically from Kagenti AgentCard CRs. To
+deploy a new agent, follow `docs/deployment/AGENT_DEPLOYER_GUIDE.md`:
+
+1. Choose the agent image
+2. Decide the scope (departments)
+3. Pick the deployment name (`{function}-{scope}`)
+4. Add entry to `opa-service/policies/agent_permissions.rego`
+5. Update OPA ConfigMap on the cluster
+6. Deploy via Kagenti UI
+7. Set description annotation on AgentCard CR
+
+For local dev without K8s, use `--static-agents agents.json`.
 
 ### Modifying Policies
 
@@ -320,10 +354,13 @@ curl -X POST http://localhost:8082/users/alice/access \
   -H "Content-Type: application/json" \
   -d '{"document_id": "DOC-001"}'
 
-# Delegated agent access
-curl -X POST http://localhost:8083/agents/gpt4/access \
+# Delegated agent access (agents are discovered dynamically)
+curl http://localhost:8083/agents  # list discovered agents
+
+# Invoke agent via gateway
+curl -X POST http://localhost:8083/agents/summarizer-tech/invoke \
   -H "Content-Type: application/json" \
-  -d '{"document_id": "DOC-001", "user_spiffe_id": "spiffe://demo.example.com/user/alice"}'
+  -d '{"document_id": "DOC-001", "user_spiffe_id": "spiffe://demo.example.com/user/alice", "action": "summarize"}'
 ```
 
 Note: All infrastructure services listen on port 8080 inside the cluster.
