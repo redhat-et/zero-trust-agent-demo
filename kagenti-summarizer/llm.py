@@ -76,7 +76,7 @@ class OpenAIProvider(LLMProvider):
                 {"role": "user", "content": user_prompt},
             ],
         )
-        return response.choices[0].message.content
+        return response.choices[0].message.content or ""
 
 
 def get_provider() -> LLMProvider:

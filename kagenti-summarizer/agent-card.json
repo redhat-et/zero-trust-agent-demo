@@ -1,6 +1,6 @@
 {
-  "name": "S3 Document Summarizer",
-  "description": "Summarizes documents from any URL. Auth-unaware.",
+  "name": "Document Summarizer",
+  "description": "Summarizes documents fetched from URLs",
   "url": "http://kagenti-summarizer:8000",
   "version": "1.0.0",
   "capabilities": {},
@@ -9,7 +9,7 @@
   "skills": [{
     "id": "url-summarization",
     "name": "URL Document Summarization",
-    "description": "Fetches a document from any URL and summarizes it",
-    "tags": ["summarization", "s3"]
+    "description": "Fetches a document from a URL and produces a summary",
+    "tags": ["summarization", "documents"]
   }]
 }

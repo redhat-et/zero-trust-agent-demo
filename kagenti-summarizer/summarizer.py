@@ -33,7 +33,7 @@ def s3_to_https(url: str) -> str:
 
 async def fetch_document(url: str) -> str:
     """Fetch a document from a URL and return its text content."""
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.get(url, follow_redirects=True)
         response.raise_for_status()
         return response.text
