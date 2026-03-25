@@ -1,5 +1,6 @@
 """URL extraction, S3 conversion, document fetching, and summarization."""
 
+import os
 import re
 from urllib.parse import urlparse
 
@@ -9,6 +10,11 @@ from llm import get_provider, SUMMARIZER_SYSTEM_PROMPT
 
 
 _URL_PATTERN = re.compile(r"(s3://[^\s]+|https?://[^\s]+)")
+
+# Allowed URL hosts for outbound fetch requests (SSRF prevention).
+# In production, AuthBridge intercepts S3 requests and routes them to
+# the credential gateway, so only S3 and gateway hosts are expected.
+_ALLOWED_HOSTS = os.environ.get("ALLOWED_FETCH_HOSTS", ".s3.amazonaws.com,.svc.cluster.local").split(",")
 
 
 def extract_url(text: str) -> str | None:
@@ -31,8 +37,17 @@ def s3_to_https(url: str) -> str:
     return f"https://{bucket}.s3.amazonaws.com/{key}"
 
 
+def _validate_url(url: str) -> None:
+    """Validate that the URL host is in the allowlist (SSRF prevention)."""
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    if not any(host.endswith(suffix) for suffix in _ALLOWED_HOSTS):
+        raise ValueError(f"URL host not allowed: {host}")
+
+
 async def fetch_document(url: str) -> str:
     """Fetch a document from a URL and return its text content."""
+    _validate_url(url)
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.get(url, follow_redirects=True)
         response.raise_for_status()
@@ -42,11 +57,11 @@ async def fetch_document(url: str) -> str:
 async def fetch_and_summarize(message: str) -> str:
     """Extract a URL from the message, fetch the document, and summarize it.
 
-    Returns the summary text or an error message if no URL is found.
+    Raises ValueError if no URL is found or the URL host is not allowed.
     """
     url = extract_url(message)
     if url is None:
-        return "No URL found in the message. Please provide an S3 or HTTPS URL."
+        raise ValueError("No URL found in the message")
 
     https_url = s3_to_https(url)
     content = await fetch_document(https_url)

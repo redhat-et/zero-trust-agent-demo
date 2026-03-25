@@ -1,5 +1,6 @@
 """URL extraction, S3 conversion, document fetching, and review."""
 
+import os
 import re
 from urllib.parse import urlparse
 
@@ -14,6 +15,8 @@ from llm import (
 
 
 _URL_PATTERN = re.compile(r"(s3://[^\s]+|https?://[^\s]+)")
+
+_ALLOWED_HOSTS = os.environ.get("ALLOWED_FETCH_HOSTS", ".s3.amazonaws.com,.svc.cluster.local").split(",")
 
 
 def extract_url(text: str) -> str | None:
@@ -36,8 +39,17 @@ def s3_to_https(url: str) -> str:
     return f"https://{bucket}.s3.amazonaws.com/{key}"
 
 
+def _validate_url(url: str) -> None:
+    """Validate that the URL host is in the allowlist (SSRF prevention)."""
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    if not any(host.endswith(suffix) for suffix in _ALLOWED_HOSTS):
+        raise ValueError(f"URL host not allowed: {host}")
+
+
 async def fetch_document(url: str) -> str:
     """Fetch a document from a URL and return its text content."""
+    _validate_url(url)
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.get(url, follow_redirects=True)
         response.raise_for_status()
@@ -74,7 +86,7 @@ async def fetch_and_review(message: str) -> str:
     """
     url = extract_url(message)
     if url is None:
-        return "No URL found in the message. Please provide an S3 or HTTPS URL."
+        raise ValueError("No URL found in the message")
 
     https_url = s3_to_https(url)
     content = await fetch_document(https_url)

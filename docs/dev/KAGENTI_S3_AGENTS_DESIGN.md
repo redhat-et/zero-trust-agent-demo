@@ -100,18 +100,35 @@ The reviewer additionally accepts an optional `review_type` parameter
 
 #### Configuration
 
-| Env var        | Default      | Purpose                                  |
-| -------------- | ------------ | ---------------------------------------- |
-| `HOST`         | `0.0.0.0`    | Bind address                             |
-| `PORT`         | `8000`       | Listen port                              |
-| `LLM_PROVIDER` | `anthropic`  | `anthropic`, `openai`, `litellm`, `mock` |
-| `LLM_API_KEY`  | —            | API key for chosen provider              |
-| `LLM_BASE_URL` | —            | Custom endpoint (LiteLLM/vLLM)           |
-| `LLM_MODEL`    | per-provider | Model override                           |
+| Env var | Default | Purpose |
+| ------- | ------- | ------- |
+| `HOST` | `0.0.0.0` | Bind address |
+| `PORT` | `8000` | Listen port |
+| `LLM_PROVIDER` | `anthropic` | `anthropic`, `openai`, `litellm`, `mock` |
+| `LLM_API_KEY` | — | API key for chosen provider |
+| `LLM_BASE_URL` | — | Custom endpoint (LiteLLM/vLLM) |
+| `LLM_MODEL` | per-provider | Model override |
+| `ALLOWED_FETCH_HOSTS` | `.s3.amazonaws.com,.svc.cluster.local` | Comma-separated URL host suffixes allowed for outbound document fetch (SSRF prevention) |
 
 When `LLM_API_KEY` is not set, the agent falls back to mock mode:
 returns a canned response with document metadata (URL, content length,
 first 200 chars).
+
+#### Security
+
+**SSRF prevention**: Both agents validate outbound fetch URLs against
+the `ALLOWED_FETCH_HOSTS` allowlist before making HTTP requests. Only
+URLs whose hostname ends with one of the configured suffixes are
+permitted. This prevents the agent from being used to probe internal
+cluster services.
+
+Default allowlist: `.s3.amazonaws.com` (for S3 virtual-hosted URLs)
+and `.svc.cluster.local` (for in-cluster credential gateway proxy).
+Deployers can override via the environment variable.
+
+**Error handling**: When no URL is found in the incoming message,
+the agent raises `ValueError` instead of returning an error string.
+This ensures the A2A task state is set to `failed`, not `completed`.
 
 #### A2A and Kagenti integration
 
