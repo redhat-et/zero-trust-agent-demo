@@ -215,36 +215,43 @@ deploy/k8s/
 
 ### Scenario 2: Agent Without User (Always Denied)
 
-| Agent  | Document | Result | Why                            |
-| ------ | -------- | ------ | ------------------------------ |
-| GPT-4  | Any      | ❌      | Agents require user delegation |
-| Claude | Any      | ❌      | Agents require user delegation |
+| Agent | Document | Result | Why |
+| ----- | -------- | ------ | --- |
+| reviewer-general | Any | ❌ | Agents require user delegation |
+| summarizer-tech | Any | ❌ | Agents require user delegation |
 
-**Key Principle**: AI agents cannot act autonomously. They must have explicit user delegation.
+**Key Principle**: AI agents cannot act autonomously. They must
+have explicit user delegation.
 
 ### Scenario 3: Delegated Access (Permission Intersection)
 
-| User + Agent       | Document        | Result | Why                          |
-| ------------------ | --------------- | ------ | ---------------------------- |
-| Alice + GPT-4      | DOC-001 (eng)   | ✅      | Both have engineering        |
-| Alice + GPT-4      | DOC-004 (hr)    | ❌      | Neither has hr               |
-| Alice + Summarizer | DOC-001 (eng)   | ❌      | Summarizer lacks engineering |
-| Bob + Claude       | DOC-003 (admin) | ✅      | Both have admin              |
+| User + Agent | Document | Result | Why |
+| ------------ | -------- | ------ | --- |
+| Alice + summarizer-tech | DOC-001 (eng) | ✅ | Both have engineering |
+| Alice + summarizer-hr | DOC-001 (eng) | ❌ | summarizer-hr lacks engineering |
+| Carol + summarizer-hr | DOC-004 (hr) | ✅ | Both have hr |
+| Bob + reviewer-ops | DOC-003 (admin) | ✅ | Both have admin |
+| Alice + reviewer-general | DOC-002 (fin) | ✅ | Both have finance |
 
-**Try it**: Select Alice, GPT-4, DOC-001 → Click "Delegate to Agent"
+**Try it**: Select Alice, summarizer-tech, DOC-001 → Click
+"Delegate to Agent"
 
 ### Scenario 4: Agent as Capability Limiter
 
-Bob has: `[finance, admin]` (2 departments)
-Summarizer has: `[finance]` (1 department)
+Alice has: `[engineering, finance]` (2 departments)
+summarizer-hr has: `[hr]` (1 department)
 
-When Bob delegates to Summarizer:
+When Alice delegates to summarizer-hr:
 
-- Effective permissions = `{finance, admin} ∩ {finance}` = `{finance}`
-- Bob could access 3 document types alone
-- With Summarizer, only 1 document type is accessible
+- Effective permissions = `{engineering, finance} ∩ {hr}` = `{}`
+  (empty)
+- Alice could access 4 document types alone
+- With summarizer-hr, no documents are accessible
 
-**This demonstrates least privilege**: agents REDUCE effective permissions.
+**This demonstrates least privilege**: agents REDUCE effective
+permissions. The same summarizer code deployed as summarizer-tech
+(`[finance, engineering]`) would give Alice access to engineering
+and finance documents.
 
 ## Permission Reference
 
@@ -256,13 +263,17 @@ When Bob delegates to Summarizer:
 | Bob   | finance, admin       |
 | Carol | hr                   |
 
-### Agents
+### Agents (dynamically discovered)
 
-| Agent      | Capabilities                    |
-| ---------- | ------------------------------- |
-| GPT-4      | engineering, finance            |
-| Claude     | engineering, finance, admin, hr |
-| Summarizer | finance                         |
+Agents follow the `{function}-{scope}` naming scheme. Same agent
+image can be deployed multiple times with different OPA scopes.
+
+| Agent | Scope | Description |
+| ----- | ----- | ----------- |
+| summarizer-hr | hr | HR document summarizer |
+| summarizer-tech | finance, engineering | Technical document summarizer |
+| reviewer-ops | engineering, admin | Operations document reviewer |
+| reviewer-general | all | General document reviewer |
 
 ### Documents
 
