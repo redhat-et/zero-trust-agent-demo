@@ -6,10 +6,11 @@ This directory contains documentation for the SPIFFE/SPIRE Zero Trust Demo.
 
 | Document | Description |
 |----------|-------------|
-| [DEMO_GUIDE.md](DEMO_GUIDE.md) | Step-by-step guide to running the demo |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture and design |
+| [DEMO_SCENARIOS.md](DEMO_SCENARIOS.md) | Demo scenarios, permission matrices, walkthroughs |
+| [POLICY_REFERENCE.md](POLICY_REFERENCE.md) | OPA policy design, modules, examples |
 | [LEARNING_GUIDE.md](LEARNING_GUIDE.md) | Educational materials on Zero Trust and SPIFFE |
 | [API_TESTING.md](API_TESTING.md) | API reference and testing examples |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture and design |
 
 ## Security & Operations
 

@@ -27,7 +27,7 @@ The demo uses three main policy modules that work together to implement permissi
 
 When a user delegates access to an AI agent, the effective permissions are computed as:
 
-```
+```text
 Effective Permissions = User Departments ∩ Agent Capabilities
 ```
 
@@ -37,7 +37,7 @@ This ensures agents can never exceed the permissions of either the user OR the a
 
 ## Policy Evaluation Flow
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Document Service Request                     │
 │  Input: {caller_spiffe_id, document_id, delegation_context}     │
@@ -87,11 +87,13 @@ This ensures agents can never exceed the permissions of either the user OR the a
 Defines which departments each user belongs to. In production, this data would come from an identity provider (LDAP, Active Directory, OIDC claims).
 
 **Key Rules**:
+
 - `user_departments` - Map of user names to department lists
 - `has_department(user_name, department)` - Check if user belongs to department
 - `get_departments(user_name)` - Retrieve all departments for a user
 
 **Example mapping**:
+
 ```rego
 user_departments := {
     "alice": ["engineering", "finance"],
@@ -111,6 +113,7 @@ See `opa-service/policies/user_permissions.rego` for the complete implementation
 Defines which document types/departments each AI agent can access. These represent the MAXIMUM capabilities of the agent — actual access is further restricted by user permissions via intersection.
 
 **Current agent capabilities**:
+
 ```rego
 agent_capabilities := {
     "summarizer-hr": ["hr"],
@@ -121,6 +124,7 @@ agent_capabilities := {
 ```
 
 **Key Rules**:
+
 - `agent_capabilities` - Map of agent names to capability lists
 - `has_capability(agent_name, department)` - Check if agent has a specific capability
 - `get_capabilities(agent_name)` - Retrieve all capabilities for an agent
@@ -148,6 +152,7 @@ Implements the core authorization logic that evaluates access requests and compu
 **Policy evaluation endpoint**: `POST /v1/data/demo/authorization/decision`
 
 **Example authorization rule for delegation**:
+
 ```rego
 allow {
     input.delegation
@@ -172,6 +177,7 @@ See `opa-service/policies/document_access.rego` for the complete implementation.
 ### Example 1: Alice Direct Access to Engineering Doc
 
 **Input**:
+
 ```json
 {
   "caller_spiffe_id": "spiffe://demo.example.com/user/alice",
@@ -181,6 +187,7 @@ See `opa-service/policies/document_access.rego` for the complete implementation.
 ```
 
 **Output**:
+
 ```json
 {
   "allow": true,
@@ -199,6 +206,7 @@ See `opa-service/policies/document_access.rego` for the complete implementation.
 ### Example 2: Summarizer-Tech Agent Without Delegation
 
 **Input**:
+
 ```json
 {
   "caller_spiffe_id": "spiffe://demo.example.com/agent/summarizer-tech",
@@ -208,6 +216,7 @@ See `opa-service/policies/document_access.rego` for the complete implementation.
 ```
 
 **Output**:
+
 ```json
 {
   "allow": false,
@@ -228,6 +237,7 @@ See `opa-service/policies/document_access.rego` for the complete implementation.
 ### Example 3: Alice Delegates to Summarizer-Tech for Engineering Doc
 
 **Input**:
+
 ```json
 {
   "caller_spiffe_id": "spiffe://demo.example.com/agent/summarizer-tech",
@@ -240,6 +250,7 @@ See `opa-service/policies/document_access.rego` for the complete implementation.
 ```
 
 **Output**:
+
 ```json
 {
   "allow": true,
@@ -261,6 +272,7 @@ See `opa-service/policies/document_access.rego` for the complete implementation.
 ### Example 4: Bob + Summarizer-HR → Admin Doc (Permission Reduction)
 
 **Input**:
+
 ```json
 {
   "caller_spiffe_id": "spiffe://demo.example.com/agent/summarizer-hr",
@@ -273,6 +285,7 @@ See `opa-service/policies/document_access.rego` for the complete implementation.
 ```
 
 **Output**:
+
 ```json
 {
   "allow": false,
@@ -296,6 +309,7 @@ See `opa-service/policies/document_access.rego` for the complete implementation.
 ### Example 5: Alice Delegates to Reviewer-General for All Departments
 
 **Input**:
+
 ```json
 {
   "caller_spiffe_id": "spiffe://demo.example.com/agent/reviewer-general",
@@ -308,6 +322,7 @@ See `opa-service/policies/document_access.rego` for the complete implementation.
 ```
 
 **Output**:
+
 ```json
 {
   "allow": true,
@@ -407,7 +422,7 @@ kubectl rollout restart deployment/opa-service -n spiffe-demo
 
 The permission intersection model can be formally expressed as:
 
-```
+```text
 Given:
   U = set of user departments
   A = set of agent capabilities

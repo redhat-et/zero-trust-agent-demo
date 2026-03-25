@@ -26,7 +26,7 @@ The demo simulates a document management system where:
 
 **Core Principle**: When a user delegates access to an AI agent:
 
-```
+```text
 Effective Permissions = User Departments ∩ Agent Capabilities
 ```
 
@@ -49,15 +49,21 @@ This ensures agents can never exceed the permissions of either the user OR the a
 Agents are dynamically discovered from Kagenti AgentCard CRs. The naming
 scheme is `{function}-{scope}`.
 
-| Agent            | Scope                 | Description                      | SPIFFE ID                                           |
-| ---------------- | --------------------- | -------------------------------- | --------------------------------------------------- |
-| summarizer-hr    | hr                    | HR document summarizer           | `spiffe://demo.example.com/agent/summarizer-hr`     |
-| summarizer-tech  | finance, engineering  | Technical document summarizer    | `spiffe://demo.example.com/agent/summarizer-tech`   |
-| reviewer-ops     | engineering, admin    | Operations document reviewer     | `spiffe://demo.example.com/agent/reviewer-ops`      |
-| reviewer-general | all                   | General document reviewer        | `spiffe://demo.example.com/agent/reviewer-general`  |
+| Agent            | Scope                | Description                   | SPIFFE ID                                          |
+| ---------------- | -------------------- | ----------------------------- | -------------------------------------------------- |
+| summarizer-hr    | hr                   | HR document summarizer        | `spiffe://demo.example.com/agent/summarizer-hr`    |
+| summarizer-tech  | finance, engineering | Technical document summarizer | `spiffe://demo.example.com/agent/summarizer-tech`  |
+| reviewer-ops     | engineering, admin   | Operations document reviewer  | `spiffe://demo.example.com/agent/reviewer-ops`     |
+| reviewer-general | all                  | General document reviewer     | `spiffe://demo.example.com/agent/reviewer-general` |
 
-**Note**: The actual agents deployed may vary based on available AgentCard
-CRs in the cluster. These are representative examples.
+**Notes**:
+
+- The actual agents deployed may vary based on available AgentCard
+  CRs in the cluster. These are representative examples.
+- The trust domain `demo.example.com` is used in local/mock mode.
+  In a real cluster the trust domain is derived from the cluster
+  domain name (e.g., `apps.ocp-beta-test.nerc.mghpcc.org`). SPIFFE
+  IDs will follow the cluster's format accordingly.
 
 ---
 
@@ -66,15 +72,15 @@ CRs in the cluster. These are representative examples.
 Documents are identified by ID (e.g., DOC-001) and stored either in-memory
 or in S3. Each document requires specific department access.
 
-| Document ID | Title                   | Required Department(s) | Sensitivity |
-| ----------- | ----------------------- | ---------------------- | ----------- |
-| DOC-001     | Engineering Roadmap     | engineering            | Medium      |
-| DOC-002     | Q4 Financial Report     | finance                | High        |
-| DOC-003     | Admin Policies          | admin                  | Critical    |
-| DOC-004     | HR Guidelines           | hr                     | Medium      |
-| DOC-005     | Budget Projections      | finance, engineering   | High        |
-| DOC-006     | Compliance Audit        | admin, finance         | Critical    |
-| DOC-007     | All-Hands Summary       | (public)               | Public      |
+| Document ID | Title               | Required Department(s) | Sensitivity |
+| ----------- | ------------------- | ---------------------- | ----------- |
+| DOC-001     | Engineering Roadmap | engineering            | Medium      |
+| DOC-002     | Q4 Financial Report | finance                | High        |
+| DOC-003     | Admin Policies      | admin                  | Critical    |
+| DOC-004     | HR Guidelines       | hr                     | Medium      |
+| DOC-005     | Budget Projections  | finance, engineering   | High        |
+| DOC-006     | Compliance Audit    | admin, finance         | Critical    |
+| DOC-007     | All-Hands Summary   | (public)               | Public      |
 
 ---
 
@@ -103,30 +109,30 @@ All agents require user delegation context. Autonomous agent access is denied.
 
 ### Delegated Access: Alice + Agent
 
-|                        | DOC-001 (Eng) | DOC-002 (Fin) | DOC-003 (Admin) | DOC-004 (HR)   | DOC-007 (Public) |
-| ---------------------- | ------------- | ------------- | --------------- | -------------- | ---------------- |
-| Alice + summarizer-hr  | ❌ Agent lacks | ❌ Agent lacks | ❌ Both lack     | ❌ Alice lacks  | ✅ Public         |
-| Alice + summarizer-tech| ✅ Both allow  | ✅ Both allow  | ❌ Both lack     | ❌ Both lack    | ✅ Public         |
-| Alice + reviewer-ops   | ✅ Both allow  | ❌ Agent lacks | ❌ Agent lacks   | ❌ Both lack    | ✅ Public         |
-| Alice + reviewer-general| ✅ Both allow | ✅ Both allow  | ❌ Alice lacks   | ❌ Alice lacks  | ✅ Public         |
+|                          | DOC-001 (Eng) | DOC-002 (Fin) | DOC-003 (Admin) | DOC-004 (HR)  | DOC-007 (Public) |
+| ------------------------ | ------------- | ------------- | --------------- | ------------- | ---------------- |
+| Alice + summarizer-hr    | ❌ Agent lacks | ❌ Agent lacks | ❌ Both lack     | ❌ Alice lacks | ✅ Public         |
+| Alice + summarizer-tech  | ✅ Both allow  | ✅ Both allow  | ❌ Both lack     | ❌ Both lack   | ✅ Public         |
+| Alice + reviewer-ops     | ✅ Both allow  | ❌ Agent lacks | ❌ Agent lacks   | ❌ Both lack   | ✅ Public         |
+| Alice + reviewer-general | ✅ Both allow  | ✅ Both allow  | ❌ Alice lacks   | ❌ Alice lacks | ✅ Public         |
 
 ### Delegated Access: Bob + Agent
 
-|                        | DOC-001 (Eng) | DOC-002 (Fin) | DOC-003 (Admin) | DOC-004 (HR)  | DOC-007 (Public) |
-| ---------------------- | ------------- | ------------- | --------------- | ------------- | ---------------- |
-| Bob + summarizer-hr    | ❌ Both lack   | ❌ Agent lacks | ❌ Agent lacks   | ❌ Bob lacks   | ✅ Public         |
-| Bob + summarizer-tech  | ❌ Bob lacks   | ✅ Both allow  | ❌ Agent lacks   | ❌ Both lack   | ✅ Public         |
-| Bob + reviewer-ops     | ❌ Bob lacks   | ❌ Agent lacks | ✅ Both allow    | ❌ Both lack   | ✅ Public         |
-| Bob + reviewer-general | ❌ Bob lacks   | ✅ Both allow  | ✅ Both allow    | ❌ Bob lacks   | ✅ Public         |
+|                        | DOC-001 (Eng) | DOC-002 (Fin) | DOC-003 (Admin) | DOC-004 (HR) | DOC-007 (Public) |
+| ---------------------- | ------------- | ------------- | --------------- | ------------ | ---------------- |
+| Bob + summarizer-hr    | ❌ Both lack   | ❌ Agent lacks | ❌ Agent lacks   | ❌ Bob lacks  | ✅ Public         |
+| Bob + summarizer-tech  | ❌ Bob lacks   | ✅ Both allow  | ❌ Agent lacks   | ❌ Both lack  | ✅ Public         |
+| Bob + reviewer-ops     | ❌ Bob lacks   | ❌ Agent lacks | ✅ Both allow    | ❌ Both lack  | ✅ Public         |
+| Bob + reviewer-general | ❌ Bob lacks   | ✅ Both allow  | ✅ Both allow    | ❌ Bob lacks  | ✅ Public         |
 
 ### Delegated Access: Carol + Agent
 
-|                        | DOC-001 (Eng) | DOC-002 (Fin) | DOC-003 (Admin) | DOC-004 (HR)   | DOC-007 (Public) |
-| ---------------------- | ------------- | ------------- | --------------- | -------------- | ---------------- |
-| Carol + summarizer-hr  | ❌ Both lack   | ❌ Both lack   | ❌ Both lack     | ✅ Both allow   | ✅ Public         |
-| Carol + summarizer-tech| ❌ Both lack   | ❌ Carol lacks | ❌ Both lack     | ❌ Agent lacks  | ✅ Public         |
-| Carol + reviewer-ops   | ❌ Both lack   | ❌ Both lack   | ❌ Carol lacks   | ❌ Agent lacks  | ✅ Public         |
-| Carol + reviewer-general| ❌ Carol lacks| ❌ Carol lacks | ❌ Carol lacks   | ✅ Both allow   | ✅ Public         |
+|                          | DOC-001 (Eng) | DOC-002 (Fin) | DOC-003 (Admin) | DOC-004 (HR)  | DOC-007 (Public) |
+| ------------------------ | ------------- | ------------- | --------------- | ------------- | ---------------- |
+| Carol + summarizer-hr    | ❌ Both lack   | ❌ Both lack   | ❌ Both lack     | ✅ Both allow  | ✅ Public         |
+| Carol + summarizer-tech  | ❌ Both lack   | ❌ Carol lacks | ❌ Both lack     | ❌ Agent lacks | ✅ Public         |
+| Carol + reviewer-ops     | ❌ Both lack   | ❌ Both lack   | ❌ Carol lacks   | ❌ Agent lacks | ✅ Public         |
+| Carol + reviewer-general | ❌ Carol lacks | ❌ Carol lacks | ❌ Carol lacks   | ✅ Both allow  | ✅ Public         |
 
 ---
 
@@ -145,7 +151,7 @@ All agents require user delegation context. Autonomous agent access is denied.
 
 **Console Output**:
 
-```
+```text
 [USER-SERVICE] Alice fetching SVID from SPIRE Agent...
 [SPIRE-AGENT] Issued SVID: spiffe://demo.example.com/user/alice
 [USER-SERVICE] Initiating mTLS connection to Document Service...
@@ -171,7 +177,7 @@ All agents require user delegation context. Autonomous agent access is denied.
 
 **Console Output**:
 
-```
+```text
 [AGENT-SERVICE] summarizer-tech fetching SVID from SPIRE Agent...
 [SPIRE-AGENT] Issued SVID: spiffe://demo.example.com/agent/summarizer-tech
 [AGENT-SERVICE] Initiating mTLS connection to Document Service...
@@ -201,7 +207,7 @@ They must operate within the context of a delegating user.
 
 **Console Output**:
 
-```
+```text
 [USER-SERVICE] Alice initiating delegation to summarizer-tech...
 [USER-SERVICE] Fetched SVID for alice: spiffe://demo.example.com/user/alice
 [AGENT-SERVICE] summarizer-tech accepting delegation from alice...
@@ -240,7 +246,7 @@ Effective permissions = User ∩ Agent = [engineering, finance]
 
 **Console Output**:
 
-```
+```text
 [USER-SERVICE] Alice initiating delegation to summarizer-tech...
 [USER-SERVICE] Fetched SVID for alice
 [AGENT-SERVICE] summarizer-tech accepting delegation from alice...
@@ -274,7 +280,7 @@ Effective permissions = User ∩ Agent = [engineering, finance]
 
 **Console Output**:
 
-```
+```text
 [USER-SERVICE] Bob initiating delegation to summarizer-tech...
 [USER-SERVICE] Bob's permissions: [finance, admin] → Could access 3 documents alone
 [AGENT-SERVICE] summarizer-tech accepting delegation from Bob...
@@ -301,17 +307,17 @@ ALLOW: Public document
 [PRINCIPLE] Agent capabilities REDUCE effective permissions (Least Privilege)
 
 Permission Comparison:
-┌────────────────┬──────────────┬──────────────────┐
-│ Document       │ Bob Direct   │ Bob + summarizer │
-├────────────────┼──────────────┼──────────────────┤
+┌────────────────┬──────────────┬────────────────────┐
+│ Document       │ Bob Direct   │ Bob + summarizer   │
+├────────────────┼──────────────┼────────────────────┤
 │ DOC-001 (Eng)  │ ❌ No Eng     │ ❌ Not in ∩       │
 │ DOC-002 (Fin)  │ ✅ Has Fin    │ ✅ Both have Fin  │
 │ DOC-003 (Admin)│ ✅ Has Admin  │ ❌ Not in ∩       │
 │ DOC-004 (HR)   │ ❌ No HR      │ ❌ Neither has HR │
 │ DOC-007 (Pub)  │ ✅ Public     │ ✅ Public         │
-├────────────────┼──────────────┼──────────────────┤
-│ TOTAL ACCESS   │ 3/5 docs     │ 2/5 docs (REDUCED)│
-└────────────────┴──────────────┴──────────────────┘
+├────────────────┼──────────────┼────────────────────┤
+│ TOTAL ACCESS   │ 3/5 docs     │ 2/5 docs (REDUCED) │
+└────────────────┴──────────────┴────────────────────┘
 
 LEAST PRIVILEGE PRINCIPLE:
 Bob has 'admin' access directly, but summarizer-tech does not.

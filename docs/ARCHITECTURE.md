@@ -28,7 +28,7 @@ agent's configured OPA capabilities.
 | [Demo Scenarios](DEMO_SCENARIOS.md) | Users, agents, permission matrices, walkthrough scenarios |
 | [Policy Reference](POLICY_REFERENCE.md) | OPA policy design, modules, examples, testing |
 | [Agent Deployer Guide](deployment/AGENT_DEPLOYER_GUIDE.md) | How to deploy new agents with naming scheme |
-| [Demo Guide](DEMO_GUIDE.md) | Step-by-step instructions for running the demo |
+| [Kagenti on OpenShift](deployment/KAGENTI_ON_OPENSHIFT.md) | OpenShift deployment with Kagenti operator |
 | [Security](SECURITY.md) | Threat model, trust boundaries |
 
 ## System architecture
