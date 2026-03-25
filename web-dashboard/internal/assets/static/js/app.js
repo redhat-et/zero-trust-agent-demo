@@ -522,14 +522,30 @@ class Dashboard {
         if (reviewBtn) reviewBtn.disabled = true;
 
         panel.className = 'result-panel-inline processing';
-        panel.innerHTML = `
-            <div class="processing-indicator">
-                <div class="spinner"></div>
-                <h4>${message}</h4>
-                <p>Using agent: <strong>${agentId}</strong></p>
-                <p class="processing-note">This may take 10-30 seconds depending on document size...</p>
-            </div>
-        `;
+        const indicator = document.createElement('div');
+        indicator.className = 'processing-indicator';
+
+        const spinner = document.createElement('div');
+        spinner.className = 'spinner';
+        indicator.appendChild(spinner);
+
+        const h4 = document.createElement('h4');
+        h4.textContent = message;
+        indicator.appendChild(h4);
+
+        const agentP = document.createElement('p');
+        const strong = document.createElement('strong');
+        strong.textContent = agentId;
+        agentP.append('Using agent: ', strong);
+        indicator.appendChild(agentP);
+
+        const noteP = document.createElement('p');
+        noteP.className = 'processing-note';
+        noteP.textContent = 'This may take 10-30 seconds depending on document size...';
+        indicator.appendChild(noteP);
+
+        panel.innerHTML = '';
+        panel.appendChild(indicator);
     }
 
     hideProcessingIndicator() {
