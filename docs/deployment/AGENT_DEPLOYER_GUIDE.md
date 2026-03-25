@@ -253,11 +253,7 @@ EOF
 
 | Deployment name | Image | Scope | Language |
 |-----------------|-------|-------|----------|
-| summarizer-service | summarizer-service:dev | hr | Go |
-| reviewer-service | reviewer-service:dev | engineering, admin | Go |
+| summarizer-hr | kagenti-summarizer:dev | hr | Python |
 | summarizer-tech | kagenti-summarizer:dev | finance, engineering | Python |
+| reviewer-ops | kagenti-reviewer:dev | engineering, admin | Python |
 | reviewer-general | kagenti-reviewer:dev | all | Python |
-
-Note: Go agent deployment names (`summarizer-service`,
-`reviewer-service`) will be renamed to `summarizer-hr` and
-`reviewer-ops` in a future update to follow the naming scheme.

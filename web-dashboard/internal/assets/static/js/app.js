@@ -61,7 +61,7 @@ class Dashboard {
                 this.agents = await response.json();
                 this.populateSelect('agent-select', this.agents, a => ({
                     value: a.id,
-                    label: `${a.name}${a.description ? ' — ' + a.description : ''}`
+                    label: `${a.id}${a.description ? ' — ' + a.description : ''}`
                 }), true);
                 this.log('success', `Loaded ${this.agents.length} agents`);
             }
@@ -547,22 +547,24 @@ class Dashboard {
         if (!panel) return;
 
         const isGranted = result.granted === true;
-        panel.className = `result-panel-inline ${isGranted ? 'granted' : 'denied'}`;
 
-        if (isGranted && result.result) {
-            const htmlContent = this.markdownToHtml(result.result);
-            panel.innerHTML = `
-                <h4>${type === 'summary' ? 'Document Summary' : 'Document Review'}</h4>
-                <p style="color: var(--rh-gray); font-size: 12px;">Agent: ${result.agent} | State: ${result.state || 'completed'}</p>
-                <div class="ai-content">${htmlContent}</div>
-            `;
-        } else {
+        if (!isGranted) {
+            panel.className = 'result-panel-inline denied';
             panel.innerHTML = `
                 <h4>${type === 'summary' ? 'Summarization' : 'Review'} Denied</h4>
                 <p>${result.reason || 'Permission denied'}</p>
                 <div class="alert alert-info" style="margin-top: 16px; margin-bottom: 0;">
                     <strong>Zero Trust:</strong> Both user AND agent must have the required permissions.
                 </div>
+            `;
+        } else {
+            panel.className = 'result-panel-inline granted';
+            const content = result.result || 'Agent completed with no output';
+            const htmlContent = this.markdownToHtml(content);
+            panel.innerHTML = `
+                <h4>${type === 'summary' ? 'Document Summary' : 'Document Review'}</h4>
+                <p style="color: var(--rh-gray); font-size: 12px;">Agent: ${result.agent} | State: ${result.state || 'completed'}</p>
+                <div class="ai-content">${htmlContent}</div>
             `;
         }
     }

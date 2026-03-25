@@ -87,7 +87,7 @@ func capitalize(s string) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
-func loadStaticAgents(path string, agentStore *store.AgentStore, log *logger.Logger) error {
+func loadStaticAgents(path string, trustDomain string, agentStore *store.AgentStore, log *logger.Logger) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("failed to read static agents file: %w", err)
@@ -108,6 +108,7 @@ func loadStaticAgents(path string, agentStore *store.AgentStore, log *logger.Log
 			ID:          a.ID,
 			Name:        a.Name,
 			Description: a.Description,
+			SPIFFEID:    "spiffe://" + trustDomain + "/agent/" + a.ID,
 			Source:      store.SourceStatic,
 			A2AURL:      a.A2AURL,
 		})
@@ -180,7 +181,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 
 	if cfg.StaticAgents != "" {
-		if err := loadStaticAgents(cfg.StaticAgents, svc.store, log); err != nil {
+		if err := loadStaticAgents(cfg.StaticAgents, cfg.SPIFFE.TrustDomain, svc.store, log); err != nil {
 			return fmt.Errorf("failed to load static agents: %w", err)
 		}
 	}

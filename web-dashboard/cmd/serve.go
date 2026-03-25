@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -977,8 +978,14 @@ func (d *Dashboard) handleInvoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.AgentID == "" || req.DocumentID == "" {
-		http.Error(w, "agent_id and document_id required", http.StatusBadRequest)
+	if req.AgentID == "" || req.DocumentID == "" || req.UserID == "" {
+		http.Error(w, "agent_id, document_id, and user_id required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate agent_id is a single path segment (prevent path traversal)
+	if strings.Contains(req.AgentID, "/") || strings.Contains(req.AgentID, "..") {
+		http.Error(w, "Invalid agent_id", http.StatusBadRequest)
 		return
 	}
 
@@ -1043,7 +1050,11 @@ func (d *Dashboard) handleInvoke(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 
 	var result map[string]any
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		d.log.Error("Failed to decode agent-service response", "error", err)
+		http.Error(w, "Invalid response from agent-service", http.StatusBadGateway)
+		return
+	}
 
 	if resp.StatusCode == http.StatusForbidden || result["granted"] == false {
 		d.broadcastLog(LogEntry{
