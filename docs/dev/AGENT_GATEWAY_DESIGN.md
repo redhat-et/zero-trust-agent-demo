@@ -68,6 +68,35 @@ Replace the Deployment-label polling with AgentCard CR list/watch:
 - Fallback: if watch is unavailable (e.g., local dev without K8s),
   support periodic list polling (existing `--discovery-interval`)
 
+**RBAC requirement:** The agent-service service account must have
+permission to list AgentCard CRs. Apply this Role and RoleBinding
+in the target namespace:
+
+```bash
+oc apply -n spiffe-demo -f - <<'EOF'
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: agentcard-reader
+rules:
+- apiGroups: ["agent.kagenti.dev"]
+  resources: ["agentcards"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agent-service-agentcard-reader
+subjects:
+- kind: ServiceAccount
+  name: agent-service
+roleRef:
+  kind: Role
+  name: agentcard-reader
+  apiGroup: rbac.authorization.k8s.io
+EOF
+```
+
 **Configuration flags** (replace existing discovery flags):
 
 | Flag | Default | Description |
@@ -215,6 +244,23 @@ loads agents from a JSON file for local testing:
 
 This replaces the hardcoded agents with a configurable file that
 mirrors the AgentCard CR structure.
+
+## Verified test results (2026-03-24, spiffe-demo namespace)
+
+**Agent-service deployed:** image `:4f5cfa6` on OpenShift.
+
+| Test | Result | Notes |
+|------|--------|-------|
+| AgentCard CR discovery | Pass | 3 agents found: kagenti-summarizer, reviewer-service, summarizer-service |
+| RBAC for agentcards | Pass | Required Role `agentcard-reader` with get/list/watch |
+| `/agents` endpoint | Pass | Returns all 3 discovered agents with metadata |
+| `/agents/{id}/invoke` routing | Pass | Correctly routes through document-service to OPA |
+| OPA policy evaluation | Pass | Denies mismatched trust domain (expected) |
+| Kubeconfig fallback (local dev) | Pass | Discovers agents from workstation via `~/.kube/config` |
+
+Full E2E invoke (authorization + A2A forwarding) requires dashboard
+with OIDC — the JWT `user_departments` claim bypasses SPIFFE-based
+user lookup in OPA.
 
 ## Roadmap (out of scope)
 

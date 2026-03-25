@@ -2,11 +2,11 @@ package demo.credential_gateway
 
 import rego.v1
 
-# Test: alice + kagenti-summarizer can access finance doc
+# Test: alice + summarizer-tech can access finance doc
 test_proxy_alice_summarizer_finance if {
     result := proxy_decision with input as {
         "user": "alice",
-        "agent": "kagenti-summarizer",
+        "agent": "summarizer-tech",
         "target_service": "s3",
         "action": "read",
         "s3_key": "finance/q4-report.md"
@@ -14,22 +14,22 @@ test_proxy_alice_summarizer_finance if {
     result.allow == true
 }
 
-# Test: alice + kagenti-summarizer denied engineering doc
+# Test: alice + summarizer-hr denied engineering doc (summarizer-hr is hr-only)
 test_proxy_alice_summarizer_engineering_denied if {
     not proxy_decision.allow with input as {
         "user": "alice",
-        "agent": "kagenti-summarizer",
+        "agent": "summarizer-hr",
         "target_service": "s3",
         "action": "read",
         "s3_key": "engineering/roadmap.md"
     }
 }
 
-# Test: alice + kagenti-summarizer can access multi-dept doc (budget has finance+engineering)
+# Test: alice + summarizer-tech can access multi-dept doc (budget has finance+engineering)
 test_proxy_alice_summarizer_budget_allowed if {
     result := proxy_decision with input as {
         "user": "alice",
-        "agent": "kagenti-summarizer",
+        "agent": "summarizer-tech",
         "target_service": "s3",
         "action": "read",
         "s3_key": "engineering/budget.md"
@@ -37,22 +37,22 @@ test_proxy_alice_summarizer_budget_allowed if {
     result.allow == true
 }
 
-# Test: carol + kagenti-summarizer denied (hr ∩ finance = empty)
+# Test: carol + summarizer-tech denied (hr ∩ {finance,engineering} = empty)
 test_proxy_carol_summarizer_denied if {
     not proxy_decision.allow with input as {
         "user": "carol",
-        "agent": "kagenti-summarizer",
+        "agent": "summarizer-tech",
         "target_service": "s3",
         "action": "read",
         "s3_key": "finance/q4-report.md"
     }
 }
 
-# Test: alice + kagenti-reviewer can access engineering doc
+# Test: alice + reviewer-general can access engineering doc
 test_proxy_alice_reviewer_engineering if {
     result := proxy_decision with input as {
         "user": "alice",
-        "agent": "kagenti-reviewer",
+        "agent": "reviewer-general",
         "target_service": "s3",
         "action": "read",
         "s3_key": "engineering/roadmap.md"
@@ -60,11 +60,11 @@ test_proxy_alice_reviewer_engineering if {
     result.allow == true
 }
 
-# Test: carol + kagenti-reviewer can access hr doc
+# Test: carol + reviewer-general can access hr doc
 test_proxy_carol_reviewer_hr if {
     result := proxy_decision with input as {
         "user": "carol",
-        "agent": "kagenti-reviewer",
+        "agent": "reviewer-general",
         "target_service": "s3",
         "action": "read",
         "s3_key": "hr/guidelines.md"
@@ -76,7 +76,7 @@ test_proxy_carol_reviewer_hr if {
 test_proxy_unknown_key_denied if {
     result := proxy_decision with input as {
         "user": "alice",
-        "agent": "kagenti-reviewer",
+        "agent": "reviewer-general",
         "target_service": "s3",
         "action": "read",
         "s3_key": "nonexistent/file.md"

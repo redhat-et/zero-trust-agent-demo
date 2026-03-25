@@ -88,10 +88,9 @@ s3_doc_departments(key) := depts if {
 
 proxy_decision := {"allow": true, "reason": reason} if {
 	depts := s3_doc_departments(input.s3_key)
-	some dept in depts
-	dept in permission_intersection
-	reason := sprintf("S3 access allowed: %s (department %s in intersection %v)",
-		[input.s3_key, dept, permission_intersection])
+	_any_dept_in_intersection(depts)
+	reason := sprintf("S3 access allowed: %s (departments %v, intersection %v)",
+		[input.s3_key, depts, permission_intersection])
 }
 
 proxy_decision := {"allow": false, "reason": reason} if {

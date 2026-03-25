@@ -110,25 +110,16 @@
                         <button id="delegate-btn" class="btn btn-success" disabled>
                             Delegate to Agent
                         </button>
-                    </div>
-
-                    <div class="section-divider"></div>
-
-                    <h4 style="margin-bottom: 8px;">AI Agent Actions</h4>
-                    <small style="color: var(--rh-gray); font-size: 12px; display: block; margin-bottom: 12px;">
-                        These actions use dedicated AI agents (separate from the agent dropdown above).
-                        The selected user's permissions are intersected with each agent's capabilities.
-                    </small>
-                    <div class="action-row">
-                        <button id="summarize-btn" class="btn btn-info">
+                        <button id="summarize-btn" class="btn btn-info" disabled>
                             Summarize
                         </button>
-                        <button id="review-btn" class="btn btn-warning">
+                        <button id="review-btn" class="btn btn-warning" disabled>
                             Review
                         </button>
                     </div>
-                    <small style="color: var(--rh-gray); font-size: 11px; margin-top: 8px; display: block;">
-                        <strong>Summarizer:</strong> finance only &nbsp;|&nbsp; <strong>Reviewer:</strong> all departments
+                    <small style="color: var(--rh-gray); font-size: 12px; margin-top: 8px; display: block;">
+                        Select an agent to enable Delegate, Summarize, and Review actions.
+                        Permissions are intersected at the OPA policy level.
                     </small>
                 </div>
             </div>
@@ -188,28 +179,28 @@
                         </thead>
                         <tbody>
                             <tr>
-                                <td>GPT-4</td>
+                                <td>summarizer-hr <small style="color:var(--rh-gray)">(Go)</small></td>
+                                <td class="cross">&#10007;</td>
+                                <td class="cross">&#10007;</td>
+                                <td class="cross">&#10007;</td>
+                                <td class="check">&#10003;</td>
+                            </tr>
+                            <tr>
+                                <td>reviewer-ops <small style="color:var(--rh-gray)">(Go)</small></td>
+                                <td class="check">&#10003;</td>
+                                <td class="cross">&#10007;</td>
+                                <td class="check">&#10003;</td>
+                                <td class="cross">&#10007;</td>
+                            </tr>
+                            <tr>
+                                <td>summarizer-tech <small style="color:var(--rh-gray)">(Python)</small></td>
                                 <td class="check">&#10003;</td>
                                 <td class="check">&#10003;</td>
                                 <td class="cross">&#10007;</td>
                                 <td class="cross">&#10007;</td>
                             </tr>
                             <tr>
-                                <td>Claude</td>
-                                <td class="check">&#10003;</td>
-                                <td class="check">&#10003;</td>
-                                <td class="check">&#10003;</td>
-                                <td class="check">&#10003;</td>
-                            </tr>
-                            <tr>
-                                <td>Summarizer</td>
-                                <td class="cross">&#10007;</td>
-                                <td class="check">&#10003;</td>
-                                <td class="cross">&#10007;</td>
-                                <td class="cross">&#10007;</td>
-                            </tr>
-                            <tr>
-                                <td>Reviewer</td>
+                                <td>reviewer-general <small style="color:var(--rh-gray)">(Python)</small></td>
                                 <td class="check">&#10003;</td>
                                 <td class="check">&#10003;</td>
                                 <td class="check">&#10003;</td>

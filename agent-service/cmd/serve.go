@@ -37,12 +37,12 @@ func init() {
 	serveCmd.Flags().Bool("enable-discovery", false, "Enable Kubernetes-based A2A agent discovery")
 	serveCmd.Flags().String("discovery-namespace", "spiffe-demo", "Namespace to discover A2A agents in")
 	serveCmd.Flags().Duration("discovery-interval", 30*time.Second, "Interval between discovery scans")
-	serveCmd.Flags().String("discovery-scheme", "https", "URL scheme for discovered agents (http or https)")
+	serveCmd.Flags().String("static-agents", "", "Path to JSON file with static agent definitions")
 	v.BindPFlag("document_service_url", serveCmd.Flags().Lookup("document-service-url"))
 	v.BindPFlag("enable_discovery", serveCmd.Flags().Lookup("enable-discovery"))
 	v.BindPFlag("discovery_namespace", serveCmd.Flags().Lookup("discovery-namespace"))
 	v.BindPFlag("discovery_interval", serveCmd.Flags().Lookup("discovery-interval"))
-	v.BindPFlag("discovery_scheme", serveCmd.Flags().Lookup("discovery-scheme"))
+	v.BindPFlag("static_agents", serveCmd.Flags().Lookup("static-agents"))
 }
 
 type Config struct {
@@ -51,7 +51,7 @@ type Config struct {
 	EnableDiscovery     bool          `mapstructure:"enable_discovery"`
 	DiscoveryNamespace  string        `mapstructure:"discovery_namespace"`
 	DiscoveryInterval   time.Duration `mapstructure:"discovery_interval"`
-	DiscoveryScheme     string        `mapstructure:"discovery_scheme"`
+	StaticAgents        string        `mapstructure:"static_agents"`
 }
 
 // DelegatedAccessRequest represents a request from a user to access a document via agent
@@ -78,6 +78,43 @@ func extractBearerToken(r *http.Request) string {
 		return strings.TrimPrefix(auth, "Bearer ")
 	}
 	return ""
+}
+
+func capitalize(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+func loadStaticAgents(path string, trustDomain string, agentStore *store.AgentStore, log *logger.Logger) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to read static agents file: %w", err)
+	}
+
+	var agents []struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		A2AURL      string `json:"a2a_url"`
+	}
+	if err := json.Unmarshal(data, &agents); err != nil {
+		return fmt.Errorf("failed to parse static agents: %w", err)
+	}
+
+	for _, a := range agents {
+		agentStore.Register(&store.Agent{
+			ID:          a.ID,
+			Name:        a.Name,
+			Description: a.Description,
+			SPIFFEID:    "spiffe://" + trustDomain + "/agent/" + a.ID,
+			Source:      store.SourceStatic,
+			A2AURL:      a.A2AURL,
+		})
+		log.Info("Loaded static agent", "id", a.ID, "name", a.Name)
+	}
+	return nil
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
@@ -134,7 +171,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	a2aClient := a2abridge.NewA2AClient(httpClient, log.Logger)
 
 	svc := &AgentService{
-		store:              store.NewAgentStore(cfg.SPIFFE.TrustDomain),
+		store:              store.NewAgentStore(),
 		httpClient:         httpClient,
 		documentServiceURL: cfg.DocumentServiceURL,
 		log:                log,
@@ -143,15 +180,18 @@ func runServe(cmd *cobra.Command, args []string) error {
 		a2aClient:          a2aClient,
 	}
 
+	if cfg.StaticAgents != "" {
+		if err := loadStaticAgents(cfg.StaticAgents, cfg.SPIFFE.TrustDomain, svc.store, log); err != nil {
+			return fmt.Errorf("failed to load static agents: %w", err)
+		}
+	}
+
 	// Start A2A agent discovery loop if enabled
 	if cfg.EnableDiscovery {
 		discovery, err := a2abridge.NewAgentDiscovery(
 			a2abridge.DiscoveryConfig{
-				Namespace:   cfg.DiscoveryNamespace,
-				TrustDomain: cfg.SPIFFE.TrustDomain,
-				Scheme:      cfg.DiscoveryScheme,
+				Namespace: cfg.DiscoveryNamespace,
 			},
-			httpClient,
 			log.Logger,
 		)
 		if err != nil {
@@ -213,15 +253,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if cfg.EnableDiscovery {
 		log.Info("Discovery config",
 			"namespace", cfg.DiscoveryNamespace,
-			"interval", cfg.DiscoveryInterval,
-			"scheme", cfg.DiscoveryScheme)
+			"interval", cfg.DiscoveryInterval)
 	}
 
 	for _, agent := range svc.store.List() {
 		log.Info("Registered agent",
 			"id", agent.ID,
 			"name", agent.Name,
-			"capabilities", agent.Capabilities)
+			"description", agent.Description)
 	}
 
 	// Start separate plain HTTP health server for Kubernetes probes
@@ -364,7 +403,7 @@ func (s *AgentService) handleDelegatedAccess(w http.ResponseWriter, r *http.Requ
 	s.log.Section("DELEGATED AGENT ACCESS")
 	s.log.Info("Agent accepting delegation",
 		"agent", agent.Name,
-		"agent_capabilities", agent.Capabilities)
+		"description", agent.Description)
 	s.log.SVID(req.UserSPIFFEID, "Delegation from user")
 	s.log.SVID(agent.SPIFFEID, "Agent SVID for request")
 
@@ -497,6 +536,7 @@ func (s *AgentService) accessDocumentDelegated(ctx context.Context, agent *store
 type InvokeRequest struct {
 	UserSPIFFEID    string   `json:"user_spiffe_id"`
 	DocumentID      string   `json:"document_id"`
+	Action          string   `json:"action,omitempty"` // "summarize", "review", etc.
 	UserDepartments []string `json:"user_departments,omitempty"`
 	ReviewType      string   `json:"review_type,omitempty"`
 }
@@ -576,10 +616,31 @@ func (s *AgentService) handleInvoke(w http.ResponseWriter, r *http.Request, agen
 	// Authorization passed - invoke the A2A agent
 	s.log.Success("Authorization granted, forwarding to A2A agent")
 
+	// Extract s3_url from document metadata if available
+	var s3URL string
+	if doc, ok := accessResult.Document.(map[string]any); ok {
+		if u, ok := doc["s3_url"].(string); ok {
+			s3URL = u
+		}
+	}
+
+	// Build A2A message text
+	action := req.Action
+	if action == "" {
+		action = "summarize" // default action
+	}
+	messageText := ""
+	if s3URL != "" {
+		messageText = fmt.Sprintf("%s %s", capitalize(action), s3URL)
+	} else {
+		messageText = fmt.Sprintf("%s document %s", capitalize(action), req.DocumentID)
+	}
+
 	invokeResult, err := s.a2aClient.Invoke(ctx, &a2abridge.InvokeRequest{
 		AgentURL:      agent.A2AURL,
 		Card:          agent.AgentCard,
 		DocumentID:    req.DocumentID,
+		MessageText:   messageText,
 		ReviewType:    req.ReviewType,
 		BearerToken:   bearerToken,
 		UserSPIFFEID:  req.UserSPIFFEID,
@@ -642,20 +703,28 @@ func (s *AgentService) discoverAgents(ctx context.Context, discovery *a2abridge.
 
 	for _, discovered := range agents {
 		foundIDs[discovered.ID] = true
+
+		// OPA policies expect SPIFFE IDs in the form spiffe://{domain}/agent/{name}.
+		// If the AgentCard binding provides a different format (e.g., /sa/{name}-sa)
+		// or no SPIFFE ID at all, construct one that OPA can parse.
+		spiffeID := discovered.SPIFFEID
+		if spiffeID == "" || !strings.Contains(spiffeID, "/agent/") {
+			spiffeID = "spiffe://" + s.trustDomain + "/agent/" + discovered.ID
+		}
+
 		s.store.Register(&store.Agent{
-			ID:           discovered.ID,
-			Name:         discovered.Name,
-			Capabilities: discovered.Capabilities,
-			SPIFFEID:     discovered.SPIFFEID,
-			Description:  discovered.Description,
-			Source:       store.SourceDiscovered,
-			A2AURL:       discovered.A2AURL,
-			AgentCard:    discovered.Card,
+			ID:          discovered.ID,
+			Name:        discovered.Name,
+			SPIFFEID:    spiffeID,
+			Description: discovered.Description,
+			Source:      store.SourceDiscovered,
+			A2AURL:      discovered.A2AURL,
+			Version:     discovered.Version,
 		})
 		s.log.Info("Registered discovered agent",
 			"id", discovered.ID,
 			"name", discovered.Name,
-			"capabilities", discovered.Capabilities,
+			"description", discovered.Description,
 			"a2a_url", discovered.A2AURL)
 	}
 
