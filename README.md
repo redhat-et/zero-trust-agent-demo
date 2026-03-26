@@ -5,6 +5,7 @@ An educational demonstration of **Zero Trust security principles** for AI agent 
 ## Overview
 
 This demo showcases a document management system where:
+
 - **Users** have department-based access rights (Engineering, Finance, Admin, HR)
 - **AI Agents** have capability-based restrictions
 - **Delegation** requires permission intersection (user AND agent must both have access)
@@ -15,27 +16,25 @@ This demo showcases a document management system where:
 ```text
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
 │  Web Dashboard  │────▶│  User Service   │────▶│  Agent Service  │
-│     :8080       │     │     :8080       │     │     :8080       │
+│                 │     │                 │     │  (gateway)      │
 └─────────────────┘     └─────────────────┘     └────────┬────────┘
                                                          │
-                        ┌─────────────────┐              │
-                        │  OPA Service    │◀─────────────┤
-                        │     :8080       │              │
-                        └────────┬────────┘              │
-                                 │                       │
-                        ┌────────▼────────┐              │
-                        │ Document Service│◀─────────────┘
-                        │     :8080       │
-                        └─────────────────┘
+                        ┌─────────────────┐     ┌────────▼────────┐
+                        │   OPA Service   │◀────│Document Service │
+                        └─────────────────┘     └─────────────────┘
+
+Agent Service discovers A2A agents from Kagenti AgentCard CRs
+and proxies invocations after OPA authorization:
 
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  Agent (JWT)    │────▶│  Credential     │────▶│  AWS STS        │
-│                 │     │  Gateway :8080  │     │  (AssumeRole)   │
-└─────────────────┘     └────────┬────────┘     └────────┬────────┘
-                                 │                       │
-                        ┌────────▼────────┐     ┌────────▼────────┐
-                        │  OPA Service    │     │  S3 (scoped)    │
-                        └─────────────────┘     └─────────────────┘
+│  Agent Service  │────▶│  Credential     │────▶│  AWS STS        │
+│  (invoke)       │     │  Gateway        │     │  (AssumeRole)   │
+└────────┬────────┘     └────────┬────────┘     └────────┬────────┘
+         │                       │                       │
+         ▼                ┌──────▼────────┐     ┌────────▼────────┐
+   A2A Agents             │  OPA Service  │     │  S3 (scoped)    │
+   (summarizer-*,         └───────────────┘     └─────────────────┘
+    reviewer-*)
 ```
 
 ## Quick Start
@@ -70,7 +69,7 @@ kubectl -n spiffe-demo wait --for=condition=ready pod --all --timeout=120s
 open http://localhost:8080
 ```
 
-See [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) for all deployment options including local development.
+See [docs/DEMO_SCENARIOS.md](docs/DEMO_SCENARIOS.md) for detailed scenarios and permission matrices.
 
 ## Demo Scenarios
 
@@ -82,20 +81,29 @@ See [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md) for all deployment options includin
 | Bob   | Finance, Admin       | `spiffe://demo.example.com/user/bob`   |
 | Carol | HR                   | `spiffe://demo.example.com/user/carol` |
 
-### Agents
+### Agents (dynamically discovered)
 
-| Agent      | Capabilities         | SPIFFE ID                                    |
-| ---------- | -------------------- | -------------------------------------------- |
-| GPT-4      | Engineering, Finance | `spiffe://demo.example.com/agent/gpt4`       |
-| Claude     | All departments      | `spiffe://demo.example.com/agent/claude`     |
-| Summarizer | Finance only         | `spiffe://demo.example.com/agent/summarizer` |
+Agents are discovered from Kagenti AgentCard CRs. Same agent image
+can be deployed multiple times with different names and OPA scopes.
+Naming scheme: `{function}-{scope}`.
+
+| Agent            | Scope                | Description                   |
+| ---------------- | -------------------- | ----------------------------- |
+| summarizer-hr    | hr                   | HR document summarizer        |
+| summarizer-tech  | finance, engineering | Technical document summarizer |
+| reviewer-ops     | engineering, admin   | Operations document reviewer  |
+| reviewer-general | all                  | General document reviewer     |
+
+See `docs/deployment/AGENT_DEPLOYER_GUIDE.md` for the full agent
+deployment workflow.
 
 ### Key Scenarios
 
 1. **Direct User Access**: Alice accesses Engineering Roadmap → ✅ ALLOWED
-2. **Agent Without Delegation**: GPT-4 accesses Finance Report → ❌ DENIED (no user context)
-3. **Delegated Access**: Alice delegates to GPT-4 for Engineering doc → ✅ ALLOWED
-4. **Permission Reduction**: Bob (Admin) delegates to Summarizer (Finance only) for Admin doc → ❌ DENIED
+2. **Agent Without Delegation**: reviewer-general accesses Finance Report → ❌ DENIED (no user context)
+3. **Delegated Access**: Alice delegates to summarizer-tech for Engineering doc → ✅ ALLOWED
+4. **Permission Reduction**: Alice delegates to summarizer-hr for Engineering doc → ❌ DENIED (summarizer-hr lacks engineering)
+5. **Cross-scope**: Carol delegates to summarizer-hr for HR doc → ✅ ALLOWED (both have hr)
 
 ### Credential Gateway (AWS S3)
 
@@ -106,12 +114,12 @@ It translates JWT delegation claims into scoped AWS STS credentials:
 Effective S3 Access = User Departments ∩ Agent Capabilities → STS Session Policy
 ```
 
-| Scenario             | Intersection           | S3 Prefixes Accessible   |
-| -------------------- | ---------------------- | ------------------------ |
-| Alice + Summarizer   | {finance}              | `finance/*`              |
-| Alice + Claude       | {engineering, finance} | `engineering/*, finance/*` |
-| Carol + Summarizer   | {} (empty)             | None (403 Denied)        |
-| Bob + GPT-4          | {finance}              | `finance/*`              |
+| Scenario                | Intersection           | S3 Prefixes Accessible     |
+| ----------------------- | ---------------------- | -------------------------- |
+| Alice + summarizer-tech | {engineering, finance} | `engineering/*, finance/*` |
+| Alice + summarizer-hr   | {} (empty)             | None (403 Denied)          |
+| Carol + summarizer-hr   | {hr}                   | `hr/*`                     |
+| Bob + reviewer-ops      | {admin}                | `admin/*`                  |
 
 Run the interactive demo:
 
@@ -138,7 +146,8 @@ See [docs/README.md](docs/README.md) for the full documentation index.
 
 | Document                                 | Description                                            |
 | ---------------------------------------- | ------------------------------------------------------ |
-| [Demo Guide](docs/DEMO_GUIDE.md)         | Step-by-step instructions for running the demo         |
+| [Demo Scenarios](docs/DEMO_SCENARIOS.md)  | Permission matrices and walkthrough scenarios          |
+| [Policy Reference](docs/POLICY_REFERENCE.md) | OPA policy design, modules, and examples          |
 | [Learning Guide](docs/LEARNING_GUIDE.md) | Deep dive into Zero Trust, SPIFFE/SPIRE, mTLS, and OPA |
 | [API Testing](docs/API_TESTING.md)       | API endpoints and curl commands for testing            |
 | [Architecture](docs/ARCHITECTURE.md)     | System design and component overview                   |
@@ -214,9 +223,13 @@ zero-trust-agent-demo/
 ├── opa-service/           # Policy evaluation service
 ├── document-service/      # Protected resource server
 ├── user-service/          # User workload simulation
-├── agent-service/         # AI agent workload simulation
+├── agent-service/         # Agent gateway: discovery + A2A invoke
 ├── web-dashboard/         # Interactive demo UI
 ├── credential-gateway/    # JWT → scoped AWS credentials
+├── summarizer-service/    # Go A2A summarizer agent
+├── reviewer-service/      # Go A2A reviewer agent
+├── kagenti-summarizer/    # Python A2A summarizer agent
+├── kagenti-reviewer/      # Python A2A reviewer agent
 ├── sample-documents/      # Markdown docs with YAML front matter
 ├── deploy/                # Deployment configurations
 │   ├── kind/             # Kind cluster config
@@ -237,12 +250,14 @@ zero-trust-agent-demo/
 
 ## Technology Stack
 
-- **Language**: Go 1.25
+- **Languages**: Go 1.25 (infrastructure services), Python 3.12 (A2A agents)
 - **CLI/Config**: Cobra + Viper
 - **Logging**: `log/slog` with colored output
 - **Policy Engine**: Open Policy Agent (OPA) with Rego
 - **Identity**: SPIFFE/SPIRE (mock mode for local dev)
-- **Deployment**: Kind (Kubernetes in Docker)
+- **Agent Protocol**: A2A (Google a2a-python SDK)
+- **Agent Lifecycle**: Kagenti operator (AgentCard discovery, SPIFFE binding)
+- **Deployment**: Kind (local), OpenShift (production)
 - **CI/CD**: GitHub Actions with multi-arch builds (amd64/arm64)
 - **Styling**: Red Hat Design System
 
