@@ -20,8 +20,8 @@ The demo uses three main policy modules that work together to implement permissi
 | Module | File | Purpose |
 | ------ | ---- | ------- |
 | User Permissions | `policies/user_permissions.rego` | Maps users to department memberships |
-| Agent Capabilities | `policies/agent_capabilities.rego` | Defines agent capability restrictions |
-| Document Access | `policies/document_access.rego` | Main authorization logic with permission intersection |
+| Agent Permissions | `policies/agent_permissions.rego` | Defines agent capability restrictions |
+| Delegation | `policies/delegation.rego` | Main authorization logic with permission intersection |
 
 ### Core Principle: Permission Intersection
 
@@ -108,7 +108,7 @@ See `opa-service/policies/user_permissions.rego` for the complete implementation
 
 ### Module 2: Agent Capabilities
 
-**File**: `opa-service/policies/agent_capabilities.rego`
+**File**: `opa-service/policies/agent_permissions.rego`
 
 Defines which document types/departments each AI agent can access. These represent the MAXIMUM capabilities of the agent — actual access is further restricted by user permissions via intersection.
 
@@ -129,13 +129,13 @@ agent_capabilities := {
 - `has_capability(agent_name, department)` - Check if agent has a specific capability
 - `get_capabilities(agent_name)` - Retrieve all capabilities for an agent
 
-See `opa-service/policies/agent_capabilities.rego` for the complete implementation.
+See `opa-service/policies/agent_permissions.rego` for the complete implementation.
 
 ---
 
 ### Module 3: Document Access (Main Authorization Logic)
 
-**File**: `opa-service/policies/document_access.rego`
+**File**: `opa-service/policies/delegation.rego`
 
 Implements the core authorization logic that evaluates access requests and computes permission intersection for delegated access.
 
@@ -168,7 +168,7 @@ allow {
 }
 ```
 
-See `opa-service/policies/document_access.rego` for the complete implementation.
+See `opa-service/policies/delegation.rego` for the complete implementation.
 
 ---
 
@@ -347,7 +347,7 @@ See `opa-service/policies/document_access.rego` for the complete implementation.
 
 The demo includes OPA policy tests to verify correct behavior.
 
-**File**: `opa-service/policies/document_access_test.rego`
+**File**: `opa-service/policies/delegation_test.rego`
 
 **Test categories**:
 
@@ -385,7 +385,7 @@ test_delegation_agent_lacks_capability {
 }
 ```
 
-See `opa-service/policies/document_access_test.rego` for the complete test suite.
+See `opa-service/policies/delegation_test.rego` for the complete test suite.
 
 ---
 
@@ -396,9 +396,9 @@ The actual policy files are the source of truth. This document provides an overv
 | File | Location | Description |
 | ---- | -------- | ----------- |
 | User Permissions | `opa-service/policies/user_permissions.rego` | User-to-department mappings |
-| Agent Capabilities | `opa-service/policies/agent_capabilities.rego` | Agent capability restrictions |
-| Document Access | `opa-service/policies/document_access.rego` | Main authorization logic |
-| Policy Tests | `opa-service/policies/document_access_test.rego` | OPA policy test suite |
+| Agent Capabilities | `opa-service/policies/agent_permissions.rego` | Agent capability restrictions |
+| Document Access | `opa-service/policies/delegation.rego` | Main authorization logic |
+| Policy Tests | `opa-service/policies/delegation_test.rego` | OPA policy test suite |
 | ConfigMap | `deploy/k8s/base/opa-policies-configmap.yaml` | Kubernetes deployment of policies |
 
 ### Policy Deployment
