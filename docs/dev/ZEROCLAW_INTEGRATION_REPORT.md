@@ -552,6 +552,73 @@ reference implementation and potential collaboration partner, but
 building on our existing A2A agents avoids the sidecar complexity
 and Rust dependency while achieving the same goal.
 
+## ClawHub skill compatibility validator
+
+Not all ClawHub skills will run in a headless Kubernetes pod. A
+validator tool can assess compatibility before deployment, catching
+issues early rather than at runtime.
+
+### Two-level analysis
+
+**Static analysis (deterministic, no LLM cost):**
+
+| Check | What it catches |
+| ----- | --------------- |
+| `requires.os` includes `linux` | macOS/Windows-only skills |
+| `requires.bins` available in container | Missing CLI dependencies |
+| Tool references in markdown body | Desktop-only tools (`browser`, `pty`, `applescript`) |
+| File path patterns | Host-specific paths (`~/`, `~/.openclaw/`) |
+| Network assumptions | Skills expecting `localhost` services |
+
+**Semantic analysis (LLM-based, for subtle cases):**
+
+| Check | What it catches |
+| ----- | --------------- |
+| Interactive input assumptions | Skills expecting mid-execution user prompts |
+| GUI output expectations | Screenshots, browser rendering, desktop notifications |
+| Persistent filesystem state | Skills assuming state across sessions |
+| Shell command feasibility | Commands that won't work in a minimal container |
+
+The static checks catch ~80% of incompatibilities. The LLM-based
+checks handle the rest.
+
+### Implementation options
+
+1. **CLI tool (Go)** — pulls a skill from ClawHub, parses frontmatter,
+   scans markdown for known patterns, outputs a compatibility report.
+   Suitable for CI/CD pipelines as an automated gate before deploying
+   a skill to OpenShift.
+
+2. **Claude Code skill** — interactive analysis where you provide a
+   ClawHub skill URL, it fetches the SKILL.md, runs static checks,
+   then uses LLM judgment for semantic analysis. Quick to build,
+   useful for exploration.
+
+3. **Both** — CLI for automation, Claude skill for interactive use.
+
+### Output format
+
+The validator would produce a structured report:
+
+```text
+Skill: clawhub.ai/skills/jira-ticket-creator
+Compatibility: COMPATIBLE (with notes)
+
+Static checks:
+  ✓ OS: linux supported
+  ✓ Required bins: curl, jq (available in base image)
+  ✓ No desktop-only tools referenced
+  ✗ References ~/.openclaw/config — needs ConfigMap mapping
+
+Semantic checks:
+  ✓ No interactive input required
+  ✓ No GUI output expected
+  ⚠ Assumes access to Jira API — needs NetworkPolicy allowlist
+
+Recommendation: Deploy with ConfigMap for config path override.
+Add Jira API host to NetworkPolicy egress rules.
+```
+
 ## Upstream collaboration opportunities
 
 The ZeroClaw team at Harvard/MIT may be receptive to contributions
@@ -602,7 +669,9 @@ This project shows how these pieces compose.
    reviewer-ops) from the single image to validate the pattern
 5. Pull a simple ClawHub skill and test it in the Kubernetes
    environment
-6. Reach out to ZeroClaw team at Harvard/MIT about collaboration
+6. Build a ClawHub skill compatibility validator (CLI + Claude Code
+   skill) to assess OpenShift readiness before deployment
+7. Reach out to ZeroClaw team at Harvard/MIT about collaboration
    (A2A protocol, Kubernetes health endpoints)
-7. Draft a blog post or conference talk: "From personal agents to
+8. Draft a blog post or conference talk: "From personal agents to
    governed fleets"
