@@ -79,17 +79,20 @@ impractical at scale:
 
 ## Lightweight alternatives evaluated
 
-### PicoClaw
+### PicoClaw (best reference for Go patterns)
 
-- **Language:** Go
+- **Language:** Go (go 1.25.8)
 - **Origin:** Sipeed (electronics manufacturer, China)
-- **Size:** <10MB RAM, single binary
+- **Size:** <10MB RAM, single binary, sub-second startup
 - **License:** MIT
+- **Stars:** 26K+ GitHub stars
 - **Status:** Pre-v1.0, rapid development
-- **Notes:** Designed for edge/IoT ($10 hardware). 12K GitHub stars.
-  Go-based, which aligns with our team's primary language. However,
-  the organizational relationship is less favorable for Red Hat
-  collaboration.
+- **Dependencies:** ~40 direct, ~60 indirect Go modules
+- **Notes:** Well-structured Go codebase with clean, extractable
+  patterns. The tool-use loop, tool interface, and hook system are
+  directly applicable to our Go agents. Not recommended as a
+  dependency (too many channel libraries, no A2A), but excellent as a
+  reference implementation. See detailed analysis below.
 
 ### OpenFang
 
@@ -257,6 +260,115 @@ The entire zero-trust infrastructure is unchanged:
 
 ZeroClaw replaces only the innermost component — the agent runtime
 that receives work and produces results.
+
+## PicoClaw architecture analysis
+
+PicoClaw follows standard Go layout with a large `pkg/` tree
+containing modular, well-separated packages. Despite being designed
+for edge/IoT devices, the code quality and patterns are
+production-grade.
+
+### Agentic tool-use loop
+
+The core loop (`pkg/tools/toolloop.go`, ~100 lines) implements the
+standard agentic pattern:
+
+1. Construct tool definitions from registry
+2. Call LLM with messages + tool definitions
+3. If LLM returns tool calls → execute all tools **in parallel** →
+   append results → loop back to step 3
+4. If no tool calls (or max iterations hit) → return final response
+
+The full agent loop (`pkg/agent/loop.go`) adds steering (mid-turn
+message injection), context budget management, model routing (switch
+between heavy/light models based on complexity), and SubTurn spawning
+(hierarchical agent delegation with configurable depth).
+
+### Tool interface
+
+Clean Go interface suitable for direct adoption:
+
+```go
+type Tool interface {
+    Name() string
+    Description() string
+    Parameters() map[string]any  // OpenAPI-style JSON Schema
+    Execute(ctx context.Context, args map[string]any) *ToolResult
+}
+```
+
+The `ToolRegistry` is thread-safe with two tiers:
+
+- **Core tools** — always visible to the LLM
+- **Hidden tools** — promoted with a TTL (time-to-live in iterations),
+  implementing dynamic tool discovery. The LLM can search for tools,
+  which promotes them temporarily.
+
+Built-in tools include `exec` (shell), `read_file`, `write_file`,
+`edit_file`, `web_fetch`, `web_search`, `cron`, `spawn` (subagent),
+and hardware I/O (`i2c`, `spi`).
+
+### Hook system
+
+Before/after hooks on LLM calls and tool execution with four actions:
+approve, deny, modify, abort. This maps directly to OPA integration:
+a `ToolApprover` hook could check permission intersection *before each
+tool execution* in the agentic loop, bringing zero-trust enforcement
+inside the agent rather than only at the API gateway.
+
+### Shell execution security
+
+35+ production-tested deny patterns blocking dangerous commands:
+`rm -rf`, `sudo`, `dd`, `docker run`, `git push`, `ssh`, `eval`, fork
+bombs, etc. Workspace sandboxing with symlink resolution and path
+traversal prevention. Configurable allow/deny lists per deployment.
+
+### Memory
+
+Two layers:
+
+- **Session memory** — JSONL append-only files with sharded mutexes
+  (64 shards). Crash-safe by design — partial writes lose at most one
+  message, never corrupt existing data. Uses skip offsets for O(1)
+  truncation.
+- **Agent memory** — `MEMORY.md` for long-term facts,
+  `memory/YYYYMM/YYYYMMDD.md` for daily notes. Combined and injected
+  into system prompt each session.
+
+### What PicoClaw lacks
+
+Same gaps as ZeroClaw:
+
+- No A2A protocol (multi-agent is internal SubTurns only)
+- No SPIFFE/workload identity
+- No OPA integration
+- No AgentCard discovery
+- 17+ channel adapters designed for personal chatbot use, not
+  headless K8s agents
+
+### Extractable patterns for our Go agents
+
+PicoClaw's value is as a **reference implementation**, not a
+dependency. The most valuable patterns to study and adapt:
+
+| Package | Est. lines | What we'd use it for |
+| ------- | ---------- | -------------------- |
+| `pkg/tools/toolloop.go` | ~100 | Agentic loop for Go agents |
+| `pkg/tools/base.go` | ~50 | Tool interface definition |
+| `pkg/tools/registry.go` | ~150 | Tool registration and discovery |
+| `pkg/agent/hooks.go` | ~100 | OPA tool approval hooks |
+| `pkg/tools/shell.go` (deny patterns) | ~50 | Security hardening for exec tool |
+| `pkg/memory/jsonl.go` | ~200 | Lightweight session persistence |
+| **Total reference code** | **~650** | Core agentic capabilities |
+
+Why extract patterns rather than adopt PicoClaw:
+
+1. PicoClaw is a personal assistant, not a headless K8s agent
+2. Same sidecar problem as ZeroClaw (no A2A, no SPIFFE, no Kagenti)
+3. 40+ Go dependencies including channel libraries we don't need
+4. The valuable parts are small enough to reimplement (~650 lines)
+5. Our agents already have the infrastructure integration PicoClaw
+   lacks
 
 ## One image, many agents: the ConfigMap pattern
 
@@ -430,18 +542,22 @@ lacks:
 | Agentic tool-use loop         | No                       | Yes      |
 | Skill loading (SKILL.md)      | No                       | Yes      |
 
-What we would need to add:
+What we would need to add (using PicoClaw as reference):
 
-1. **Agentic tool-use loop** — call LLM with tool-use enabled,
-   execute tool calls, feed results back, repeat. The Anthropic and
-   OpenAI APIs have native tool-use support. Estimated ~300-400 lines
-   of Go.
-2. **Tool execution framework** — start with `exec` (run shell
-   commands in container) and `web_fetch`. Estimated ~200 lines of Go.
-3. **Skill loading** — parse `SKILL.md` from ConfigMap (YAML
-   frontmatter + markdown). Trivial in Go.
+1. **Agentic tool-use loop** — adapt PicoClaw's `RunToolLoop` pattern
+   (call LLM with tool-use enabled, execute tool calls in parallel,
+   feed results back, repeat). Estimated ~100-150 lines of Go.
+2. **Tool interface and registry** — adapt PicoClaw's `Tool` interface
+   and thread-safe registry. Estimated ~200 lines of Go.
+3. **Tool implementations** — `exec` (with PicoClaw's deny patterns)
+   and `web_fetch`. Estimated ~200 lines of Go.
+4. **Hook system for OPA** — adapt PicoClaw's before/after hooks to
+   wire OPA policy checks as a `ToolApprover`. Estimated ~100 lines.
+5. **Skill loading** — parse `SKILL.md` from ConfigMap (YAML
+   frontmatter + markdown). Estimated ~50 lines of Go.
 
-Total estimated effort: ~500-800 lines of Go on top of existing agents.
+Total estimated effort: ~650-700 lines of Go on top of existing
+agents, closely following PicoClaw's proven patterns.
 
 ### Advantages over ZeroClaw integration
 
@@ -451,6 +567,8 @@ Total estimated effort: ~500-800 lines of Go on top of existing agents.
 - **Full control** — no upstream dependency on a pre-v1.0 project
 - **Smaller footprint** — a Go binary with just the agent loop will be
   comparable to ZeroClaw's 5MB
+- **Proven patterns** — PicoClaw's tool loop, registry, and hooks are
+  production-tested reference code in Go, derrisking implementation
 - **"OpenClaw compatible" claim** — if we can load and execute
   `SKILL.md` skills, we can credibly claim compatibility with the
   ClawHub ecosystem
