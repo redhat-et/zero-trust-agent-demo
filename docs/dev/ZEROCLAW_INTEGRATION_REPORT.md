@@ -1,7 +1,7 @@
 # ZeroClaw integration report
 
-**Date:** 2026-04-06
-**Author:** Pavel Anni
+**Date:** 2026-04-06</br>
+**Author:** Pavel Anni</br>
 **Status:** Draft for team discussion
 
 ## Context
@@ -25,15 +25,15 @@ deployment:
 
 ### Security concerns (documented by industry)
 
-| Source | Finding |
-| ------ | ------- |
-| Cisco | Third-party skills performing data exfiltration without user awareness |
-| CrowdStrike | Published detailed risk analysis of OpenClaw as "AI super agent" |
-| Microsoft | Recommended treating OpenClaw as "untrusted code execution with persistent credentials" |
-| Bitsight/SecurityScorecard | 135,000+ instances exposed on public internet, 15,000+ vulnerable to RCE |
-| Koi Security | 820+ malicious skills found on ClawHub marketplace |
-| Gartner | "Agentic Productivity Comes With Unacceptable Cybersecurity Risk" |
-| China (state policy) | Restricted OpenClaw use for state agencies and SOEs |
+| Source                     | Finding                                                                                 |
+| -------------------------- | --------------------------------------------------------------------------------------- |
+| Cisco                      | Third-party skills performing data exfiltration without user awareness                  |
+| CrowdStrike                | Published detailed risk analysis of OpenClaw as "AI super agent"                        |
+| Microsoft                  | Recommended treating OpenClaw as "untrusted code execution with persistent credentials" |
+| Bitsight/SecurityScorecard | 135,000+ instances exposed on public internet, 15,000+ vulnerable to RCE                |
+| Koi Security               | 820+ malicious skills found on ClawHub marketplace                                      |
+| Gartner                    | "Agentic Productivity Comes With Unacceptable Cybersecurity Risk"                       |
+| China (state policy)       | Restricted OpenClaw use for state agencies and SOEs                                     |
 
 Key CVEs: CVE-2026-25253 (CVSS 8.8, gateway compromise),
 CVE-2026-24763 and CVE-2026-25157 (command injection).
@@ -53,13 +53,13 @@ shadow IT on steroids.
 
 Our zero-trust demo solves exactly the problems OpenClaw exposes:
 
-| OpenClaw problem | Our approach |
-| ---------------- | ------------ |
-| One agent has access to everything | Permission intersection limits each agent's scope |
-| No delegation chain — single identity | Nested `act` claims trace every hop |
-| Skills run with full user privileges | Agents are auth-unaware; OPA enforces least privilege |
-| No audit trail for agent actions | Every delegation is traceable through JWTs |
-| Shadow AI with elevated privileges | Agents deployed and authorized by the platform |
+| OpenClaw problem                      | Our approach                                          |
+| ------------------------------------- | ----------------------------------------------------- |
+| One agent has access to everything    | Permission intersection limits each agent's scope     |
+| No delegation chain — single identity | Nested `act` claims trace every hop                   |
+| Skills run with full user privileges  | Agents are auth-unaware; OPA enforces least privilege |
+| No audit trail for agent actions      | Every delegation is traceable through JWTs            |
+| Shadow AI with elevated privileges    | Agents deployed and authorized by the platform        |
 
 **Positioning:** We are not anti-OpenClaw. OpenClaw proved that
 autonomous AI agents are useful. The enterprise question is: how do you
@@ -70,12 +70,12 @@ deploy and govern hundreds of them? Our project demonstrates the answer.
 Running OpenClaw instances as individually scoped agents is
 impractical at scale:
 
-| Runtime | RAM per instance | 100 agents | 200 agents |
-| ------- | ---------------- | ---------- | ---------- |
-| OpenClaw | ~1GB+ | 100-200GB | 200-400GB |
-| OpenFang (Rust) | ~40MB | 4GB | 8GB |
-| PicoClaw (Go) | <10MB | 1GB | 2GB |
-| ZeroClaw (Rust) | <5MB | 500MB | 1GB |
+| Runtime         | RAM per instance | 100 agents | 200 agents |
+| --------------- | ---------------- | ---------- | ---------- |
+| OpenClaw        | ~1GB+            | 100-200GB  | 200-400GB  |
+| OpenFang (Rust) | ~40MB            | 4GB        | 8GB        |
+| PicoClaw (Go)   | <10MB            | 1GB        | 2GB        |
+| ZeroClaw (Rust) | <5MB             | 500MB      | 1GB        |
 
 ## Lightweight alternatives evaluated
 
@@ -94,7 +94,7 @@ impractical at scale:
 ### OpenFang
 
 - **Language:** Rust (137K LOC, 14 crates)
-- **Origin:** RightNow AI (Saudi Arabia)
+- **Origin:** RightNow (Jordan)
 - **Size:** ~40MB idle, 32MB binary
 - **License:** Open source
 - **Status:** Targeting v1.0 mid-2026
@@ -133,12 +133,12 @@ impractical at scale:
 
 ZeroClaw is a monolithic Rust binary with a Cargo workspace:
 
-| Member | Purpose |
-| ------ | ------- |
-| Root binary (`zeroclawlabs`) | Main executable, all agent logic |
-| `crates/robot-kit` | Hardware robotics toolkit (not relevant) |
-| `crates/aardvark-sys` | Hardware peripheral bindings (not relevant) |
-| `apps/tauri` | Desktop app wrapper (not relevant) |
+| Member                       | Purpose                                     |
+| ---------------------------- | ------------------------------------------- |
+| Root binary (`zeroclawlabs`) | Main executable, all agent logic            |
+| `crates/robot-kit`           | Hardware robotics toolkit (not relevant)    |
+| `crates/aardvark-sys`        | Hardware peripheral bindings (not relevant) |
+| `apps/tauri`                 | Desktop app wrapper (not relevant)          |
 
 Core functionality lives in `src/` as 38 modules: `agent`, `gateway`,
 `channels`, `tools`, `skills`, `hands`, `providers`, `memory`,
@@ -294,12 +294,12 @@ ConfigMap: agent-card
 
 Different Deployments, same image:
 
-| Deployment | system-prompt.txt | agent-card.json | OPA scope |
-| ---------- | ----------------- | --------------- | --------- |
-| summarizer-hr | "Summarize documents..." | `{name: "summarizer-hr", ...}` | `["hr"]` |
-| summarizer-tech | "Summarize documents..." | `{name: "summarizer-tech", ...}` | `["finance", "engineering"]` |
-| reviewer-ops | "Review documents for..." | `{name: "reviewer-ops", ...}` | `["engineering", "admin"]` |
-| reviewer-general | "Review for compliance..." | `{name: "reviewer-general", ...}` | `["all"]` |
+| Deployment       | system-prompt.txt          | agent-card.json                   | OPA scope                    |
+| ---------------- | -------------------------- | --------------------------------- | ---------------------------- |
+| summarizer-hr    | "Summarize documents..."   | `{name: "summarizer-hr", ...}`    | `["hr"]`                     |
+| summarizer-tech  | "Summarize documents..."   | `{name: "summarizer-tech", ...}`  | `["finance", "engineering"]` |
+| reviewer-ops     | "Review documents for..."  | `{name: "reviewer-ops", ...}`     | `["engineering", "admin"]`   |
+| reviewer-general | "Review for compliance..." | `{name: "reviewer-general", ...}` | `["all"]`                    |
 
 For agents with multiple prompt variants (like the reviewer's
 general/compliance/security modes), a `prompts.json` ConfigMap entry
@@ -330,14 +330,14 @@ This is **the dominant emerging pattern** for multi-agent Kubernetes
 deployment. Research across the industry (2025-2026) identifies six
 main patterns:
 
-| Pattern | Description | Relevance |
-| ------- | ----------- | --------- |
-| One image + config | Same image, different ConfigMaps/env vars per Deployment | **Our next step** |
-| CRD-managed agents | Agents declared as CRDs, operator handles lifecycle | **Already using** (Kagenti) |
-| Agent Sandbox (K8s SIG) | `Sandbox`/`SandboxTemplate` CRDs for untrusted code execution | Less relevant (our agents don't run arbitrary code) |
-| Virtual actors (Dapr) | Thousands of agents per process via actor model | Alternative density model, weaker isolation |
-| Gateway/proxy (agentgateway) | Rust-based proxy for A2A/MCP/LLM traffic (Linux Foundation) | **Worth watching** (Red Hat is a contributor) |
-| Framework-specific | CrewAI/LangGraph as standard K8s Deployments | Reference implementations |
+| Pattern                      | Description                                                   | Relevance                                           |
+| ---------------------------- | ------------------------------------------------------------- | --------------------------------------------------- |
+| One image + config           | Same image, different ConfigMaps/env vars per Deployment      | **Our next step**                                   |
+| CRD-managed agents           | Agents declared as CRDs, operator handles lifecycle           | **Already using** (Kagenti)                         |
+| Agent Sandbox (K8s SIG)      | `Sandbox`/`SandboxTemplate` CRDs for untrusted code execution | Less relevant (our agents don't run arbitrary code) |
+| Virtual actors (Dapr)        | Thousands of agents per process via actor model               | Alternative density model, weaker isolation         |
+| Gateway/proxy (agentgateway) | Rust-based proxy for A2A/MCP/LLM traffic (Linux Foundation)   | **Worth watching** (Red Hat is a contributor)       |
+| Framework-specific           | CrewAI/LangGraph as standard K8s Deployments                  | Reference implementations                           |
 
 Key projects in this space:
 
@@ -420,15 +420,15 @@ a third option emerges as the strongest path.
 Our current Python agents already have the hard parts that ZeroClaw
 lacks:
 
-| Capability | Our agents | ZeroClaw |
-| ---------- | ---------- | -------- |
-| A2A protocol | Yes | No |
-| AgentCard discovery (Kagenti) | Yes | No |
-| SPIFFE identity | Yes (via infrastructure) | No |
-| OPA policy integration | Yes (via infrastructure) | No |
-| LLM client | Yes | Yes |
-| Agentic tool-use loop | No | Yes |
-| Skill loading (SKILL.md) | No | Yes |
+| Capability                    | Our agents               | ZeroClaw |
+| ----------------------------- | ------------------------ | -------- |
+| A2A protocol                  | Yes                      | No       |
+| AgentCard discovery (Kagenti) | Yes                      | No       |
+| SPIFFE identity               | Yes (via infrastructure) | No       |
+| OPA policy integration        | Yes (via infrastructure) | No       |
+| LLM client                    | Yes                      | Yes      |
+| Agentic tool-use loop         | No                       | Yes      |
+| Skill loading (SKILL.md)      | No                       | Yes      |
 
 What we would need to add:
 
@@ -562,22 +562,22 @@ issues early rather than at runtime.
 
 **Static analysis (deterministic, no LLM cost):**
 
-| Check | What it catches |
-| ----- | --------------- |
-| `requires.os` includes `linux` | macOS/Windows-only skills |
-| `requires.bins` available in container | Missing CLI dependencies |
-| Tool references in markdown body | Desktop-only tools (`browser`, `pty`, `applescript`) |
-| File path patterns | Host-specific paths (`~/`, `~/.openclaw/`) |
-| Network assumptions | Skills expecting `localhost` services |
+| Check                                  | What it catches                                      |
+| -------------------------------------- | ---------------------------------------------------- |
+| `requires.os` includes `linux`         | macOS/Windows-only skills                            |
+| `requires.bins` available in container | Missing CLI dependencies                             |
+| Tool references in markdown body       | Desktop-only tools (`browser`, `pty`, `applescript`) |
+| File path patterns                     | Host-specific paths (`~/`, `~/.openclaw/`)           |
+| Network assumptions                    | Skills expecting `localhost` services                |
 
 **Semantic analysis (LLM-based, for subtle cases):**
 
-| Check | What it catches |
-| ----- | --------------- |
-| Interactive input assumptions | Skills expecting mid-execution user prompts |
-| GUI output expectations | Screenshots, browser rendering, desktop notifications |
-| Persistent filesystem state | Skills assuming state across sessions |
-| Shell command feasibility | Commands that won't work in a minimal container |
+| Check                         | What it catches                                       |
+| ----------------------------- | ----------------------------------------------------- |
+| Interactive input assumptions | Skills expecting mid-execution user prompts           |
+| GUI output expectations       | Screenshots, browser rendering, desktop notifications |
+| Persistent filesystem state   | Skills assuming state across sessions                 |
+| Shell command feasibility     | Commands that won't work in a minimal container       |
 
 The static checks catch ~80% of incompatibilities. The LLM-based
 checks handle the rest.
@@ -637,6 +637,112 @@ that benefit both projects:
 Contributing upstream avoids fork maintenance and gives Red Hat
 visibility in the Claw ecosystem.
 
+## Agent memory systems
+
+### OpenClaw vs ZeroClaw memory
+
+Both are local-first and self-contained, but differ significantly
+in sophistication:
+
+| Aspect | OpenClaw | ZeroClaw |
+| ------ | -------- | -------- |
+| Storage | Markdown files + SQLite index | SQLite only (bundled `rusqlite`) |
+| Search | Hybrid (BM25 + vector similarity) | Keyword (SQLite FTS) |
+| Memory types | Long-term, daily notes, dreams, soul | Store/recall/forget |
+| Human-readable | Yes (Markdown files are source of truth) | No (SQLite rows) |
+| Git-friendly | Yes (text files) | No |
+| Consolidation | "Dream" background process promotes short-term to long-term | None documented |
+| External deps | None required (embeddings optional) | None required |
+
+**OpenClaw** uses a dual-layer approach: `MEMORY.md` for long-term
+facts (loaded every session), `memory/YYYY-MM-DD.md` for daily notes,
+and `DREAMS.md` for experimental background consolidation. These
+Markdown files are indexed into a per-agent SQLite database with
+~400-token chunks. Hybrid search combines BM25 keyword matching with
+vector similarity (auto-detects embedding providers).
+
+**ZeroClaw** stores everything in bundled SQLite with in-memory LRU
+caching. Memory tools support recall, store, forget, knowledge, and
+project intel operations. Search is keyword-based (SQLite FTS) — no
+vector/semantic search. Per-client isolation via ClientId keys.
+
+**Kubernetes problem**: Both use SQLite per agent, which means
+StatefulSet + PVC per agent instance. This doesn't scale well for
+fleets of 100+ agents on OpenShift.
+
+### Dedicated memory solutions for Kubernetes
+
+Several purpose-built memory systems are better suited for
+multi-agent Kubernetes deployment:
+
+**[Letta](https://github.com/letta-ai/letta)** (formerly MemGPT) —
+best OpenShift fit. Uses PostgreSQL + pgvector as backend. Three
+memory types:
+
+- **Core blocks** — working memory pinned to the context window,
+  editable by the agent at runtime
+- **Archival** — long-term vector-indexed storage for facts that
+  don't fit in the context window
+- **Recall** — full conversation history persisted in the database
+
+Server is stateless (Deployment), PG is the only stateful component.
+Works with CrunchyData PostgreSQL Operator on OpenShift. Multi-agent
+support via shared memory blocks — multiple agents can read/write
+the same block. Apache 2.0 license.
+
+**[Mem0](https://github.com/mem0ai/mem0)** — universal memory
+*layer* (library, not framework). Supports 20 vector DB backends
+including PGVector, Qdrant, Milvus, Redis, and Elasticsearch. Three
+scopes: user, session, agent. Optional graph memory for
+entity-relationship tracking. Stateless SDK — you bring your own
+vector store. Most flexible for integrating into existing agents.
+Apache 2.0 license.
+
+**[Graphiti](https://github.com/getzep/graphiti)** (from Zep) —
+temporal knowledge graph. Stores facts as graph edges with
+`valid_at`/`invalid_at` timestamps — old facts are invalidated, not
+deleted. Unique for compliance and audit use cases where you need to
+know what was true at a specific point in time. Requires Neo4j or
+FalkorDB. Heaviest infrastructure footprint but strongest temporal
+reasoning. Apache 2.0 license.
+
+### Comparison for OpenShift deployment
+
+| Solution | Backend | K8s readiness | Multi-agent | Temporal tracking | External deps |
+| -------- | ------- | ------------- | ----------- | ----------------- | ------------- |
+| OpenClaw built-in | Markdown + SQLite | Low (PVC per agent) | Via Honcho backend | Implicit (daily files) | None |
+| ZeroClaw built-in | SQLite | Low (PVC per agent) | Per-client isolation | None | None |
+| Letta | PostgreSQL + pgvector | **High** (operator-managed PG) | Shared memory blocks | Full history in DB | PostgreSQL + LLM |
+| Mem0 | Configurable (20 backends) | Medium (needs vector DB) | Agent-scoped | None | LLM + vector DB |
+| Graphiti | Neo4j / FalkorDB | Medium-High (graph DB) | Shared knowledge graph | **First-class** (valid_at/invalid_at) | Graph DB + LLM + embeddings |
+
+### Relevance to our project
+
+Our current agents (summarizer, reviewer) are **stateless** — they
+receive a document, call an LLM, return a result. No memory is
+needed, and this is an advantage for Kubernetes deployment (pure
+Deployments, no PVCs, no StatefulSets).
+
+If we add agents that need persistent memory (e.g., a research agent
+that builds knowledge over time, or a compliance reviewer that tracks
+findings across documents), the ranking for OpenShift is:
+
+1. **Letta** — PG-backed, operator-managed, stateless server, shared
+   memory blocks map to our permission intersection model
+2. **Mem0 + PGVector** — library approach, reuses existing PG
+   infrastructure on OpenShift
+3. **Graphiti** — if temporal fact tracking is required for
+   compliance/audit scenarios
+4. **OpenClaw Markdown model** — simplest and human-auditable, viable
+   for small-scale deployments via ConfigMap/PVC
+
+Letta's shared memory blocks are particularly interesting: they enable
+multiple scoped agents to share *some* knowledge (e.g., a user's
+preferences or organizational context) while keeping their own working
+memory isolated. This maps naturally to the permission intersection
+model — an agent's memory access could be scoped the same way its
+document access is scoped.
+
 ## Positioning summary
 
 **For teammates:** OpenClaw proved the demand for autonomous AI
@@ -671,7 +777,9 @@ This project shows how these pieces compose.
    environment
 6. Build a ClawHub skill compatibility validator (CLI + Claude Code
    skill) to assess OpenShift readiness before deployment
-7. Reach out to ZeroClaw team at Harvard/MIT about collaboration
+7. Evaluate Letta as the memory backend for stateful agents — test
+   shared memory blocks with permission intersection scoping
+8. Reach out to ZeroClaw team at Harvard/MIT about collaboration
    (A2A protocol, Kubernetes health endpoints)
-8. Draft a blog post or conference talk: "From personal agents to
+9. Draft a blog post or conference talk: "From personal agents to
    governed fleets"
