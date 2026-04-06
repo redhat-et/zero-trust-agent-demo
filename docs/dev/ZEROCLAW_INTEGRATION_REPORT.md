@@ -659,6 +659,84 @@ Same image for all agents. Different ConfigMaps create different
 agent personalities and capabilities. OPA controls what each agent
 can access. Kagenti manages lifecycle and discovery.
 
+## Rethinking "Bring Your Own Agent"
+
+### The shift: agents are prompts, not code
+
+When BYOA was designed, the assumption was that agents are **code** —
+container images that someone builds and deploys. If someone brings a
+container image, you can't modify their code to add SPIFFE or
+delegation, so you put it in sidecars (AuthBridge, Envoy, SPIRE
+init containers). That model made sense.
+
+The Claw ecosystem has shifted what "agent" means. An agent is now a
+**prompt document** (SKILL.md) that runs on a shared runtime. When
+someone "brings their own agent," they bring a text file that says
+"You are a compliance reviewer specializing in GDPR." The runtime is
+ours.
+
+This changes the architecture:
+
+**Old model (agent = code):**
+
+```text
+[Their container] + [sidecar: SPIFFE] + [sidecar: AuthBridge]
+   they control        we bolt on security from outside
+```
+
+**New model (agent = prompt):**
+
+```text
+[Our container with SPIFFE, delegation, OPA built in]
+   their SKILL.md loaded via ConfigMap
+   we control the runtime, they control the behavior
+```
+
+In the new model, there's no reason for sidecars. We own the runtime.
+SPIFFE, delegation context, OPA hooks, token exchange — all built
+into the binary. The agent author never sees it, which is *better*
+BYOA than the sidecar approach — they don't even need to know
+security infrastructure exists.
+
+### Two-tier agent model
+
+**Tier 1 — Managed agents (default):**
+
+Our Go runtime with SPIFFE, delegation, OPA, and metrics built in.
+Agent authors bring a SKILL.md or system prompt via ConfigMap. They
+get identity, authorization, and auditability for free. No sidecars,
+no integration work. This is where most agents will live.
+
+In Kagenti, this means skipping the AuthBridge, SPIFFE init, and
+signed AgentCard checkboxes when creating an agent — the managed
+runtime handles all of it internally. Kagenti just needs to know
+the deployment name, ConfigMap reference, and OPA scope.
+
+**Tier 2 — Unmanaged agents (escape hatch):**
+
+Someone brings a container image (their own code, CrewAI, LangGraph,
+etc.). The sidecar model from the current architecture wraps it:
+AuthBridge for token exchange, Envoy for mTLS, SPIRE init for
+identity. Kagenti checks the AuthBridge/SPIFFE boxes and builds the
+pod with sidecars.
+
+This tier exists for compatibility with existing agent code, not as
+the recommended path.
+
+### Positioning impact
+
+This sharpens the OpenClaw contrast:
+
+- **OpenClaw:** "Bring your SKILL.md and it runs with your full
+  identity and access to everything."
+- **Our platform:** "Bring your SKILL.md and it runs with
+  permission-intersected, delegated, auditable identity."
+
+Same developer experience, fundamentally different security model.
+The agent author's job gets simpler (just write a prompt); the
+platform's guarantees get stronger (identity and policy are not
+optional or bolt-on).
+
 ## Integration options considered
 
 ### Option A: ZeroClaw instances, OpenShift as orchestrator
