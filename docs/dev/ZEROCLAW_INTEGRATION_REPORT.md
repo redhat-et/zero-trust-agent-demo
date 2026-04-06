@@ -522,56 +522,106 @@ filesystem, CLI tools, interactive PTY, browser automation). Many
 won't work in a headless Kubernetes pod. But the format itself is
 sound and could be adopted for Kubernetes-native skills.
 
-## Option C: Extend existing Go agents (recommended)
+## Option C: Unify existing Go agents into a single image (recommended)
 
-After analyzing ZeroClaw's architecture and the ClawHub skill format,
-a third option emerges as the strongest path.
+After analyzing ZeroClaw, PicoClaw, and the ClawHub skill format,
+the strongest path is extending our **existing Go agents** — which
+are already more capable than either alternative.
 
-### The case for building on what we have
+### Current Go agent capabilities
 
-Our current Python agents already have the hard parts that ZeroClaw
-lacks:
+We have two Go agents in production on the cluster
+(`summarizer-service` and `reviewer-service`) plus three Python
+agents (`kagenti-summarizer` and `kagenti-reviewer` images deployed
+as `summarizer-tech`, `reviewer-general`, and
+`summarizer-tech-klaviger`). The Go agents already include:
 
-| Capability                    | Our agents               | ZeroClaw |
-| ----------------------------- | ------------------------ | -------- |
-| A2A protocol                  | Yes                      | No       |
-| AgentCard discovery (Kagenti) | Yes                      | No       |
-| SPIFFE identity               | Yes (via infrastructure) | No       |
-| OPA policy integration        | Yes (via infrastructure) | No       |
-| LLM client                    | Yes                      | Yes      |
-| Agentic tool-use loop         | No                       | Yes      |
-| Skill loading (SKILL.md)      | No                       | Yes      |
+| Capability | Our Go agents | ZeroClaw | PicoClaw |
+| ---------- | ------------- | -------- | -------- |
+| A2A protocol (a2a-go SDK) | **Yes** | No | No |
+| AgentCard (signed, Kagenti) | **Yes** | No | No |
+| SPIFFE delegation context | **Yes** | No | No |
+| OPA via document-service | **Yes** | No | No |
+| LLM multi-provider (`pkg/llm`) | **Yes** | Yes | Yes |
+| Prometheus metrics | **Yes** | No | Partial |
+| Delegation transport | **Yes** | No | No |
+| Health/ready/metrics server | **Yes** | Partial | Yes |
+| Agentic tool-use loop | No | Yes | Yes |
+| Skill loading (SKILL.md) | No | Yes | Yes |
 
-What we would need to add (using PicoClaw as reference):
+The Go agents use shared packages:
 
-1. **Agentic tool-use loop** — adapt PicoClaw's `RunToolLoop` pattern
-   (call LLM with tool-use enabled, execute tool calls in parallel,
-   feed results back, repeat). Estimated ~100-150 lines of Go.
-2. **Tool interface and registry** — adapt PicoClaw's `Tool` interface
-   and thread-safe registry. Estimated ~200 lines of Go.
+- `pkg/a2abridge/` — generic `AgentExecutor` with pluggable
+  `FetchDocument` and `ProcessLLM` function types
+- `pkg/llm/` — multi-provider LLM abstraction with prompts in
+  `prompts.go`
+- `pkg/config/` — Viper-based configuration (files + env + flags)
+- `pkg/logger/` — structured logging with component colors
+- `pkg/metrics/` — Prometheus counters
+
+The two `serve.go` files (~410 and ~470 lines) are nearly identical.
+Same structure, same config loading, same health server setup,
+same `fetchDocument` function. The only differences are the system
+prompt selection and the `ProcessLLM` callback.
+
+### Phased approach
+
+**Phase 1: Single image + ConfigMap** (mostly refactoring)
+
+1. Extract common service scaffolding from `serve.go` into a shared
+   package (HTTP server, health server, config loading, document
+   fetching). Most of this code is already duplicated — just merge it.
+2. Load system prompt from a mounted ConfigMap file instead of
+   compiled constants in `pkg/llm/prompts.go`.
+3. Load agent card parameters from ConfigMap (name, description,
+   skills, tags).
+4. Build a single `agent-service` binary that reads its personality
+   from config at startup.
+5. Deploy all five agents from the same image with different
+   ConfigMaps.
+
+Estimated effort: ~1-2 days of refactoring. No new capabilities,
+just consolidation of existing code.
+
+**Phase 2: Agentic tool-use loop** (new capabilities)
+
+Using PicoClaw as reference:
+
+1. **Tool interface and registry** — adapt PicoClaw's `Tool`
+   interface and thread-safe registry. ~200 lines of Go.
+2. **Agentic loop** — adapt PicoClaw's `RunToolLoop` (call LLM with
+   tool definitions, execute tool calls in parallel, feed results
+   back, repeat). ~100-150 lines. Requires extending
+   `llm.Provider.Complete()` to support tool definitions.
 3. **Tool implementations** — `exec` (with PicoClaw's deny patterns)
-   and `web_fetch`. Estimated ~200 lines of Go.
-4. **Hook system for OPA** — adapt PicoClaw's before/after hooks to
-   wire OPA policy checks as a `ToolApprover`. Estimated ~100 lines.
-5. **Skill loading** — parse `SKILL.md` from ConfigMap (YAML
-   frontmatter + markdown). Estimated ~50 lines of Go.
+   and `web_fetch`. ~200 lines.
+4. **Hook system for OPA** — before/after hooks on tool execution,
+   wiring OPA as a `ToolApprover`. ~100 lines.
+5. **SKILL.md loading** — parse from ConfigMap. ~50 lines.
 
-Total estimated effort: ~650-700 lines of Go on top of existing
-agents, closely following PicoClaw's proven patterns.
+Estimated effort: ~650-700 lines of new Go code.
 
-### Advantages over ZeroClaw integration
+**Phase 3: ClawHub integration** (ecosystem play)
 
-- **No Rust dependency** — team's primary language is Go
-- **No sidecar needed** — A2A is native, not bridged
-- **No monolithic binary** — only the code we need
-- **Full control** — no upstream dependency on a pre-v1.0 project
-- **Smaller footprint** — a Go binary with just the agent loop will be
-  comparable to ZeroClaw's 5MB
-- **Proven patterns** — PicoClaw's tool loop, registry, and hooks are
-  production-tested reference code in Go, derrisking implementation
-- **"OpenClaw compatible" claim** — if we can load and execute
-  `SKILL.md` skills, we can credibly claim compatibility with the
-  ClawHub ecosystem
+1. Skill compatibility validator (CLI + Claude Code skill)
+2. Pull and test ClawHub skills in OpenShift environment
+3. Document which skill categories work headless
+
+### Migration path
+
+The agent-service gateway doesn't care what's behind the A2A
+endpoint — it discovers agents via AgentCard CRs and proxies
+requests. This means:
+
+1. Deploy the new unified Go agent alongside existing agents
+2. Create AgentCard CRs pointing to the new agent's Deployments
+3. Test with the existing demo scenarios (Alice → summarizer-tech
+   → DOC-001, etc.)
+4. Once validated, remove the old Python agent Deployments
+5. The Go agents (`summarizer-hr`, `reviewer-ops`) can be replaced
+   in place — same functionality, just ConfigMap-driven prompts
+
+No downtime required. Old and new agents coexist during migration.
 
 ### What "OpenClaw compatible" means for us
 
@@ -642,33 +692,32 @@ local processes.
 **Not recommended** unless ZeroClaw upstream adopts Kubernetes-native
 orchestration.
 
-### Option C: Extend existing Go agents with tool-use loop (recommended)
+### Option C: Unify existing Go agents into single image (recommended)
 
-Rewrite the current Python agents as a single Go binary with an
-agentic tool-use loop and SKILL.md loading. Keep all existing
-infrastructure (A2A, Kagenti, SPIFFE, OPA) unchanged.
+Merge `summarizer-service` and `reviewer-service` into a single Go
+binary with ConfigMap-driven prompts. Add agentic tool-use loop
+in phase 2 using PicoClaw patterns as reference. Replace Python
+agents with the same image. Keep all existing infrastructure
+(A2A, Kagenti, SPIFFE, OPA) unchanged.
 
 **Advantages:**
 
-- Go is the team's primary language — no Rust dependency
-- A2A protocol is native, no sidecar bridge needed
-- Full control over the codebase, no upstream dependency
-- Estimated ~500-800 lines of Go on top of existing code
-- Credible "OpenClaw compatible" claim via SKILL.md support
-- Smallest possible footprint (~10-15MB Go binary)
+- Building on production Go code already running on the cluster
+- Phase 1 is mostly refactoring (~1-2 days), not new development
+- A2A, delegation, metrics, health checks already implemented
+- PicoClaw provides proven Go reference code for phase 2
+- No new dependencies, no forks, no sidecars
+- Coexistence with existing agents during migration
 
 **Risks:**
 
-- Must implement agentic tool-use loop (LLM tool calling is well
-  documented but needs careful implementation)
-- ClawHub skills that assume desktop features (browser, PTY) won't
-  work without adaptation
+- Phase 2 (tool-use loop) requires extending `llm.Provider` interface
+- ClawHub skills assuming desktop features won't work without
+  adaptation
 - "OpenClaw compatible" is a self-declared claim, not a certification
 
-**This is the recommended path.** ZeroClaw remains valuable as a
-reference implementation and potential collaboration partner, but
-building on our existing A2A agents avoids the sidecar complexity
-and Rust dependency while achieving the same goal.
+**This is the recommended path.** See the detailed phased approach
+and migration plan in the "Option C" section above.
 
 ## ClawHub skill compatibility validator
 
