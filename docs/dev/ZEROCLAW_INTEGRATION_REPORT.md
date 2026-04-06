@@ -258,9 +258,242 @@ The entire zero-trust infrastructure is unchanged:
 ZeroClaw replaces only the innermost component — the agent runtime
 that receives work and produces results.
 
+## One image, many agents: the ConfigMap pattern
+
+### Current state: nearly identical agents
+
+Analysis of `kagenti-summarizer` and `kagenti-reviewer` reveals they
+are almost the same code:
+
+- `agent.py` — identical A2A server boilerplate, differs only in which
+  handler function is called (`fetch_and_summarize` vs `fetch_and_review`)
+- `llm.py` — identical LLM client, differs only in the system prompt
+  strings at the top
+- `summarizer.py` / `reviewer.py` — identical document fetch logic,
+  differs only in prompt selection
+
+The only functional difference is the system prompt. The reviewer adds
+a minor prompt-routing feature (general/compliance/security based on
+keywords), but the core flow is the same: extract URL, fetch document,
+call `provider.complete(system_prompt, content)`, return result.
+
+### Target architecture: one image + ConfigMaps
+
+```text
+One container image: "zero-trust-agent"
+    ├── A2A server (generic)
+    ├── LLM client (generic)
+    └── Document handler (generic: fetch URL, call LLM, return result)
+
+ConfigMap: agent-config
+    └── system-prompt.txt    ← the only thing that changes per agent
+
+ConfigMap: agent-card
+    └── agent-card.json      ← name, description, capabilities
+```
+
+Different Deployments, same image:
+
+| Deployment | system-prompt.txt | agent-card.json | OPA scope |
+| ---------- | ----------------- | --------------- | --------- |
+| summarizer-hr | "Summarize documents..." | `{name: "summarizer-hr", ...}` | `["hr"]` |
+| summarizer-tech | "Summarize documents..." | `{name: "summarizer-tech", ...}` | `["finance", "engineering"]` |
+| reviewer-ops | "Review documents for..." | `{name: "reviewer-ops", ...}` | `["engineering", "admin"]` |
+| reviewer-general | "Review for compliance..." | `{name: "reviewer-general", ...}` | `["all"]` |
+
+For agents with multiple prompt variants (like the reviewer's
+general/compliance/security modes), a `prompts.json` ConfigMap entry
+can hold the variants:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: reviewer-ops-config
+data:
+  default-prompt: |
+    You are a document reviewer...
+  prompts.json: |
+    {
+      "compliance": "You are a compliance review agent...",
+      "security": "You are a security review agent..."
+    }
+```
+
+The generic agent reads `prompts.json` if it exists, falls back to
+`default-prompt`. This covers both simple agents (one prompt) and
+multi-mode agents (keyword-routed prompts) without separate images.
+
+### Industry validation
+
+This is **the dominant emerging pattern** for multi-agent Kubernetes
+deployment. Research across the industry (2025-2026) identifies six
+main patterns:
+
+| Pattern | Description | Relevance |
+| ------- | ----------- | --------- |
+| One image + config | Same image, different ConfigMaps/env vars per Deployment | **Our next step** |
+| CRD-managed agents | Agents declared as CRDs, operator handles lifecycle | **Already using** (Kagenti) |
+| Agent Sandbox (K8s SIG) | `Sandbox`/`SandboxTemplate` CRDs for untrusted code execution | Less relevant (our agents don't run arbitrary code) |
+| Virtual actors (Dapr) | Thousands of agents per process via actor model | Alternative density model, weaker isolation |
+| Gateway/proxy (agentgateway) | Rust-based proxy for A2A/MCP/LLM traffic (Linux Foundation) | **Worth watching** (Red Hat is a contributor) |
+| Framework-specific | CrewAI/LangGraph as standard K8s Deployments | Reference implementations |
+
+Key projects in this space:
+
+- **[kagent](https://kagent.dev/)** (CNCF Sandbox, Solo.io) — agents
+  as CRs with system prompt and tool references. Tools are also CRs
+  shared across agents.
+- **[Agent Sandbox](https://github.com/kubernetes-sigs/agent-sandbox)**
+  (K8s SIG Apps) — `Sandbox`, `SandboxTemplate`, `SandboxWarmPool`
+  CRDs for isolated agent execution.
+- **[Dapr Agents](https://www.cncf.io/blog/2025/03/12/announcing-dapr-ai-agents/)**
+  — virtual actor model, thousands of agents on a single core,
+  `DurableAgent` with crash recovery. GA at KubeCon Europe 2026.
+- **[agentgateway](https://agentgateway.dev/)** (Linux Foundation,
+  v1.0 March 2026) — A2A/MCP/LLM proxy, Kubernetes Gateway API
+  extensions. Contributors: AWS, Cisco, IBM, Microsoft, Red Hat.
+
+### Identity: the unsolved problem
+
+An important finding from the research: per-agent identity remains an
+open problem. SPIFFE today maps to ServiceAccounts — all replicas of a
+Deployment share the same SPIFFE ID. For autonomous agents that need
+individual accountability, this is insufficient. Our approach (separate
+Deployment per agent with its own ServiceAccount and SPIFFE ID) is the
+practical workaround the industry uses today.
+
+Active discussion on this topic at [Solo.io](https://blog.christianposta.com/agent-identity-and-access-management-can-spiffe-work/)
+and [nhimg.org](https://nhimg.org/community/agentic-ai-and-nhis/exploring-spiffe-for-agent-identity-and-access-management/).
+
+## ClawHub skills: what they actually are
+
+### The SKILL.md format
+
+An OpenClaw skill is **not a container, not a binary, not executable
+code**. It is a `SKILL.md` file — a markdown document with YAML
+frontmatter that gets injected into the LLM's system prompt:
+
+```yaml
+---
+name: my-skill
+description: One-line description for the agent
+metadata:
+  openclaw:
+    requires:
+      bins: ["jq"]          # Required binaries on host
+      env: ["API_KEY"]      # Required env vars
+    os: ["darwin", "linux"]
+---
+
+Natural language instructions telling the LLM when and how to use
+tools. This is a prompt fragment, not code.
+```
+
+### Execution model
+
+Skills do not execute directly. The chain is:
+
+1. Skill's markdown body is injected into the LLM system prompt
+2. LLM interprets the instructions and decides which tools to call
+3. Tools (`exec`, `browser`, `apply_patch`) run as subprocesses
+4. Results feed back to the LLM for the next turn
+
+This means "pulling a skill from ClawHub" maps naturally to a
+ConfigMap — it's just text. But *running* it requires an agentic
+tool-use loop.
+
+### Implications for our project
+
+Most ClawHub skills assume desktop-oriented capabilities (local
+filesystem, CLI tools, interactive PTY, browser automation). Many
+won't work in a headless Kubernetes pod. But the format itself is
+sound and could be adopted for Kubernetes-native skills.
+
+## Option C: Extend existing Go agents (recommended)
+
+After analyzing ZeroClaw's architecture and the ClawHub skill format,
+a third option emerges as the strongest path.
+
+### The case for building on what we have
+
+Our current Python agents already have the hard parts that ZeroClaw
+lacks:
+
+| Capability | Our agents | ZeroClaw |
+| ---------- | ---------- | -------- |
+| A2A protocol | Yes | No |
+| AgentCard discovery (Kagenti) | Yes | No |
+| SPIFFE identity | Yes (via infrastructure) | No |
+| OPA policy integration | Yes (via infrastructure) | No |
+| LLM client | Yes | Yes |
+| Agentic tool-use loop | No | Yes |
+| Skill loading (SKILL.md) | No | Yes |
+
+What we would need to add:
+
+1. **Agentic tool-use loop** — call LLM with tool-use enabled,
+   execute tool calls, feed results back, repeat. The Anthropic and
+   OpenAI APIs have native tool-use support. Estimated ~300-400 lines
+   of Go.
+2. **Tool execution framework** — start with `exec` (run shell
+   commands in container) and `web_fetch`. Estimated ~200 lines of Go.
+3. **Skill loading** — parse `SKILL.md` from ConfigMap (YAML
+   frontmatter + markdown). Trivial in Go.
+
+Total estimated effort: ~500-800 lines of Go on top of existing agents.
+
+### Advantages over ZeroClaw integration
+
+- **No Rust dependency** — team's primary language is Go
+- **No sidecar needed** — A2A is native, not bridged
+- **No monolithic binary** — only the code we need
+- **Full control** — no upstream dependency on a pre-v1.0 project
+- **Smaller footprint** — a Go binary with just the agent loop will be
+  comparable to ZeroClaw's 5MB
+- **"OpenClaw compatible" claim** — if we can load and execute
+  `SKILL.md` skills, we can credibly claim compatibility with the
+  ClawHub ecosystem
+
+### What "OpenClaw compatible" means for us
+
+A minimal, defensible claim: "can load and execute `SKILL.md` skills
+from ClawHub." This requires:
+
+1. Parse YAML frontmatter from `SKILL.md`
+2. Evaluate gating requirements (binaries, env vars)
+3. Inject markdown body into LLM system prompt
+4. Provide core tools that skills reference (`exec`, `web_fetch`)
+5. Run the agentic tool-use loop
+
+We do NOT need to implement: the gateway, channel adapters, Hands
+(cron-scheduled agents), memory system, PTY support, or browser
+automation. These are OpenClaw daemon features, not skill requirements.
+
+### Deployment model
+
+```text
+One container image: "zero-trust-agent" (Go binary, ~10-15MB)
+
+ConfigMap: agent-config
+    ├── skill.md           ← SKILL.md from ClawHub or custom
+    ├── agent-card.json    ← A2A agent card
+    └── prompts.json       ← optional prompt variants
+
+Secret: agent-secrets
+    └── LLM_API_KEY        ← LLM provider credentials
+
+OPA policy: agent-permissions.rego
+    └── agent_capabilities["summarizer-hr"] := ["hr"]
+```
+
+Same image for all agents. Different ConfigMaps create different
+agent personalities and capabilities. OPA controls what each agent
+can access. Kagenti manages lifecycle and discovery.
+
 ## Integration options considered
 
-### Option A: OpenShift as orchestrator (recommended)
+### Option A: ZeroClaw instances, OpenShift as orchestrator
 
 Each ZeroClaw instance is a Kubernetes Deployment with its own
 ServiceAccount, SPIFFE identity, and OPA policy. Kagenti manages
@@ -290,6 +523,34 @@ local processes.
 
 **Not recommended** unless ZeroClaw upstream adopts Kubernetes-native
 orchestration.
+
+### Option C: Extend existing Go agents with tool-use loop (recommended)
+
+Rewrite the current Python agents as a single Go binary with an
+agentic tool-use loop and SKILL.md loading. Keep all existing
+infrastructure (A2A, Kagenti, SPIFFE, OPA) unchanged.
+
+**Advantages:**
+
+- Go is the team's primary language — no Rust dependency
+- A2A protocol is native, no sidecar bridge needed
+- Full control over the codebase, no upstream dependency
+- Estimated ~500-800 lines of Go on top of existing code
+- Credible "OpenClaw compatible" claim via SKILL.md support
+- Smallest possible footprint (~10-15MB Go binary)
+
+**Risks:**
+
+- Must implement agentic tool-use loop (LLM tool calling is well
+  documented but needs careful implementation)
+- ClawHub skills that assume desktop features (browser, PTY) won't
+  work without adaptation
+- "OpenClaw compatible" is a self-declared claim, not a certification
+
+**This is the recommended path.** ZeroClaw remains valuable as a
+reference implementation and potential collaboration partner, but
+building on our existing A2A agents avoids the sidecar complexity
+and Rust dependency while achieving the same goal.
 
 ## Upstream collaboration opportunities
 
@@ -332,11 +593,16 @@ This project shows how these pieces compose.
 
 ## Next steps
 
-1. Set up a ZeroClaw dev environment and validate the webhook channel
-   integration
-2. Build a proof-of-concept A2A sidecar in Go
-3. Deploy a ZeroClaw-based summarizer-hr alongside the existing Python
-   agent to compare behavior
-4. Reach out to ZeroClaw team about A2A protocol contribution
-5. Draft a blog post or conference talk: "From personal agents to
+1. Merge current Python summarizer and reviewer into a single generic
+   Go-based A2A agent with ConfigMap-driven prompts
+2. Add an agentic tool-use loop (LLM tool calling with `exec` and
+   `web_fetch` tools)
+3. Implement SKILL.md loading from ConfigMap
+4. Deploy multiple agent instances (summarizer-hr, summarizer-tech,
+   reviewer-ops) from the single image to validate the pattern
+5. Pull a simple ClawHub skill and test it in the Kubernetes
+   environment
+6. Reach out to ZeroClaw team at Harvard/MIT about collaboration
+   (A2A protocol, Kubernetes health endpoints)
+7. Draft a blog post or conference talk: "From personal agents to
    governed fleets"
