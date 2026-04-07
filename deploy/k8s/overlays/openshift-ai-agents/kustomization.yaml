@@ -46,26 +46,26 @@ generatorOptions:
 # Services from ai-agents (still have simple image names)
 images:
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/agent-service
-  newTag: fb63b22
-- name: ghcr.io/redhat-et/zero-trust-agent-demo/document-service
-  newTag: fb63b22
-- name: ghcr.io/redhat-et/zero-trust-agent-demo/opa-service
-  newTag: fb63b22
-- name: ghcr.io/redhat-et/zero-trust-agent-demo/user-service
-  newTag: fb63b22
-- name: ghcr.io/redhat-et/zero-trust-agent-demo/web-dashboard
-  newTag: fb63b22
+  newTag: a6fb009
 - name: ghcr.io/redhat-et/zero-trust-agent-demo/credential-gateway
-  newTag: fb63b22
+  newTag: a6fb009
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/document-service
+  newTag: a6fb009
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/opa-service
+  newTag: a6fb009
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/user-service
+  newTag: a6fb009
+- name: ghcr.io/redhat-et/zero-trust-agent-demo/web-dashboard
+  newTag: a6fb009
 - name: reviewer-service
   newName: ghcr.io/redhat-et/zero-trust-agent-demo/reviewer-service
-  newTag: fb63b22
+  newTag: a6fb009
 - name: summarizer-service
   newName: ghcr.io/redhat-et/zero-trust-agent-demo/summarizer-service
-  newTag: fb63b22
+  newTag: a6fb009
 - name: zt-agent
   newName: ghcr.io/redhat-et/zero-trust-agent-demo/zt-agent
-  newTag: fb63b22
+  newTag: a6fb009-dirty
 
   # Summarizer Service - Real SPIFFE with ghcr.io images
 
@@ -263,6 +263,9 @@ patches:
   target:
     kind: Service
     name: reviewer-service
+# zt-agent: minimal patch (mock SPIFFE, no spc_t, no CSI volumes)
+# This avoids the privileged SCC requirement. Real SPIFFE will be
+# built into the zt-agent binary in a future phase.
 - patch: |-
     - op: add
       path: /spec/template/spec/containers/0/imagePullPolicy
@@ -272,47 +275,11 @@ patches:
       value:
         containerPort: 8100
         name: health
-    - op: replace
-      path: /spec/template/spec/containers/0/ports/0/name
-      value: mtls
     - op: add
       path: /spec/template/spec/containers/0/env/-
       value:
         name: SPIFFE_DEMO_SERVICE_HEALTH_PORT
         value: "8100"
-    - op: add
-      path: /spec/template/spec/containers/0/env/-
-      value:
-        name: SPIFFE_DEMO_SERVICE_MOCK_SPIFFE
-        value: "false"
-    - op: add
-      path: /spec/template/spec/containers/0/env/-
-      value:
-        name: SPIFFE_DEMO_SPIFFE_SOCKET_PATH
-        value: "unix:///run/spire/agent-sockets/spire-agent.sock"
-    - op: replace
-      path: /spec/template/spec/containers/0/env/1
-      value:
-        name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
-        value: "https://document-service:8080"
-    - op: add
-      path: /spec/template/spec/containers/0/securityContext
-      value:
-        seLinuxOptions:
-          type: spc_t
-    - op: add
-      path: /spec/template/spec/containers/0/volumeMounts/-
-      value:
-        name: spire-agent-socket
-        mountPath: /run/spire/agent-sockets
-        readOnly: true
-    - op: add
-      path: /spec/template/spec/volumes/-
-      value:
-        name: spire-agent-socket
-        csi:
-          driver: "csi.spiffe.io"
-          readOnly: true
     - op: add
       path: /spec/template/spec/containers/0/livenessProbe
       value:
@@ -329,24 +296,7 @@ patches:
           port: 8100
         initialDelaySeconds: 5
         periodSeconds: 5
-    - op: add
-      path: /spec/template/spec/containers/0/env/-
-      value:
-        name: SPIFFE_DEMO_OTEL_ENABLED
-        value: "true"
-    - op: add
-      path: /spec/template/spec/containers/0/env/-
-      value:
-        name: SPIFFE_DEMO_OTEL_COLLECTOR_ENDPOINT
-        value: "otel-collector:4317"
   target:
     kind: Deployment
-    name: zt-agent-summarizer-hr
-- patch: |-
-    - op: replace
-      path: /spec/ports/0/name
-      value: mtls
-  target:
-    kind: Service
     name: zt-agent-summarizer-hr
 - path: agent-service-discovery-patch.yaml

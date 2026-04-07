@@ -8,7 +8,8 @@ import rego.v1
 # Actual access is further restricted by user permissions via intersection
 
 agent_capabilities := {
-    "summarizer-hr": ["hr"],
+    "summarizer-hr": ["hr", "engineering"],
+    "zt-agent-summarizer-hr": ["hr", "engineering"],
     "summarizer-tech": ["finance", "engineering"],
     "reviewer-ops": ["engineering", "admin"],
     "reviewer-general": ["engineering", "finance", "admin", "hr"],

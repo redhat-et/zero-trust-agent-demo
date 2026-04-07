@@ -72,10 +72,15 @@ Example images from this project:
 
 | Image | Language | Function |
 |-------|----------|----------|
-| `ghcr.io/redhat-et/zero-trust-agent-demo/kagenti-summarizer:dev` | Python | Document summarization |
-| `ghcr.io/redhat-et/zero-trust-agent-demo/kagenti-reviewer:dev` | Python | Document review |
-| `ghcr.io/redhat-et/zero-trust-agent-demo/summarizer-service:dev` | Go | Document summarization |
-| `ghcr.io/redhat-et/zero-trust-agent-demo/reviewer-service:dev` | Go | Document review |
+| `ghcr.io/.../zt-agent:dev` | Go | **Any** (ConfigMap-driven personality) |
+| `ghcr.io/.../kagenti-summarizer:dev` | Python | Document summarization |
+| `ghcr.io/.../kagenti-reviewer:dev` | Python | Document review |
+| `ghcr.io/.../summarizer-service:dev` | Go | Document summarization |
+| `ghcr.io/.../reviewer-service:dev` | Go | Document review |
+
+The `zt-agent` image is recommended for new deployments. It reads
+its personality from a ConfigMap, so one image serves all agent types.
+The other images are single-purpose agents from earlier development.
 
 ### 2. Decide the scope
 
@@ -85,7 +90,7 @@ to. Available departments in the demo: `engineering`, `finance`,
 
 The effective permissions when a user delegates to this agent are:
 
-```
+```text
 Effective = User departments ∩ Agent departments (from OPA)
 ```
 
@@ -96,7 +101,7 @@ of the user's permissions.
 
 Follow the `{function}-{scope}` naming scheme:
 
-```
+```text
 summarizer-tech     # summarizer scoped to technical docs
 reviewer-ops        # reviewer scoped to operations
 summarizer-hr       # summarizer scoped to HR
@@ -160,19 +165,32 @@ Kagenti will:
 
 ### 7. Grant SCC to the agent service account
 
-On OpenShift, the Kagenti-injected sidecars (envoy proxy,
-spiffe-helper) require the `kagenti-authbridge` SCC. Without it,
-pods will fail with `unable to validate against any security context
-constraint`.
+On OpenShift, the Kagenti-injected sidecars require SCCs. Without
+them, pods will fail with `unable to validate against any security
+context constraint`.
+
+**For Kagenti agents with AuthBridge** (proxy-init container runs
+as root with privileged mode):
 
 ```bash
-# Check the SA name Kagenti created
+oc adm policy add-scc-to-user privileged \
+  -z summarizer-tech-sa -n spiffe-demo
+```
+
+The `kagenti-authbridge` SCC alone is not sufficient — the
+AuthBridge `proxy-init` init container requires the `privileged`
+SCC.
+
+**For zt-agent deployments** (no AuthBridge, mock SPIFFE):
+
+No SCC grant needed — zt-agent runs without privileged containers,
+CSI volumes, or `spc_t` SELinux type. The default `restricted`
+SCC is sufficient.
+
+```bash
+# Check the SA name Kagenti created (for Kagenti-deployed agents)
 oc get deployment summarizer-tech -n spiffe-demo \
   -o jsonpath='{.spec.template.spec.serviceAccountName}'
-
-# Grant the SCC (replace SA name if different)
-oc adm policy add-scc-to-user kagenti-authbridge \
-  -z summarizer-tech-sa -n spiffe-demo
 ```
 
 Pods should start automatically after granting the SCC.
@@ -249,11 +267,62 @@ roleRef:
 EOF
 ```
 
+## Deploying a zt-agent (ConfigMap-based)
+
+The `zt-agent` is a universal runtime where the agent personality
+(system prompt, agent card) comes from a ConfigMap, not from the
+container image. One image serves all agent types.
+
+### Key rule: deployment name = agent ID = OPA key
+
+The **Kubernetes Deployment name** determines the agent ID used
+everywhere:
+
+| System | Uses deployment name as |
+| ------ | ---------------------- |
+| OPA | Key in `agent_capabilities` map |
+| SPIFFE | `spiffe://domain/agent/{deployment-name}` |
+| Dashboard | Agent ID in dropdown (`{deployment-name} — description`) |
+| Agent gateway | Route target for `/agents/{deployment-name}/invoke` |
+
+The agent card's `name` field is **display-only** — it appears in
+the agent card JSON but is NOT used for authorization or routing.
+If the deployment name and the agent card name differ, OPA uses
+the deployment name.
+
+### Steps for zt-agent deployment
+
+1. **Choose the deployment name** following `{function}-{scope}`
+   or `zt-agent-{function}-{scope}` convention
+
+1. **Create a ConfigMap** with `system-prompt.txt` and
+   `agent-card.json` (and optionally `prompts.json` for prompt
+   variants)
+
+1. **Create a Deployment** using the `zt-agent` image with
+   `--config-dir /config/agent` and the ConfigMap mounted
+
+1. **Add the deployment name to OPA** — the key in
+   `agent_capabilities` must match the deployment name exactly
+
+1. **Update the OPA ConfigMap on the cluster** and restart OPA
+
+See `deploy/k8s/overlays/ai-agents/zt-agent-summarizer-hr.yaml`
+for a complete example.
+
+### Common mistake
+
+If the agent card says `"name": "summarizer-hr-zt"` but the
+Deployment is named `zt-agent-summarizer-hr`, OPA must use
+`zt-agent-summarizer-hr` — the deployment name, not the card name.
+
 ## Current demo agents
 
 | Deployment name | Image | Scope | Language |
 |-----------------|-------|-------|----------|
-| summarizer-hr | kagenti-summarizer:dev | hr | Python |
+| summarizer-hr | summarizer-service:dev | hr, engineering | Go |
 | summarizer-tech | kagenti-summarizer:dev | finance, engineering | Python |
-| reviewer-ops | kagenti-reviewer:dev | engineering, admin | Python |
+| reviewer-ops | reviewer-service:dev | engineering, admin | Go |
 | reviewer-general | kagenti-reviewer:dev | all | Python |
+| summarizer-tech-klaviger | kagenti-summarizer:dev | finance, engineering | Python |
+| zt-agent-summarizer-hr | zt-agent:dev | hr, engineering | Go (zt-agent) |
