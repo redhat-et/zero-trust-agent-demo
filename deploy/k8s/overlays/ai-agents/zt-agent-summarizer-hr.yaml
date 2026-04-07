@@ -1,6 +1,5 @@
-# zt-agent test deployment: summarizer-hr-zt
-# Runs alongside the existing summarizer-hr to validate the unified agent runtime.
-# Remove after validation and replace original agents with zt-agent deployments.
+# zt-agent deployment: zt-agent-summarizer-hr
+# Uses ConfigMap-driven personality with SPIFFE-signed agent card.
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -26,7 +25,7 @@ data:
     - Do not add information not present in the original document
   agent-card.json: |
     {
-      "name": "summarizer-hr-zt",
+      "name": "zt-agent-summarizer-hr",
       "description": "HR document summarizer (zt-agent)",
       "version": "1.0.0",
       "protocolVersion": "0.3.0",
@@ -44,6 +43,12 @@ data:
       "defaultInputModes": ["application/json"],
       "defaultOutputModes": ["text/plain"]
     }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: zt-agent-summarizer-hr-sa
+  namespace: spiffe-demo
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -69,6 +74,48 @@ spec:
         app: zt-agent-summarizer-hr
         kagenti.io/type: agent
     spec:
+      serviceAccountName: zt-agent-summarizer-hr-sa
+      initContainers:
+        - name: sign-agentcard
+          image: ttl.sh/kcogan-agentcard-signer:24h
+          env:
+            - name: SPIFFE_ENDPOINT_SOCKET
+              value: "unix:///run/spire/agent-sockets/spire-agent.sock"
+            - name: UNSIGNED_CARD_PATH
+              value: "/etc/agentcard/agent-card.json"
+            - name: AGENT_CARD_PATH
+              value: "/signed-card/agent-card.json"
+            - name: SIGN_TIMEOUT
+              value: "30s"
+            - name: AGENT_NAME
+              value: "zt-agent-summarizer-hr"
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          resources:
+            limits:
+              cpu: 100m
+              memory: 64Mi
+            requests:
+              cpu: 10m
+              memory: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+          volumeMounts:
+            - name: spire-agent-socket
+              mountPath: /run/spire/agent-sockets
+              readOnly: true
+            - name: agent-config
+              mountPath: /etc/agentcard
+              readOnly: true
+            - name: signed-card
+              mountPath: /signed-card
       containers:
         - name: zt-agent
           image: zt-agent
@@ -92,6 +139,8 @@ spec:
               value: "json"
             - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
               value: "http://document-service:8080"
+            - name: AGENT_CARD_SIGNED_PATH
+              value: "/signed-card/agent-card.json"
           envFrom:
             - configMapRef:
                 name: llm-config
@@ -103,10 +152,19 @@ spec:
             - name: agent-config
               mountPath: /config/agent
               readOnly: true
+            - name: signed-card
+              mountPath: /signed-card
+              readOnly: true
       volumes:
         - name: agent-config
           configMap:
             name: zt-agent-summarizer-hr-config
+        - name: spire-agent-socket
+          csi:
+            driver: "csi.spiffe.io"
+            readOnly: true
+        - name: signed-card
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
