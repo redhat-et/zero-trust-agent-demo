@@ -12,3 +12,4 @@ resources:
   - services.yaml
   - llm-configmap.yaml
   - agent-service-discovery-rbac.yaml
+  - zt-agent-summarizer-hr.yaml

@@ -1,0 +1,124 @@
+# zt-agent test deployment: summarizer-hr-zt
+# Runs alongside the existing summarizer-hr to validate the unified agent runtime.
+# Remove after validation and replace original agents with zt-agent deployments.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zt-agent-summarizer-hr-config
+  namespace: spiffe-demo
+data:
+  system-prompt.txt: |
+    You are a document summarizer agent specialized in analyzing and
+    summarizing documents.
+
+    Your task is to:
+    1. Read the provided document carefully
+    2. Create a clear, concise summary that captures the key points
+    3. Highlight any important figures, dates, or decisions
+    4. Format your response in markdown
+
+    Guidelines:
+    - Keep summaries concise but comprehensive (aim for 3-5 paragraphs)
+    - Use bullet points for key takeaways
+    - Preserve any critical numerical data
+    - Maintain professional tone
+    - Do not add information not present in the original document
+  agent-card.json: |
+    {
+      "name": "summarizer-hr-zt",
+      "description": "HR document summarizer (zt-agent)",
+      "version": "1.0.0",
+      "protocolVersion": "0.3.0",
+      "url": "http://zt-agent-summarizer-hr:8000",
+      "skills": [
+        {
+          "id": "document-summarization",
+          "name": "Document Summarization",
+          "description": "Summarizes documents with AI",
+          "tags": ["hr"],
+          "examples": ["Summarize DOC-004"]
+        }
+      ],
+      "capabilities": {},
+      "defaultInputModes": ["application/json"],
+      "defaultOutputModes": ["text/plain"]
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zt-agent-summarizer-hr
+  namespace: spiffe-demo
+  labels:
+    app: zt-agent-summarizer-hr
+    a2a-agent.demo/type: agent
+    a2a-agent.demo/protocol: a2a
+    kagenti.io/type: agent
+    protocol.kagenti.io/a2a: ""
+  annotations:
+    a2a-agent.demo/description: "HR document summarizer (zt-agent runtime)"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zt-agent-summarizer-hr
+  template:
+    metadata:
+      labels:
+        app: zt-agent-summarizer-hr
+        kagenti.io/type: agent
+    spec:
+      containers:
+        - name: zt-agent
+          image: zt-agent
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          ports:
+            - containerPort: 8000
+          args:
+            - serve
+            - --config-dir
+            - /config/agent
+          env:
+            - name: SPIFFE_DEMO_SERVICE_PORT
+              value: "8000"
+            - name: SPIFFE_DEMO_LOG_FORMAT
+              value: "json"
+            - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
+              value: "http://document-service:8080"
+          envFrom:
+            - configMapRef:
+                name: llm-config
+                optional: true
+            - secretRef:
+                name: llm-secret
+                optional: true
+          volumeMounts:
+            - name: agent-config
+              mountPath: /config/agent
+              readOnly: true
+      volumes:
+        - name: agent-config
+          configMap:
+            name: zt-agent-summarizer-hr-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zt-agent-summarizer-hr
+  namespace: spiffe-demo
+  labels:
+    app: zt-agent-summarizer-hr
+spec:
+  selector:
+    app: zt-agent-summarizer-hr
+  ports:
+    - port: 8000
+      targetPort: 8000
+      name: http

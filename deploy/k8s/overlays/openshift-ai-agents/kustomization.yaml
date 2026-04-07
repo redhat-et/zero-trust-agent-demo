@@ -63,6 +63,9 @@ images:
 - name: summarizer-service
   newName: ghcr.io/redhat-et/zero-trust-agent-demo/summarizer-service
   newTag: fb63b22
+- name: zt-agent
+  newName: ghcr.io/redhat-et/zero-trust-agent-demo/zt-agent
+  newTag: fb63b22
 
   # Summarizer Service - Real SPIFFE with ghcr.io images
 
@@ -260,4 +263,90 @@ patches:
   target:
     kind: Service
     name: reviewer-service
+- patch: |-
+    - op: add
+      path: /spec/template/spec/containers/0/imagePullPolicy
+      value: IfNotPresent
+    - op: add
+      path: /spec/template/spec/containers/0/ports/-
+      value:
+        containerPort: 8100
+        name: health
+    - op: replace
+      path: /spec/template/spec/containers/0/ports/0/name
+      value: mtls
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: SPIFFE_DEMO_SERVICE_HEALTH_PORT
+        value: "8100"
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: SPIFFE_DEMO_SERVICE_MOCK_SPIFFE
+        value: "false"
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: SPIFFE_DEMO_SPIFFE_SOCKET_PATH
+        value: "unix:///run/spire/agent-sockets/spire-agent.sock"
+    - op: replace
+      path: /spec/template/spec/containers/0/env/1
+      value:
+        name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
+        value: "https://document-service:8080"
+    - op: add
+      path: /spec/template/spec/containers/0/securityContext
+      value:
+        seLinuxOptions:
+          type: spc_t
+    - op: add
+      path: /spec/template/spec/containers/0/volumeMounts/-
+      value:
+        name: spire-agent-socket
+        mountPath: /run/spire/agent-sockets
+        readOnly: true
+    - op: add
+      path: /spec/template/spec/volumes/-
+      value:
+        name: spire-agent-socket
+        csi:
+          driver: "csi.spiffe.io"
+          readOnly: true
+    - op: add
+      path: /spec/template/spec/containers/0/livenessProbe
+      value:
+        httpGet:
+          path: /health
+          port: 8100
+        initialDelaySeconds: 10
+        periodSeconds: 10
+    - op: add
+      path: /spec/template/spec/containers/0/readinessProbe
+      value:
+        httpGet:
+          path: /ready
+          port: 8100
+        initialDelaySeconds: 5
+        periodSeconds: 5
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: SPIFFE_DEMO_OTEL_ENABLED
+        value: "true"
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: SPIFFE_DEMO_OTEL_COLLECTOR_ENDPOINT
+        value: "otel-collector:4317"
+  target:
+    kind: Deployment
+    name: zt-agent-summarizer-hr
+- patch: |-
+    - op: replace
+      path: /spec/ports/0/name
+      value: mtls
+  target:
+    kind: Service
+    name: zt-agent-summarizer-hr
 - path: agent-service-discovery-patch.yaml
