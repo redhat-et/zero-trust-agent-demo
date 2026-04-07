@@ -1,0 +1,19 @@
+{
+  "name": "summarizer-hr",
+  "description": "HR document summarizer",
+  "version": "1.0.0",
+  "protocolVersion": "0.3.0",
+  "url": "http://localhost:8000",
+  "skills": [
+    {
+      "id": "document-summarization",
+      "name": "Document Summarization",
+      "description": "Summarizes documents with AI",
+      "tags": ["hr"],
+      "examples": ["Summarize DOC-004"]
+    }
+  ],
+  "capabilities": {},
+  "defaultInputModes": ["application/json"],
+  "defaultOutputModes": ["text/plain"]
+}
