@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -115,5 +117,22 @@ func TestSelectPromptNoVariants(t *testing.T) {
 	result := selectPrompt(defaultPrompt, nil, "Summarize DOC-001")
 	if result != defaultPrompt {
 		t.Fatalf("expected default prompt, got %q", result)
+	}
+}
+
+func TestRunServeRequiresPrompt(t *testing.T) {
+	dir := t.TempDir()
+	// Write an agent card but no prompt
+	cardData := `{"name":"test","version":"1.0.0","protocolVersion":"0.3.0","capabilities":{},"defaultInputModes":["application/json"],"defaultOutputModes":["text/plain"]}`
+	if err := os.WriteFile(filepath.Join(dir, "agent-card.json"), []byte(cardData), 0644); err != nil {
+		t.Fatalf("failed to write agent card: %v", err)
+	}
+
+	err := startAgent(dir, nil)
+	if err == nil {
+		t.Fatal("expected error when system-prompt.txt is missing")
+	}
+	if !strings.Contains(err.Error(), "system prompt") {
+		t.Fatalf("expected system prompt error, got: %v", err)
 	}
 }

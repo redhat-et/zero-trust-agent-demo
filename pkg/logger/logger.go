@@ -27,6 +27,7 @@ const (
 	ComponentSummarizer  Component = "SUMMARIZER"
 	ComponentReviewer    Component = "REVIEWER"
 	ComponentCredGateway Component = "CRED-GATEWAY"
+	ComponentAgent       Component = "ZT-AGENT"
 )
 
 // ANSI color codes
@@ -58,6 +59,7 @@ var componentColors = map[Component]string{
 	ComponentSummarizer:  colorCyan,
 	ComponentReviewer:    colorMagenta,
 	ComponentCredGateway: colorGreen,
+	ComponentAgent:       colorCyan,
 }
 
 // Direction indicates the flow of a request
