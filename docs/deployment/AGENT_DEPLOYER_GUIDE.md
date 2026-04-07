@@ -324,11 +324,11 @@ Deployment is named `zt-agent-summarizer-hr`, OPA must use
 
 ## Current demo agents
 
-| Deployment name | Image | Scope | Language |
-|-----------------|-------|-------|----------|
-| summarizer-hr | summarizer-service:dev | hr, engineering | Go |
-| summarizer-tech | kagenti-summarizer:dev | finance, engineering | Python |
-| reviewer-ops | reviewer-service:dev | engineering, admin | Go |
-| reviewer-general | kagenti-reviewer:dev | all | Python |
-| summarizer-tech-klaviger | kagenti-summarizer:dev | finance, engineering | Python |
-| zt-agent-summarizer-hr | zt-agent:dev | hr, engineering | Go (zt-agent) |
+All agents use the `zt-agent` image with ConfigMap-driven personality.
+
+| Deployment name | Scope | Prompt variants |
+|-----------------|-------|-----------------|
+| summarizer-hr | hr, engineering | — |
+| summarizer-tech | finance, engineering | — |
+| reviewer-ops | engineering, admin | compliance, security |
+| reviewer-general | all | compliance, security |
