@@ -8,8 +8,6 @@ metadata:
 # It should be used as a component by other overlays, not deployed directly
 
 resources:
-  - deployments.yaml
-  - services.yaml
+  - zt-agent-deployments.yaml
   - llm-configmap.yaml
   - agent-service-discovery-rbac.yaml
-  - zt-agent-summarizer-hr.yaml

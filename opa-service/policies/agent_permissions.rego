@@ -9,7 +9,6 @@ import rego.v1
 
 agent_capabilities := {
     "summarizer-hr": ["hr", "engineering"],
-    "zt-agent-summarizer-hr": ["hr", "engineering"],
     "summarizer-tech": ["finance", "engineering"],
     "reviewer-ops": ["engineering", "admin"],
     "reviewer-general": ["engineering", "finance", "admin", "hr"],

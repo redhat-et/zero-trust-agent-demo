@@ -1,0 +1,778 @@
+# zt-agent deployments: all four demo agents from a single image.
+# Agent personality (prompt, agent card) comes from ConfigMaps.
+# Replaces the separate summarizer-service, reviewer-service,
+# kagenti-summarizer, and kagenti-reviewer deployments.
+
+# --- summarizer-hr ---
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: summarizer-hr-config
+  namespace: spiffe-demo
+data:
+  system-prompt.txt: |
+    You are a document summarizer agent specialized in analyzing and
+    summarizing documents.
+
+    Your task is to:
+    1. Read the provided document carefully
+    2. Create a clear, concise summary that captures the key points
+    3. Highlight any important figures, dates, or decisions
+    4. Format your response in markdown
+
+    Guidelines:
+    - Keep summaries concise but comprehensive (aim for 3-5 paragraphs)
+    - Use bullet points for key takeaways
+    - Preserve any critical numerical data
+    - Maintain professional tone
+    - Do not add information not present in the original document
+  agent-card.json: |
+    {
+      "name": "summarizer-hr",
+      "description": "HR document summarizer",
+      "version": "1.0.0",
+      "protocolVersion": "0.3.0",
+      "url": "http://summarizer-hr:8000",
+      "skills": [
+        {
+          "id": "document-summarization",
+          "name": "Document Summarization",
+          "description": "Summarizes documents with AI",
+          "tags": ["hr"],
+          "examples": ["Summarize DOC-004"]
+        }
+      ],
+      "capabilities": {},
+      "defaultInputModes": ["application/json"],
+      "defaultOutputModes": ["text/plain"]
+    }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: summarizer-hr-sa
+  namespace: spiffe-demo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: summarizer-hr
+  namespace: spiffe-demo
+  labels:
+    app: summarizer-hr
+    a2a-agent.demo/type: agent
+    a2a-agent.demo/protocol: a2a
+    kagenti.io/type: agent
+    protocol.kagenti.io/a2a: ""
+  annotations:
+    a2a-agent.demo/description: "HR document summarizer"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: summarizer-hr
+  template:
+    metadata:
+      labels:
+        app: summarizer-hr
+        kagenti.io/type: agent
+    spec:
+      serviceAccountName: summarizer-hr-sa
+      initContainers:
+        - name: sign-agentcard
+          image: ttl.sh/kcogan-agentcard-signer:24h
+          env:
+            - name: SPIFFE_ENDPOINT_SOCKET
+              value: "unix:///run/spire/agent-sockets/spire-agent.sock"
+            - name: UNSIGNED_CARD_PATH
+              value: "/etc/agentcard/agent-card.json"
+            - name: AGENT_CARD_PATH
+              value: "/signed-card/agent-card.json"
+            - name: SIGN_TIMEOUT
+              value: "30s"
+            - name: AGENT_NAME
+              value: "summarizer-hr"
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          resources:
+            limits:
+              cpu: 100m
+              memory: 64Mi
+            requests:
+              cpu: 10m
+              memory: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+          volumeMounts:
+            - name: spire-agent-socket
+              mountPath: /run/spire/agent-sockets
+              readOnly: true
+            - name: agent-config
+              mountPath: /etc/agentcard
+              readOnly: true
+            - name: signed-card
+              mountPath: /signed-card
+      containers:
+        - name: zt-agent
+          image: zt-agent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          ports:
+            - containerPort: 8000
+          args:
+            - serve
+            - --config-dir
+            - /config/agent
+          env:
+            - name: SPIFFE_DEMO_SERVICE_PORT
+              value: "8000"
+            - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
+              value: "http://document-service:8080"
+            - name: AGENT_CARD_SIGNED_PATH
+              value: "/signed-card/agent-card.json"
+          envFrom:
+            - configMapRef:
+                name: llm-config
+                optional: true
+            - secretRef:
+                name: llm-secret
+                optional: true
+          volumeMounts:
+            - name: agent-config
+              mountPath: /config/agent
+              readOnly: true
+            - name: signed-card
+              mountPath: /signed-card
+              readOnly: true
+      volumes:
+        - name: agent-config
+          configMap:
+            name: summarizer-hr-config
+        - name: spire-agent-socket
+          csi:
+            driver: "csi.spiffe.io"
+            readOnly: true
+        - name: signed-card
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: summarizer-hr
+  namespace: spiffe-demo
+  labels:
+    app: summarizer-hr
+spec:
+  selector:
+    app: summarizer-hr
+  ports:
+    - port: 8000
+      targetPort: 8000
+      name: http
+
+# --- summarizer-tech ---
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: summarizer-tech-config
+  namespace: spiffe-demo
+data:
+  system-prompt.txt: |
+    You are a document summarizer agent specialized in analyzing and
+    summarizing documents.
+
+    Your task is to:
+    1. Read the provided document carefully
+    2. Create a clear, concise summary that captures the key points
+    3. Highlight any important figures, dates, or decisions
+    4. Format your response in markdown
+
+    Guidelines:
+    - Keep summaries concise but comprehensive (aim for 3-5 paragraphs)
+    - Use bullet points for key takeaways
+    - Preserve any critical numerical data
+    - Maintain professional tone
+    - Do not add information not present in the original document
+  agent-card.json: |
+    {
+      "name": "summarizer-tech",
+      "description": "Technical document summarizer",
+      "version": "1.0.0",
+      "protocolVersion": "0.3.0",
+      "url": "http://summarizer-tech:8000",
+      "skills": [
+        {
+          "id": "document-summarization",
+          "name": "Document Summarization",
+          "description": "Summarizes documents with AI",
+          "tags": ["finance", "engineering"],
+          "examples": ["Summarize DOC-001", "Summarize DOC-002"]
+        }
+      ],
+      "capabilities": {},
+      "defaultInputModes": ["application/json"],
+      "defaultOutputModes": ["text/plain"]
+    }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: summarizer-tech-sa
+  namespace: spiffe-demo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: summarizer-tech
+  namespace: spiffe-demo
+  labels:
+    app: summarizer-tech
+    a2a-agent.demo/type: agent
+    a2a-agent.demo/protocol: a2a
+    kagenti.io/type: agent
+    protocol.kagenti.io/a2a: ""
+  annotations:
+    a2a-agent.demo/description: "Technical document summarizer"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: summarizer-tech
+  template:
+    metadata:
+      labels:
+        app: summarizer-tech
+        kagenti.io/type: agent
+    spec:
+      serviceAccountName: summarizer-tech-sa
+      initContainers:
+        - name: sign-agentcard
+          image: ttl.sh/kcogan-agentcard-signer:24h
+          env:
+            - name: SPIFFE_ENDPOINT_SOCKET
+              value: "unix:///run/spire/agent-sockets/spire-agent.sock"
+            - name: UNSIGNED_CARD_PATH
+              value: "/etc/agentcard/agent-card.json"
+            - name: AGENT_CARD_PATH
+              value: "/signed-card/agent-card.json"
+            - name: SIGN_TIMEOUT
+              value: "30s"
+            - name: AGENT_NAME
+              value: "summarizer-tech"
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          resources:
+            limits:
+              cpu: 100m
+              memory: 64Mi
+            requests:
+              cpu: 10m
+              memory: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+          volumeMounts:
+            - name: spire-agent-socket
+              mountPath: /run/spire/agent-sockets
+              readOnly: true
+            - name: agent-config
+              mountPath: /etc/agentcard
+              readOnly: true
+            - name: signed-card
+              mountPath: /signed-card
+      containers:
+        - name: zt-agent
+          image: zt-agent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          ports:
+            - containerPort: 8000
+          args:
+            - serve
+            - --config-dir
+            - /config/agent
+          env:
+            - name: SPIFFE_DEMO_SERVICE_PORT
+              value: "8000"
+            - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
+              value: "http://document-service:8080"
+            - name: AGENT_CARD_SIGNED_PATH
+              value: "/signed-card/agent-card.json"
+          envFrom:
+            - configMapRef:
+                name: llm-config
+                optional: true
+            - secretRef:
+                name: llm-secret
+                optional: true
+          volumeMounts:
+            - name: agent-config
+              mountPath: /config/agent
+              readOnly: true
+            - name: signed-card
+              mountPath: /signed-card
+              readOnly: true
+      volumes:
+        - name: agent-config
+          configMap:
+            name: summarizer-tech-config
+        - name: spire-agent-socket
+          csi:
+            driver: "csi.spiffe.io"
+            readOnly: true
+        - name: signed-card
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: summarizer-tech
+  namespace: spiffe-demo
+  labels:
+    app: summarizer-tech
+spec:
+  selector:
+    app: summarizer-tech
+  ports:
+    - port: 8000
+      targetPort: 8000
+      name: http
+
+# --- reviewer-ops ---
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: reviewer-ops-config
+  namespace: spiffe-demo
+data:
+  system-prompt.txt: |
+    You are a document reviewer agent specialized in analyzing
+    documents for compliance, security, and general quality.
+
+    Your task is to:
+    1. Thoroughly analyze the provided document
+    2. Identify potential issues, risks, or areas of concern
+    3. Assess compliance with organizational policies
+    4. Provide actionable recommendations
+
+    Guidelines:
+    - Be thorough but practical in your analysis
+    - Categorize issues by severity (Critical, High, Medium, Low)
+    - Provide specific recommendations for each issue
+    - Format your response in markdown with clear sections
+    - Include a summary section at the end with overall assessment
+  prompts.json: |
+    {
+      "compliance": "You are a compliance review agent specialized in analyzing documents for regulatory and policy compliance.\n\nYour task is to:\n1. Analyze the document for compliance issues\n2. Check against common regulatory frameworks (GDPR, SOC2, ISO 27001 principles)\n3. Identify any policy violations or gaps\n4. Provide specific remediation steps\n\nFormat your response in markdown with:\n- Executive Summary\n- Compliance Findings (with severity levels)\n- Specific Violations\n- Remediation Recommendations\n- Overall Compliance Score (1-10)",
+      "security": "You are a security review agent specialized in analyzing documents for security risks.\n\nYour task is to:\n1. Identify any security-sensitive information\n2. Check for potential data leakage risks\n3. Assess access control implications\n4. Identify any security policy violations\n\nFormat your response in markdown with:\n- Security Risk Summary\n- Sensitive Data Identified\n- Access Control Concerns\n- Security Recommendations\n- Risk Level Assessment (Critical/High/Medium/Low)"
+    }
+  agent-card.json: |
+    {
+      "name": "reviewer-ops",
+      "description": "Operations document reviewer",
+      "version": "1.0.0",
+      "protocolVersion": "0.3.0",
+      "url": "http://reviewer-ops:8000",
+      "skills": [
+        {
+          "id": "document-review",
+          "name": "Document Review",
+          "description": "Reviews documents for compliance, security, and quality",
+          "tags": ["engineering", "admin"],
+          "examples": ["Review DOC-001", "Compliance review of DOC-006"]
+        }
+      ],
+      "capabilities": {},
+      "defaultInputModes": ["application/json"],
+      "defaultOutputModes": ["text/plain"]
+    }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: reviewer-ops-sa
+  namespace: spiffe-demo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reviewer-ops
+  namespace: spiffe-demo
+  labels:
+    app: reviewer-ops
+    a2a-agent.demo/type: agent
+    a2a-agent.demo/protocol: a2a
+    kagenti.io/type: agent
+    protocol.kagenti.io/a2a: ""
+  annotations:
+    a2a-agent.demo/description: "Operations document reviewer"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reviewer-ops
+  template:
+    metadata:
+      labels:
+        app: reviewer-ops
+        kagenti.io/type: agent
+    spec:
+      serviceAccountName: reviewer-ops-sa
+      initContainers:
+        - name: sign-agentcard
+          image: ttl.sh/kcogan-agentcard-signer:24h
+          env:
+            - name: SPIFFE_ENDPOINT_SOCKET
+              value: "unix:///run/spire/agent-sockets/spire-agent.sock"
+            - name: UNSIGNED_CARD_PATH
+              value: "/etc/agentcard/agent-card.json"
+            - name: AGENT_CARD_PATH
+              value: "/signed-card/agent-card.json"
+            - name: SIGN_TIMEOUT
+              value: "30s"
+            - name: AGENT_NAME
+              value: "reviewer-ops"
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          resources:
+            limits:
+              cpu: 100m
+              memory: 64Mi
+            requests:
+              cpu: 10m
+              memory: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+          volumeMounts:
+            - name: spire-agent-socket
+              mountPath: /run/spire/agent-sockets
+              readOnly: true
+            - name: agent-config
+              mountPath: /etc/agentcard
+              readOnly: true
+            - name: signed-card
+              mountPath: /signed-card
+      containers:
+        - name: zt-agent
+          image: zt-agent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          ports:
+            - containerPort: 8000
+          args:
+            - serve
+            - --config-dir
+            - /config/agent
+          env:
+            - name: SPIFFE_DEMO_SERVICE_PORT
+              value: "8000"
+            - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
+              value: "http://document-service:8080"
+            - name: AGENT_CARD_SIGNED_PATH
+              value: "/signed-card/agent-card.json"
+          envFrom:
+            - configMapRef:
+                name: llm-config
+                optional: true
+            - secretRef:
+                name: llm-secret
+                optional: true
+          volumeMounts:
+            - name: agent-config
+              mountPath: /config/agent
+              readOnly: true
+            - name: signed-card
+              mountPath: /signed-card
+              readOnly: true
+      volumes:
+        - name: agent-config
+          configMap:
+            name: reviewer-ops-config
+        - name: spire-agent-socket
+          csi:
+            driver: "csi.spiffe.io"
+            readOnly: true
+        - name: signed-card
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reviewer-ops
+  namespace: spiffe-demo
+  labels:
+    app: reviewer-ops
+spec:
+  selector:
+    app: reviewer-ops
+  ports:
+    - port: 8000
+      targetPort: 8000
+      name: http
+
+# --- reviewer-general ---
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: reviewer-general-config
+  namespace: spiffe-demo
+data:
+  system-prompt.txt: |
+    You are a document reviewer agent specialized in analyzing
+    documents for compliance, security, and general quality.
+
+    Your task is to:
+    1. Thoroughly analyze the provided document
+    2. Identify potential issues, risks, or areas of concern
+    3. Assess compliance with organizational policies
+    4. Provide actionable recommendations
+
+    Guidelines:
+    - Be thorough but practical in your analysis
+    - Categorize issues by severity (Critical, High, Medium, Low)
+    - Provide specific recommendations for each issue
+    - Format your response in markdown with clear sections
+    - Include a summary section at the end with overall assessment
+  prompts.json: |
+    {
+      "compliance": "You are a compliance review agent specialized in analyzing documents for regulatory and policy compliance.\n\nYour task is to:\n1. Analyze the document for compliance issues\n2. Check against common regulatory frameworks (GDPR, SOC2, ISO 27001 principles)\n3. Identify any policy violations or gaps\n4. Provide specific remediation steps\n\nFormat your response in markdown with:\n- Executive Summary\n- Compliance Findings (with severity levels)\n- Specific Violations\n- Remediation Recommendations\n- Overall Compliance Score (1-10)",
+      "security": "You are a security review agent specialized in analyzing documents for security risks.\n\nYour task is to:\n1. Identify any security-sensitive information\n2. Check for potential data leakage risks\n3. Assess access control implications\n4. Identify any security policy violations\n\nFormat your response in markdown with:\n- Security Risk Summary\n- Sensitive Data Identified\n- Access Control Concerns\n- Security Recommendations\n- Risk Level Assessment (Critical/High/Medium/Low)"
+    }
+  agent-card.json: |
+    {
+      "name": "reviewer-general",
+      "description": "General document reviewer",
+      "version": "1.0.0",
+      "protocolVersion": "0.3.0",
+      "url": "http://reviewer-general:8000",
+      "skills": [
+        {
+          "id": "document-review",
+          "name": "Document Review",
+          "description": "Reviews documents for compliance, security, and quality",
+          "tags": ["engineering", "finance", "admin", "hr"],
+          "examples": ["Review DOC-001", "Compliance review of DOC-006"]
+        }
+      ],
+      "capabilities": {},
+      "defaultInputModes": ["application/json"],
+      "defaultOutputModes": ["text/plain"]
+    }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: reviewer-general-sa
+  namespace: spiffe-demo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reviewer-general
+  namespace: spiffe-demo
+  labels:
+    app: reviewer-general
+    a2a-agent.demo/type: agent
+    a2a-agent.demo/protocol: a2a
+    kagenti.io/type: agent
+    protocol.kagenti.io/a2a: ""
+  annotations:
+    a2a-agent.demo/description: "General document reviewer"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reviewer-general
+  template:
+    metadata:
+      labels:
+        app: reviewer-general
+        kagenti.io/type: agent
+    spec:
+      serviceAccountName: reviewer-general-sa
+      initContainers:
+        - name: sign-agentcard
+          image: ttl.sh/kcogan-agentcard-signer:24h
+          env:
+            - name: SPIFFE_ENDPOINT_SOCKET
+              value: "unix:///run/spire/agent-sockets/spire-agent.sock"
+            - name: UNSIGNED_CARD_PATH
+              value: "/etc/agentcard/agent-card.json"
+            - name: AGENT_CARD_PATH
+              value: "/signed-card/agent-card.json"
+            - name: SIGN_TIMEOUT
+              value: "30s"
+            - name: AGENT_NAME
+              value: "reviewer-general"
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          resources:
+            limits:
+              cpu: 100m
+              memory: 64Mi
+            requests:
+              cpu: 10m
+              memory: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+          volumeMounts:
+            - name: spire-agent-socket
+              mountPath: /run/spire/agent-sockets
+              readOnly: true
+            - name: agent-config
+              mountPath: /etc/agentcard
+              readOnly: true
+            - name: signed-card
+              mountPath: /signed-card
+      containers:
+        - name: zt-agent
+          image: zt-agent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          ports:
+            - containerPort: 8000
+          args:
+            - serve
+            - --config-dir
+            - /config/agent
+          env:
+            - name: SPIFFE_DEMO_SERVICE_PORT
+              value: "8000"
+            - name: SPIFFE_DEMO_DOCUMENT_SERVICE_URL
+              value: "http://document-service:8080"
+            - name: AGENT_CARD_SIGNED_PATH
+              value: "/signed-card/agent-card.json"
+          envFrom:
+            - configMapRef:
+                name: llm-config
+                optional: true
+            - secretRef:
+                name: llm-secret
+                optional: true
+          volumeMounts:
+            - name: agent-config
+              mountPath: /config/agent
+              readOnly: true
+            - name: signed-card
+              mountPath: /signed-card
+              readOnly: true
+      volumes:
+        - name: agent-config
+          configMap:
+            name: reviewer-general-config
+        - name: spire-agent-socket
+          csi:
+            driver: "csi.spiffe.io"
+            readOnly: true
+        - name: signed-card
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reviewer-general
+  namespace: spiffe-demo
+  labels:
+    app: reviewer-general
+spec:
+  selector:
+    app: reviewer-general
+  ports:
+    - port: 8000
+      targetPort: 8000
+      name: http
