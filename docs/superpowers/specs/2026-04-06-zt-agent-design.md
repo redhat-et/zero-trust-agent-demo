@@ -145,10 +145,19 @@ executor := &a2abridge.AgentExecutor{
 
 The `processLLM` callback:
 
-1. If `prompts.json` was loaded and the message contains a matching
-   keyword, uses the variant prompt
+1. If `prompts.json` was loaded and the A2A message text contains a
+   matching keyword (case-insensitive scan), uses the variant prompt
 2. Otherwise uses the content of `system-prompt.txt`
 3. Calls `llm.Provider.Complete(ctx, systemPrompt, userPrompt)`
+
+**Note on prompt variant triggering:** The web dashboard currently
+sends only a document ID with no user message, so keyword matching
+never triggers there — the default prompt is always used. This is
+acceptable: summarizers don't need variants, and reviewers default
+to "general" review (matching current behavior). Prompt variants
+can be triggered via Kagenti's Chat tab, which supports free-text
+messages. Adding a text input to the dashboard is a separate
+follow-up enhancement.
 
 The `fetchDocument` callback is identical to the existing agents:
 HTTP GET to document-service with `DelegationTransport` injecting
