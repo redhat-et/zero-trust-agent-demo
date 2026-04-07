@@ -9,7 +9,7 @@ SERVICES := opa-service document-service user-service agent-service summarizer-s
 # Services that come from base (already transformed to ghcr.io names by ghcr overlay)
 BASE_SERVICES := opa-service document-service user-service agent-service web-dashboard credential-gateway
 # Services that come from ai-agents overlay (still have simple names)
-AI_SERVICES := summarizer-service reviewer-service
+AI_SERVICES := summarizer-service reviewer-service zt-agent
 
 # Container registry settings
 REGISTRY ?= ghcr.io/redhat-et/zero-trust-agent-demo

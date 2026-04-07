@@ -10,10 +10,13 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /zt-agent ./zt-agent
 
 FROM alpine:3.23
 
-RUN apk --no-cache add ca-certificates curl
+RUN apk --no-cache add ca-certificates curl && \
+    addgroup -S ztagent && adduser -S ztagent -G ztagent
 
 WORKDIR /app
 COPY --from=builder /zt-agent /app/zt-agent
+
+USER ztagent
 
 EXPOSE 8000
 

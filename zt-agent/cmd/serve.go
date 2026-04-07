@@ -287,8 +287,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 	mux.HandleFunc("/health", healthHandler)
 
-	// A2A setup
-	agentCard.URL = fmt.Sprintf("http://localhost:%d", cfg.Service.Port)
+	// A2A setup — only set URL if not already configured in agent-card.json
+	if agentCard.URL == "" {
+		agentCard.URL = fmt.Sprintf("http://localhost:%d", cfg.Service.Port)
+	}
 	executor := &a2abridge.AgentExecutor{
 		Log:           log,
 		FetchDocument: fetchDocument,

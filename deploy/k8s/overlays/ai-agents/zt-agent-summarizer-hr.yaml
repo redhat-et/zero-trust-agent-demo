@@ -119,6 +119,16 @@ spec:
       containers:
         - name: zt-agent
           image: zt-agent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
           resources:
             requests:
               cpu: 100m

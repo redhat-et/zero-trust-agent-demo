@@ -251,8 +251,10 @@ data:
     }
 ```
 
-Five ConfigMaps, five Deployments, one image. OPA policies remain
-unchanged — they reference agent names, not images.
+Five ConfigMaps, five Deployments, one image. OPA policies must
+include the deployment name as a key in `agent_capabilities` (e.g.,
+`"zt-agent-summarizer-hr": ["hr", "engineering"]`). The deployment
+name is the agent ID used everywhere — OPA, SPIFFE, dashboard.
 
 ## Migration path
 

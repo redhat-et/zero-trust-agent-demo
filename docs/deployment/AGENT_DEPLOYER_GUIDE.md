@@ -181,11 +181,17 @@ The `kagenti-authbridge` SCC alone is not sufficient — the
 AuthBridge `proxy-init` init container requires the `privileged`
 SCC.
 
-**For zt-agent deployments** (no AuthBridge, mock SPIFFE):
+**For zt-agent deployments** (no AuthBridge, signed card via init):
 
-No SCC grant needed — zt-agent runs without privileged containers,
-CSI volumes, or `spc_t` SELinux type. The default `restricted`
-SCC is sufficient.
+The zt-agent uses a SPIFFE CSI volume for card signing but does not
+require privileged containers or `spc_t` SELinux type. Grant the
+`klaviger-sidecar` SCC which allows CSI volumes and non-root
+execution:
+
+```bash
+oc adm policy add-scc-to-user klaviger-sidecar \
+  -z zt-agent-summarizer-hr-sa -n spiffe-demo
+```
 
 ```bash
 # Check the SA name Kagenti created (for Kagenti-deployed agents)
