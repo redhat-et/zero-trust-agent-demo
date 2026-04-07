@@ -81,10 +81,11 @@ data:
     import rego.v1
 
     agent_capabilities := {
-        "gpt4": ["engineering", "finance"],
-        "claude": ["engineering", "finance", "admin", "hr"],
-        "summarizer": ["finance"],
-        "reviewer": ["engineering", "finance", "admin", "hr"]
+        "summarizer-hr": ["hr", "engineering"],
+        "zt-agent-summarizer-hr": ["hr", "engineering"],
+        "summarizer-tech": ["finance", "engineering"],
+        "reviewer-ops": ["engineering", "admin"],
+        "reviewer-general": ["engineering", "finance", "admin", "hr"],
     }
 
     has_capability(agent_name, department) if {

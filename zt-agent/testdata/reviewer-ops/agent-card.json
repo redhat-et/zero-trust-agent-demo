@@ -1,0 +1,19 @@
+{
+  "name": "reviewer-ops",
+  "description": "Operations document reviewer",
+  "version": "1.0.0",
+  "protocolVersion": "0.3.0",
+  "url": "http://localhost:8000",
+  "skills": [
+    {
+      "id": "document-review",
+      "name": "Document Review",
+      "description": "Reviews documents for compliance, security, and quality",
+      "tags": ["engineering", "admin"],
+      "examples": ["Review DOC-001", "Compliance review of DOC-006"]
+    }
+  ],
+  "capabilities": {},
+  "defaultInputModes": ["application/json"],
+  "defaultOutputModes": ["text/plain"]
+}

@@ -5,11 +5,11 @@
 # Variables
 BINARY_DIR := bin
 GO := go
-SERVICES := opa-service document-service user-service agent-service summarizer-service reviewer-service web-dashboard credential-gateway
+SERVICES := opa-service document-service user-service agent-service summarizer-service reviewer-service web-dashboard credential-gateway zt-agent
 # Services that come from base (already transformed to ghcr.io names by ghcr overlay)
 BASE_SERVICES := opa-service document-service user-service agent-service web-dashboard credential-gateway
 # Services that come from ai-agents overlay (still have simple names)
-AI_SERVICES := summarizer-service reviewer-service
+AI_SERVICES := summarizer-service reviewer-service zt-agent
 
 # Container registry settings
 REGISTRY ?= ghcr.io/redhat-et/zero-trust-agent-demo
@@ -113,6 +113,10 @@ run-summarizer:
 
 run-reviewer:
 	cd reviewer-service && $(GO) run . serve
+
+.PHONY: run-zt-agent
+run-zt-agent: ## Run zt-agent locally
+	cd zt-agent && $(GO) run . serve --config-dir testdata/summarizer-hr
 
 run-dashboard:
 	cd web-dashboard && $(GO) run . serve

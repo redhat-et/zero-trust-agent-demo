@@ -105,7 +105,7 @@ func setDefaults(v *viper.Viper, serviceName string) {
 	// Port defaults: AI agent services use Kagenti convention (8000/8100),
 	// all other infrastructure services use 8080/8180.
 	switch serviceName {
-	case "summarizer-service", "reviewer-service":
+	case "summarizer-service", "reviewer-service", "zt-agent":
 		v.SetDefault("service.port", 8000)
 		v.SetDefault("service.health_port", 8100)
 	default:

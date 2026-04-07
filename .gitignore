@@ -64,3 +64,6 @@ deploy/k8s/overlays/openshift-authbridge/settings.yaml
 debug
 *.prof
 *.pprof
+
+# Internal strategy docs (not for public repo)
+docs/dev/ZEROCLAW_INTEGRATION_REPORT.md
