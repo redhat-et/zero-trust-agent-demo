@@ -10,8 +10,12 @@ import (
 func TestDiscoverSkills(t *testing.T) {
 	dir := t.TempDir()
 	skillDir := filepath.Join(dir, "test-skill")
-	os.MkdirAll(skillDir, 0755)
-	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: test-skill\ndescription: A test skill for unit testing\n---\n\n# Test skill\n\nDo something useful.\n"), 0644)
+	if err := os.MkdirAll(skillDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: test-skill\ndescription: A test skill for unit testing\n---\n\n# Test skill\n\nDo something useful.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	skills, err := Discover(dir)
 	if err != nil {
@@ -52,9 +56,13 @@ func TestDiscoverSkillsNoDir(t *testing.T) {
 func TestLoadSkillContent(t *testing.T) {
 	dir := t.TempDir()
 	skillDir := filepath.Join(dir, "my-skill")
-	os.MkdirAll(skillDir, 0755)
+	if err := os.MkdirAll(skillDir, 0755); err != nil {
+		t.Fatal(err)
+	}
 	content := "---\nname: my-skill\ndescription: My test skill\n---\n\n# My skill\n\nStep 1: Do this\nStep 2: Do that\n"
-	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(content), 0644)
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := LoadContent(dir, "my-skill")
 	if err != nil {

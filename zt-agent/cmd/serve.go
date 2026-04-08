@@ -290,6 +290,37 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return result, nil
 	}
 
+	// Register additional tools and skills when in phase 2 mode
+	if toolRegistry != nil {
+		// Register fetch_document tool (uses delegation transport)
+		toolRegistry.Register(tools.NewFetchDocTool(
+			func(ctx context.Context, docID, token string) (map[string]any, error) {
+				return fetchDocument(ctx, docID, token)
+			},
+		))
+
+		// Load skills and append summary to system prompt
+		skillsDir := filepath.Join(cfg.ConfigDir, "skills")
+		discoveredSkills, err := skills.Discover(skillsDir)
+		if err != nil {
+			log.Warn("Failed to load skills", "error", err)
+		} else if len(discoveredSkills) > 0 {
+			systemPrompt += skills.BuildSummary(discoveredSkills)
+
+			toolRegistry.RegisterAlwaysAllowed(&loadSkillTool{
+				skillsDir: skillsDir,
+			})
+
+			log.Info("Skills loaded",
+				"count", len(discoveredSkills),
+				"names", skillNames(discoveredSkills))
+		}
+
+		log.Info("Tools enabled",
+			"allowed", len(toolRegistry.Definitions()),
+			"max_iterations", loopCfg.MaxIterations)
+	}
+
 	// LLM processor with prompt selection
 	processLLM := func(ctx context.Context, title, content string) (string, error) {
 		selectedPrompt := selectPrompt(systemPrompt, promptVariants, title+" "+content)
@@ -339,37 +370,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}
 		log.Success("Agentic processing completed")
 		return result, nil
-	}
-
-	// Register additional tools and skills when in phase 2 mode
-	if toolRegistry != nil {
-		// Register fetch_document tool (uses delegation transport)
-		toolRegistry.Register(tools.NewFetchDocTool(
-			func(ctx context.Context, docID, token string) (map[string]any, error) {
-				return fetchDocument(ctx, docID, token)
-			},
-		))
-
-		// Load skills
-		skillsDir := filepath.Join(cfg.ConfigDir, "skills")
-		discoveredSkills, err := skills.Discover(skillsDir)
-		if err != nil {
-			log.Warn("Failed to load skills", "error", err)
-		} else if len(discoveredSkills) > 0 {
-			systemPrompt += skills.BuildSummary(discoveredSkills)
-
-			toolRegistry.RegisterAlwaysAllowed(&loadSkillTool{
-				skillsDir: skillsDir,
-			})
-
-			log.Info("Skills loaded",
-				"count", len(discoveredSkills),
-				"names", skillNames(discoveredSkills))
-		}
-
-		log.Info("Tools enabled",
-			"allowed", len(toolRegistry.Definitions()),
-			"max_iterations", loopCfg.MaxIterations)
 	}
 
 	// Build HTTP mux

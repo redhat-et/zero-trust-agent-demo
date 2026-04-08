@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -41,12 +40,7 @@ func (t *readFileTool) Execute(_ context.Context, args map[string]any) *ToolResu
 	}
 
 	if t.workspace != "" {
-		absPath, err := filepath.Abs(path)
-		if err != nil {
-			return Errorf("invalid path: %s", err)
-		}
-		absWorkspace, _ := filepath.Abs(t.workspace)
-		if !strings.HasPrefix(absPath, absWorkspace) {
+		if !isInsideWorkspace(path, t.workspace) {
 			return Errorf("Access denied: path outside workspace")
 		}
 	}

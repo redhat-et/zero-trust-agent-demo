@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 type writeFileTool struct {
@@ -45,12 +44,7 @@ func (t *writeFileTool) Execute(_ context.Context, args map[string]any) *ToolRes
 	}
 
 	if t.workspace != "" {
-		absPath, err := filepath.Abs(path)
-		if err != nil {
-			return Errorf("invalid path: %s", err)
-		}
-		absWorkspace, _ := filepath.Abs(t.workspace)
-		if !strings.HasPrefix(absPath, absWorkspace) {
+		if !isInsideWorkspace(path, t.workspace) {
 			return Errorf("Access denied: path outside workspace")
 		}
 	}
