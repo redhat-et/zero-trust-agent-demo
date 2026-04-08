@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -77,6 +78,126 @@ func (p *AnthropicProvider) Complete(ctx context.Context, systemPrompt, userProm
 	}
 
 	return result, nil
+}
+
+// CompleteWithTools sends a multi-turn conversation with tool
+// definitions to the Anthropic API.
+func (p *AnthropicProvider) CompleteWithTools(ctx context.Context,
+	messages []Message, tools []ToolDefinition) (*Response, error) {
+
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	// Convert messages to Anthropic format
+	var anthropicMsgs []anthropic.MessageParam
+	var systemPrompt string
+
+	for _, msg := range messages {
+		switch msg.Role {
+		case "system":
+			systemPrompt = msg.Content
+		case "user":
+			anthropicMsgs = append(anthropicMsgs,
+				anthropic.NewUserMessage(anthropic.NewTextBlock(msg.Content)))
+		case "assistant":
+			var blocks []anthropic.ContentBlockParamUnion
+			if msg.Content != "" {
+				blocks = append(blocks, anthropic.NewTextBlock(msg.Content))
+			}
+			for _, tc := range msg.ToolCalls {
+				blocks = append(blocks, anthropic.NewToolUseBlock(tc.ID, tc.Args, tc.Name))
+			}
+			anthropicMsgs = append(anthropicMsgs,
+				anthropic.MessageParam{Role: "assistant", Content: blocks})
+		case "tool":
+			var blocks []anthropic.ContentBlockParamUnion
+			for _, tr := range msg.ToolResults {
+				blocks = append(blocks, anthropic.NewToolResultBlock(
+					tr.ToolUseID, tr.Output, tr.IsError))
+			}
+			anthropicMsgs = append(anthropicMsgs,
+				anthropic.MessageParam{Role: "user", Content: blocks})
+		}
+	}
+
+	// Convert tool definitions
+	var anthropicTools []anthropic.ToolUnionParam
+	for _, td := range tools {
+		// Extract properties and required from the parameters map
+		properties := td.Parameters["properties"]
+		var required []string
+		switch v := td.Parameters["required"].(type) {
+		case []string:
+			required = v
+		case []any:
+			for _, item := range v {
+				if s, ok := item.(string); ok {
+					required = append(required, s)
+				}
+			}
+		}
+
+		schema := anthropic.ToolInputSchemaParam{
+			Properties: properties,
+			Required:   required,
+		}
+
+		tool := anthropic.ToolUnionParam{
+			OfTool: &anthropic.ToolParam{
+				Name:        td.Name,
+				Description: anthropic.String(td.Description),
+				InputSchema: schema,
+			},
+		}
+		anthropicTools = append(anthropicTools, tool)
+	}
+
+	// Build params
+	params := anthropic.MessageNewParams{
+		Model:     anthropic.Model(p.model),
+		MaxTokens: int64(p.maxTokens),
+		Messages:  anthropicMsgs,
+		Tools:     anthropicTools,
+	}
+	if systemPrompt != "" {
+		params.System = []anthropic.TextBlockParam{{Text: systemPrompt}}
+	}
+
+	message, err := p.client.Messages.New(ctx, params)
+	if err != nil {
+		return nil, fmt.Errorf("API request failed: %w", err)
+	}
+
+	// Parse response
+	resp := &Response{}
+	switch message.StopReason {
+	case "tool_use":
+		resp.StopReason = StopReasonToolUse
+	default:
+		resp.StopReason = StopReasonEndTurn
+	}
+
+	for _, block := range message.Content {
+		switch block.Type {
+		case "text":
+			resp.Content += block.Text
+		case "tool_use":
+			// Parse the JSON RawMessage input into a map
+			var args map[string]any
+			if len(block.Input) > 0 {
+				if err := json.Unmarshal(block.Input, &args); err != nil {
+					return nil, fmt.Errorf("failed to parse tool input: %w", err)
+				}
+			}
+			resp.ToolCalls = append(resp.ToolCalls, ToolCall{
+				ID:   block.ID,
+				Name: block.Name,
+				Args: args,
+			})
+		}
+	}
+
+	return resp, nil
 }
 
 // Model returns the configured model name

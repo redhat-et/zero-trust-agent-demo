@@ -22,12 +22,17 @@ type DocumentFetcher func(ctx context.Context, documentID, bearerToken string) (
 // LLMProcessor processes a document with an LLM and returns the result text.
 type LLMProcessor func(ctx context.Context, title, content string) (string, error)
 
+// MessageProcessor processes a free-form user message (no document).
+// Used in phase 2 (tool-use) mode for standalone operation.
+type MessageProcessor func(ctx context.Context, userMessage string) (string, error)
+
 // AgentExecutor implements a2asrv.AgentExecutor by bridging A2A messages
 // to document fetch and LLM processing.
 type AgentExecutor struct {
-	Log           *logger.Logger
-	FetchDocument DocumentFetcher
-	ProcessLLM    LLMProcessor
+	Log            *logger.Logger
+	FetchDocument  DocumentFetcher
+	ProcessLLM     LLMProcessor
+	ProcessMessage MessageProcessor // optional: handles free-form messages
 }
 
 // Execute handles an incoming A2A message: extracts the document ID,
@@ -40,11 +45,7 @@ func (e *AgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestConte
 	}
 
 	// Extract document ID from the incoming message
-	documentID, err := ExtractDocumentID(reqCtx.Message)
-	if err != nil {
-		e.Log.Error("Failed to extract document ID from A2A message", "error", err)
-		return e.writeFailed(ctx, reqCtx, queue, "Invalid request: "+err.Error())
-	}
+	documentID, docErr := ExtractDocumentID(reqCtx.Message)
 
 	// Extract bearer token and delegation context from the incoming A2A
 	// request headers. The agent-service forwards the user's JWT and
@@ -64,12 +65,6 @@ func (e *AgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestConte
 		}
 	}
 
-	e.Log.Info("A2A request received",
-		"document_id", documentID,
-		"has_bearer_token", bearerToken != "",
-		"delegation_user", userSPIFFEID,
-		"delegation_agent", agentSPIFFEID)
-
 	// Store delegation context so DelegationTransport can inject headers
 	// on outbound HTTP requests (e.g., to document-service).
 	if userSPIFFEID != "" || agentSPIFFEID != "" {
@@ -79,27 +74,53 @@ func (e *AgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestConte
 		})
 	}
 
-	// Fetch the document
-	doc, err := e.FetchDocument(ctx, documentID, bearerToken)
-	if err != nil {
-		e.Log.Error("Document fetch failed", "error", err)
-		return e.writeFailed(ctx, reqCtx, queue, err.Error())
-	}
-	if doc == nil || doc["content"] == nil {
-		e.Log.Deny("Access denied by document service")
-		return e.writeRejected(ctx, reqCtx, queue, "Access denied")
-	}
+	var result string
 
-	e.Log.Allow("Document access granted via A2A")
+	if docErr != nil && e.ProcessMessage != nil {
+		// Free-form message mode: no document ID, pass raw text
+		// to the agentic loop
+		userText := extractTextContent(reqCtx.Message)
+		e.Log.Info("A2A free-form request received",
+			"text_length", len(userText))
 
-	title, _ := doc["title"].(string)
-	content, _ := doc["content"].(string)
+		var err error
+		result, err = e.ProcessMessage(ctx, userText)
+		if err != nil {
+			e.Log.Error("Message processing failed", "error", err)
+			return e.writeFailed(ctx, reqCtx, queue, "Processing failed: "+err.Error())
+		}
+	} else if docErr != nil {
+		// No document ID and no free-form handler
+		e.Log.Error("Failed to extract document ID from A2A message", "error", docErr)
+		return e.writeFailed(ctx, reqCtx, queue, "Invalid request: "+docErr.Error())
+	} else {
+		// Document mode: fetch and process
+		e.Log.Info("A2A document request received",
+			"document_id", documentID,
+			"has_bearer_token", bearerToken != "",
+			"delegation_user", userSPIFFEID,
+			"delegation_agent", agentSPIFFEID)
 
-	// Process with LLM
-	result, err := e.ProcessLLM(ctx, title, content)
-	if err != nil {
-		e.Log.Error("LLM processing failed", "error", err)
-		return e.writeFailed(ctx, reqCtx, queue, "LLM processing failed: "+err.Error())
+		doc, err := e.FetchDocument(ctx, documentID, bearerToken)
+		if err != nil {
+			e.Log.Error("Document fetch failed", "error", err)
+			return e.writeFailed(ctx, reqCtx, queue, err.Error())
+		}
+		if doc == nil || doc["content"] == nil {
+			e.Log.Deny("Access denied by document service")
+			return e.writeRejected(ctx, reqCtx, queue, "Access denied")
+		}
+
+		e.Log.Allow("Document access granted via A2A")
+
+		title, _ := doc["title"].(string)
+		content, _ := doc["content"].(string)
+
+		result, err = e.ProcessLLM(ctx, title, content)
+		if err != nil {
+			e.Log.Error("LLM processing failed", "error", err)
+			return e.writeFailed(ctx, reqCtx, queue, "LLM processing failed: "+err.Error())
+		}
 	}
 
 	// Write the result as an artifact
@@ -133,6 +154,20 @@ func (e *AgentExecutor) writeFailed(ctx context.Context, reqCtx *a2asrv.RequestC
 		return fmt.Errorf("failed to write failed status: %w", err)
 	}
 	return nil
+}
+
+// extractTextContent extracts all text parts from an A2A message.
+func extractTextContent(msg *a2a.Message) string {
+	if msg == nil {
+		return ""
+	}
+	var parts []string
+	for _, part := range msg.Parts {
+		if tp, ok := part.(a2a.TextPart); ok {
+			parts = append(parts, tp.Text)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 func (e *AgentExecutor) writeRejected(ctx context.Context, reqCtx *a2asrv.RequestContext, queue eventqueue.Queue, reason string) error {

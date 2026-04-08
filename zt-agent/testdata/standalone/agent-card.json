@@ -1,0 +1,19 @@
+{
+  "name": "standalone-agent",
+  "description": "Standalone research agent with tool-use capabilities",
+  "version": "2.0.0",
+  "protocolVersion": "0.3.0",
+  "url": "http://localhost:8080",
+  "skills": [
+    {
+      "id": "research",
+      "name": "Research",
+      "description": "Research topics using web and local tools",
+      "tags": ["research", "analysis"],
+      "examples": ["Fetch the Go release notes and summarize them"]
+    }
+  ],
+  "capabilities": {},
+  "defaultInputModes": ["application/json"],
+  "defaultOutputModes": ["text/plain"]
+}
