@@ -84,7 +84,7 @@ spec:
     spec:
       containers:
         - name: zt-agent
-          image: ghcr.io/redhat-et/zero-trust-agent-demo/zt-agent:latest
+          image: ghcr.io/redhat-et/zero-trust-agent-demo/zt-agent:9a63ca5
           args:
             - serve
             - --config-dir
