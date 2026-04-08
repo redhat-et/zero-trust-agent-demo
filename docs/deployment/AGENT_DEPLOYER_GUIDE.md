@@ -190,7 +190,7 @@ execution:
 
 ```bash
 oc adm policy add-scc-to-user klaviger-sidecar \
-  -z zt-agent-summarizer-hr-sa -n spiffe-demo
+  -z summarizer-hr-sa -n spiffe-demo
 ```
 
 ```bash
@@ -313,22 +313,22 @@ the deployment name.
 
 1. **Update the OPA ConfigMap on the cluster** and restart OPA
 
-See `deploy/k8s/overlays/ai-agents/zt-agent-summarizer-hr.yaml`
-for a complete example.
+See `deploy/k8s/overlays/ai-agents/zt-agent-deployments.yaml`
+for complete examples.
 
 ### Common mistake
 
-If the agent card says `"name": "summarizer-hr-zt"` but the
-Deployment is named `zt-agent-summarizer-hr`, OPA must use
-`zt-agent-summarizer-hr` — the deployment name, not the card name.
+If the agent card says `"name": "My Summarizer"` but the
+Deployment is named `summarizer-hr`, OPA must use
+`summarizer-hr` — the deployment name, not the card name.
 
 ## Current demo agents
 
-| Deployment name | Image | Scope | Language |
-|-----------------|-------|-------|----------|
-| summarizer-hr | summarizer-service:dev | hr, engineering | Go |
-| summarizer-tech | kagenti-summarizer:dev | finance, engineering | Python |
-| reviewer-ops | reviewer-service:dev | engineering, admin | Go |
-| reviewer-general | kagenti-reviewer:dev | all | Python |
-| summarizer-tech-klaviger | kagenti-summarizer:dev | finance, engineering | Python |
-| zt-agent-summarizer-hr | zt-agent:dev | hr, engineering | Go (zt-agent) |
+All agents use the `zt-agent` image with ConfigMap-driven personality.
+
+| Deployment name | Scope | Prompt variants |
+|-----------------|-------|-----------------|
+| summarizer-hr | hr, engineering | — |
+| summarizer-tech | finance, engineering | — |
+| reviewer-ops | engineering, admin | compliance, security |
+| reviewer-general | all | compliance, security |

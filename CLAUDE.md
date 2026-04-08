@@ -84,12 +84,11 @@ zero-trust-agent-demo/
 ├── document-service/      # Document service
 │   ├── cmd/
 │   └── internal/store/    # In-memory document store
-├── kagenti-summarizer/    # Python A2A summarizer agent
-│   ├── agent.py           # A2A server entry point
-│   └── summarizer.py      # URL fetch + LLM summarization
-├── kagenti-reviewer/      # Python A2A reviewer agent
-│   ├── agent.py           # A2A server entry point
-│   └── reviewer.py        # URL fetch + LLM review
+├── zt-agent/              # Universal agent runtime (ConfigMap-driven)
+│   ├── cmd/               # Cobra commands (serve)
+│   └── testdata/          # Test fixtures (prompts, agent cards)
+├── kagenti-summarizer/    # Python A2A summarizer (legacy, kept for reference)
+├── kagenti-reviewer/      # Python A2A reviewer (legacy, kept for reference)
 ├── opa-service/           # OPA policy service
 │   ├── cmd/
 │   └── policies/          # Rego policy files
@@ -207,10 +206,10 @@ code can be deployed multiple times with different names and OPA
 scopes. See `docs/deployment/AGENT_DEPLOYER_GUIDE.md` for the full
 deployment workflow.
 
-- **summarizer-hr**: hr (Python)
-- **summarizer-tech**: finance, engineering (Python)
-- **reviewer-ops**: engineering, admin (Python)
-- **reviewer-general**: all departments (Python)
+- **summarizer-hr**: hr, engineering (zt-agent)
+- **summarizer-tech**: finance, engineering (zt-agent)
+- **reviewer-ops**: engineering, admin (zt-agent)
+- **reviewer-general**: all departments (zt-agent)
 
 ### Documents
 - DOC-001: Engineering Roadmap (engineering)
@@ -225,7 +224,7 @@ deployment workflow.
 
 1. **Direct Access**: Alice → DOC-001 ✓ (Alice has engineering)
 2. **Delegated Access**: Alice → summarizer-tech → DOC-001 ✓ (both have engineering)
-3. **Denied Delegation**: Alice → summarizer-hr → DOC-001 ✗ (summarizer-hr lacks engineering)
+3. **Denied Delegation**: Carol → summarizer-tech → DOC-001 ✗ (Carol lacks engineering)
 4. **Agent Without User**: reviewer-general → DOC-001 ✗ (agents require delegation)
 5. **Cross-scope**: Carol → summarizer-hr → DOC-004 ✓ (both have hr)
 
@@ -267,13 +266,12 @@ Common flags:
 
 ## Key Technologies
 
-- **Go 1.21+** - Infrastructure services (agent-service, document-service, etc.)
-- **Python 3.12** - A2A agents (kagenti-summarizer, kagenti-reviewer)
+- **Go 1.25+** - All services including zt-agent universal runtime
 - **Cobra/Viper** - CLI and configuration
 - **log/slog** - Structured logging with colors
 - **OPA (Open Policy Agent)** - Policy evaluation
 - **SPIFFE/SPIRE** - Workload identity (mock mode for local dev)
-- **A2A (Agent-to-Agent)** - Google a2a-python SDK for agent protocol
+- **A2A (Agent-to-Agent)** - a2a-go SDK for agent protocol
 - **Kagenti** - Agent lifecycle management and AgentCard discovery
 - **SSE (Server-Sent Events)** - Real-time dashboard updates
 
