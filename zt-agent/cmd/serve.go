@@ -390,6 +390,26 @@ func runServe(cmd *cobra.Command, args []string) error {
 		FetchDocument: fetchDocument,
 		ProcessLLM:    processLLM,
 	}
+
+	// In phase 2 mode, enable free-form message handling
+	if toolRegistry != nil {
+		executor.ProcessMessage = func(ctx context.Context, userMessage string) (string, error) {
+			log.Info("Processing free-form message via agentic loop")
+
+			messages := []llm.Message{
+				{Role: "system", Content: systemPrompt},
+				{Role: "user", Content: userMessage},
+			}
+
+			result, err := tools.RunToolLoop(ctx, llmProvider, messages,
+				toolRegistry, loopCfg)
+			if err != nil {
+				return "", fmt.Errorf("agentic loop failed: %w", err)
+			}
+			log.Success("Agentic processing completed")
+			return result, nil
+		}
+	}
 	a2aHandler := a2asrv.NewHandler(executor)
 	jsonrpcHandler := a2asrv.NewJSONRPCHandler(a2aHandler)
 	unsignedHandler := a2asrv.NewStaticAgentCardHandler(agentCard)

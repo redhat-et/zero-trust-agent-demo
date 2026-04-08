@@ -1,0 +1,13 @@
+tools:
+  allowed:
+    - exec
+    - web_fetch
+    - read_file
+    - write_file
+  exec:
+    timeout: 30
+    max_output: 50000
+  workspace: /tmp/standalone-agent
+
+loop:
+  max_iterations: 10
