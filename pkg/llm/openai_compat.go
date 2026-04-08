@@ -169,6 +169,11 @@ func (p *OpenAICompatProvider) Complete(ctx context.Context, systemPrompt, userP
 	return chatResp.Choices[0].Message.Content, nil
 }
 
+// CompleteWithTools implements tool-use conversations.
+func (p *OpenAICompatProvider) CompleteWithTools(ctx context.Context, messages []Message, tools []ToolDefinition) (*Response, error) {
+	return nil, fmt.Errorf("CompleteWithTools not yet implemented for OpenAI")
+}
+
 // Model returns the configured model name
 func (p *OpenAICompatProvider) Model() string {
 	return p.model

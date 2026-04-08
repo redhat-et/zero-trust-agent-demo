@@ -79,6 +79,11 @@ func (p *AnthropicProvider) Complete(ctx context.Context, systemPrompt, userProm
 	return result, nil
 }
 
+// CompleteWithTools implements tool-use conversations.
+func (p *AnthropicProvider) CompleteWithTools(ctx context.Context, messages []Message, tools []ToolDefinition) (*Response, error) {
+	return nil, fmt.Errorf("CompleteWithTools not yet implemented for Anthropic")
+}
+
 // Model returns the configured model name
 func (p *AnthropicProvider) Model() string {
 	return p.model
