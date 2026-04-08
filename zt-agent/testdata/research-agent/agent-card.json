@@ -1,0 +1,19 @@
+{
+  "name": "research-agent",
+  "description": "Document research agent with tool-use capabilities",
+  "version": "2.0.0",
+  "protocolVersion": "0.3.0",
+  "url": "http://localhost:8000",
+  "skills": [
+    {
+      "id": "document-research",
+      "name": "Document Research",
+      "description": "Research and analyze documents using tools",
+      "tags": ["engineering", "finance"],
+      "examples": ["Research DOC-001 and compare with DOC-002"]
+    }
+  ],
+  "capabilities": {},
+  "defaultInputModes": ["application/json"],
+  "defaultOutputModes": ["text/plain"]
+}

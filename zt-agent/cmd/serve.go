@@ -22,6 +22,8 @@ import (
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/llm"
 	"github.com/redhat-et/zero-trust-agent-demo/pkg/logger"
 	_ "github.com/redhat-et/zero-trust-agent-demo/pkg/metrics"
+	"github.com/redhat-et/zero-trust-agent-demo/pkg/skills"
+	"github.com/redhat-et/zero-trust-agent-demo/pkg/tools"
 )
 
 // loadSystemPrompt reads the system prompt from config-dir/system-prompt.txt.
@@ -197,6 +199,40 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Load agent config (optional — nil means phase 1 mode)
+	agentCfg, err := loadAgentConfig(cfg.ConfigDir)
+	if err != nil {
+		return err
+	}
+
+	// Set up tool registry and skill loading if agent config exists
+	var toolRegistry *tools.Registry
+	var loopCfg tools.LoopConfig
+
+	if agentCfg != nil {
+		toolRegistry = tools.NewRegistry(agentCfg.Tools.Allowed)
+
+		workspace := agentCfg.Tools.Workspace
+		if workspace == "" {
+			workspace = "/tmp/agent-workspace"
+		}
+		if err := os.MkdirAll(workspace, 0755); err != nil {
+			return fmt.Errorf("failed to create workspace: %w", err)
+		}
+
+		toolRegistry.Register(tools.NewExecTool(tools.ExecConfig{
+			Timeout:   agentCfg.Tools.Exec.Timeout,
+			MaxOutput: agentCfg.Tools.Exec.MaxOutput,
+		}))
+		toolRegistry.Register(tools.NewWebFetchTool(tools.WebFetchConfig{
+			AllowedHosts: agentCfg.Tools.WebFetch.AllowedHosts,
+		}))
+		toolRegistry.Register(tools.NewReadFileTool(workspace))
+		toolRegistry.Register(tools.NewWriteFileTool(workspace))
+
+		loopCfg = agentCfg.toLoopConfig()
+	}
+
 	log := logger.New(logger.ComponentAgent)
 
 	// HTTP client with delegation transport
@@ -256,13 +292,21 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// LLM processor with prompt selection
 	processLLM := func(ctx context.Context, title, content string) (string, error) {
-		userPrompt := "Please process the following document:\n\n" +
-			"**Title:** " + title + "\n\n" +
-			"**Content:**\n" + content
-
 		selectedPrompt := selectPrompt(systemPrompt, promptVariants, title+" "+content)
 
-		if llmProvider != nil {
+		// Phase 1: single-shot mode (no tools)
+		if toolRegistry == nil {
+			if llmProvider == nil {
+				return fmt.Sprintf("## Result\n\n**Document:** %s\n\nMock response. "+
+					"Configure LLM_API_KEY to enable AI processing.\n\n"+
+					"### Document Preview\n\n%s",
+					title, truncate(content, 500)), nil
+			}
+
+			userPrompt := "Please process the following document:\n\n" +
+				"**Title:** " + title + "\n\n" +
+				"**Content:**\n" + content
+
 			log.Info("Processing document with LLM", "document", title)
 			result, err := llmProvider.Complete(ctx, selectedPrompt, userPrompt)
 			if err != nil {
@@ -272,10 +316,60 @@ func runServe(cmd *cobra.Command, args []string) error {
 			return result, nil
 		}
 
-		return fmt.Sprintf("## Result\n\n**Document:** %s\n\nMock response. "+
-			"Configure LLM_API_KEY to enable AI processing.\n\n"+
-			"### Document Preview\n\n%s",
-			title, truncate(content, 500)), nil
+		// Phase 2: agentic tool-use loop
+		if llmProvider == nil {
+			return "", fmt.Errorf("LLM provider required for tool-use mode")
+		}
+
+		log.Info("Starting agentic loop", "document", title,
+			"tools", len(toolRegistry.Definitions()))
+
+		messages := []llm.Message{
+			{Role: "system", Content: selectedPrompt},
+			{Role: "user", Content: fmt.Sprintf(
+				"Process the following document:\n\n"+
+					"**Title:** %s\n\n**Content:**\n%s",
+				title, content)},
+		}
+
+		result, err := tools.RunToolLoop(ctx, llmProvider, messages,
+			toolRegistry, loopCfg)
+		if err != nil {
+			return "", fmt.Errorf("agentic loop failed: %w", err)
+		}
+		log.Success("Agentic processing completed")
+		return result, nil
+	}
+
+	// Register additional tools and skills when in phase 2 mode
+	if toolRegistry != nil {
+		// Register fetch_document tool (uses delegation transport)
+		toolRegistry.Register(tools.NewFetchDocTool(
+			func(ctx context.Context, docID, token string) (map[string]any, error) {
+				return fetchDocument(ctx, docID, token)
+			},
+		))
+
+		// Load skills
+		skillsDir := filepath.Join(cfg.ConfigDir, "skills")
+		discoveredSkills, err := skills.Discover(skillsDir)
+		if err != nil {
+			log.Warn("Failed to load skills", "error", err)
+		} else if len(discoveredSkills) > 0 {
+			systemPrompt += skills.BuildSummary(discoveredSkills)
+
+			toolRegistry.RegisterAlwaysAllowed(&loadSkillTool{
+				skillsDir: skillsDir,
+			})
+
+			log.Info("Skills loaded",
+				"count", len(discoveredSkills),
+				"names", skillNames(discoveredSkills))
+		}
+
+		log.Info("Tools enabled",
+			"allowed", len(toolRegistry.Definitions()),
+			"max_iterations", loopCfg.MaxIterations)
 	}
 
 	// Build HTTP mux
@@ -383,4 +477,46 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// loadSkillTool implements the load_skill tool.
+type loadSkillTool struct {
+	skillsDir string
+}
+
+func (t *loadSkillTool) Name() string { return "load_skill" }
+func (t *loadSkillTool) Description() string {
+	return "Load the full instructions for a skill by name. " +
+		"Use this when you need specialized guidance for a task."
+}
+func (t *loadSkillTool) Parameters() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"name": map[string]any{
+				"type":        "string",
+				"description": "The skill name to load",
+			},
+		},
+		"required": []string{"name"},
+	}
+}
+func (t *loadSkillTool) Execute(_ context.Context, args map[string]any) *tools.ToolResult {
+	name, _ := args["name"].(string)
+	if name == "" {
+		return tools.Errorf("skill name is required")
+	}
+	content, err := skills.LoadContent(t.skillsDir, name)
+	if err != nil {
+		return tools.Errorf("%s", err)
+	}
+	return tools.OK(content)
+}
+
+func skillNames(discovered []skills.SkillMeta) string {
+	names := make([]string, len(discovered))
+	for i, s := range discovered {
+		names[i] = s.Name
+	}
+	return strings.Join(names, ", ")
 }

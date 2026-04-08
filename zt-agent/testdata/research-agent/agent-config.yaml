@@ -1,0 +1,18 @@
+tools:
+  allowed:
+    - exec
+    - web_fetch
+    - read_file
+    - write_file
+    - fetch_document
+  exec:
+    timeout: 30
+    max_output: 50000
+  web_fetch:
+    allowed_hosts:
+      - ".s3.amazonaws.com"
+      - ".svc.cluster.local"
+  workspace: /tmp/agent-workspace
+
+loop:
+  max_iterations: 10
