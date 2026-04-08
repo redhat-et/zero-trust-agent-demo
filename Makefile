@@ -5,11 +5,11 @@
 # Variables
 BINARY_DIR := bin
 GO := go
-SERVICES := opa-service document-service user-service agent-service summarizer-service reviewer-service web-dashboard credential-gateway zt-agent
+SERVICES := opa-service document-service user-service agent-service web-dashboard credential-gateway
 # Services that come from base (already transformed to ghcr.io names by ghcr overlay)
 BASE_SERVICES := opa-service document-service user-service agent-service web-dashboard credential-gateway
-# Services that come from ai-agents overlay (still have simple names)
-AI_SERVICES := summarizer-service reviewer-service zt-agent
+# AI agents are now deployed via docsclaw (github.com/redhat-et/docsclaw)
+# AI_SERVICES removed — agents no longer built from this repo
 
 # Container registry settings
 REGISTRY ?= ghcr.io/redhat-et/zero-trust-agent-demo
@@ -108,15 +108,7 @@ run-user:
 run-agent:
 	cd agent-service && $(GO) run . serve
 
-run-summarizer:
-	cd summarizer-service && $(GO) run . serve
 
-run-reviewer:
-	cd reviewer-service && $(GO) run . serve
-
-.PHONY: run-zt-agent
-run-zt-agent: ## Run zt-agent locally
-	cd zt-agent && $(GO) run . serve --config-dir testdata/summarizer-hr
 
 run-dashboard:
 	cd web-dashboard && $(GO) run . serve
@@ -219,9 +211,6 @@ deploy-openshift: check-deps podman-dev
 	@cd deploy/k8s/overlays/openshift-ai-agents && \
 	for svc in $(BASE_SERVICES); do \
 		kustomize edit set image $(REGISTRY)/$$svc:$(DEV_TAG); \
-	done && \
-	for svc in $(AI_SERVICES); do \
-		kustomize edit set image $$svc=$(REGISTRY)/$$svc:$(DEV_TAG); \
 	done
 	oc apply -k deploy/k8s/overlays/openshift-ai-agents
 	@echo ""
