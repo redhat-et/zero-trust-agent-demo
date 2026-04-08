@@ -17,10 +17,12 @@ func isInsideWorkspace(path, workspace string) bool {
 		return false
 	}
 
-	// Resolve symlinks when possible (ignore errors for
-	// nonexistent paths — EvalSymlinks fails on new files)
+	// Resolve symlinks. For new files EvalSymlinks fails, so
+	// resolve the parent directory instead.
 	if resolved, err := filepath.EvalSymlinks(absPath); err == nil {
 		absPath = resolved
+	} else if resolved, err := filepath.EvalSymlinks(filepath.Dir(absPath)); err == nil {
+		absPath = filepath.Join(resolved, filepath.Base(absPath))
 	}
 	if resolved, err := filepath.EvalSymlinks(absWorkspace); err == nil {
 		absWorkspace = resolved

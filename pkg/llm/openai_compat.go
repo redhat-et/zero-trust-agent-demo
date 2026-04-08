@@ -240,7 +240,10 @@ func (p *OpenAICompatProvider) CompleteWithTools(ctx context.Context,
 			if len(msg.ToolCalls) > 0 {
 				var tcs []openAIToolCall
 				for _, tc := range msg.ToolCalls {
-					argsJSON, _ := json.Marshal(tc.Args)
+					argsJSON, marshalErr := json.Marshal(tc.Args)
+					if marshalErr != nil {
+						return nil, fmt.Errorf("failed to marshal tool args: %w", marshalErr)
+					}
 					tcs = append(tcs, openAIToolCall{
 						ID:   tc.ID,
 						Type: "function",
@@ -258,11 +261,14 @@ func (p *OpenAICompatProvider) CompleteWithTools(ctx context.Context,
 			raw, err = json.Marshal(assistantMsg)
 		case "tool":
 			for _, tr := range msg.ToolResults {
-				toolMsg, _ := json.Marshal(map[string]string{
+				toolMsg, marshalErr := json.Marshal(map[string]string{
 					"role":         "tool",
 					"tool_call_id": tr.ToolUseID,
 					"content":      tr.Output,
 				})
+				if marshalErr != nil {
+					return nil, fmt.Errorf("failed to marshal tool result: %w", marshalErr)
+				}
 				openaiMsgs = append(openaiMsgs, toolMsg)
 			}
 			continue

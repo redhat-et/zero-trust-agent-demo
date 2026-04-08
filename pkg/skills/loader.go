@@ -48,6 +48,11 @@ func Discover(skillsDir string) ([]SkillMeta, error) {
 
 // LoadContent reads the full content of a skill's SKILL.md file.
 func LoadContent(skillsDir, name string) (string, error) {
+	// Validate skill name to prevent path traversal
+	if name == "" || name != filepath.Base(name) || name == "." || name == ".." {
+		return "", fmt.Errorf("invalid skill name: %q", name)
+	}
+
 	path := filepath.Join(skillsDir, name, "SKILL.md")
 	data, err := os.ReadFile(path)
 	if err != nil {

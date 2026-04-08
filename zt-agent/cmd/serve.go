@@ -208,6 +208,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Set up tool registry and skill loading if agent config exists
 	var toolRegistry *tools.Registry
 	var loopCfg tools.LoopConfig
+	var skillsSummary string
 
 	if agentCfg != nil {
 		toolRegistry = tools.NewRegistry(agentCfg.Tools.Allowed)
@@ -299,13 +300,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 			},
 		))
 
-		// Load skills and append summary to system prompt
+		// Load skills
 		skillsDir := filepath.Join(cfg.ConfigDir, "skills")
 		discoveredSkills, err := skills.Discover(skillsDir)
 		if err != nil {
 			log.Warn("Failed to load skills", "error", err)
 		} else if len(discoveredSkills) > 0 {
-			systemPrompt += skills.BuildSummary(discoveredSkills)
+			skillsSummary = skills.BuildSummary(discoveredSkills)
 
 			toolRegistry.RegisterAlwaysAllowed(&loadSkillTool{
 				skillsDir: skillsDir,
@@ -323,7 +324,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// LLM processor with prompt selection
 	processLLM := func(ctx context.Context, title, content string) (string, error) {
-		selectedPrompt := selectPrompt(systemPrompt, promptVariants, title+" "+content)
+		selectedPrompt := selectPrompt(systemPrompt, promptVariants, title+" "+content) + skillsSummary
 
 		// Phase 1: single-shot mode (no tools)
 		if toolRegistry == nil {
@@ -394,10 +395,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// In phase 2 mode, enable free-form message handling
 	if toolRegistry != nil {
 		executor.ProcessMessage = func(ctx context.Context, userMessage string) (string, error) {
+			if llmProvider == nil {
+				return "", fmt.Errorf("LLM provider required for tool-use mode")
+			}
+
 			log.Info("Processing free-form message via agentic loop")
 
 			messages := []llm.Message{
-				{Role: "system", Content: systemPrompt},
+				{Role: "system", Content: systemPrompt + skillsSummary},
 				{Role: "user", Content: userMessage},
 			}
 

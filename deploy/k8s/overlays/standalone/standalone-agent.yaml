@@ -82,9 +82,20 @@ spec:
       labels:
         app: standalone-agent
     spec:
+      securityContext:
+        runAsNonRoot: true
       containers:
         - name: zt-agent
           image: ghcr.io/redhat-et/zero-trust-agent-demo/zt-agent:3325dbe
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
           args:
             - serve
             - --config-dir

@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -49,17 +50,15 @@ func (t *webFetchTool) Execute(ctx context.Context, args map[string]any) *ToolRe
 		return Errorf("invalid URL: %s", err)
 	}
 
+	// Only allow HTTP and HTTPS schemes
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return Errorf("unsupported URL scheme: %s", parsed.Scheme)
+	}
+
 	if len(t.config.AllowedHosts) > 0 {
-		host := parsed.Hostname()
-		allowed := false
-		for _, suffix := range t.config.AllowedHosts {
-			if strings.HasSuffix(host, suffix) {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return Errorf("Host not allowed: %s", host)
+		if !t.isHostAllowed(parsed.Hostname()) {
+			return Errorf("Host not allowed: %s", parsed.Hostname())
 		}
 	}
 
@@ -71,7 +70,20 @@ func (t *webFetchTool) Execute(ctx context.Context, args map[string]any) *ToolRe
 		return Errorf("failed to create request: %s", err)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	// Use custom client that validates redirects against allowed hosts
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(t.config.AllowedHosts) > 0 && !t.isHostAllowed(req.URL.Hostname()) {
+				return fmt.Errorf("redirect to non-allowed host: %s", req.URL.Hostname())
+			}
+			if len(via) >= 10 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
+		},
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return Errorf("fetch failed: %s", err)
 	}
@@ -87,4 +99,18 @@ func (t *webFetchTool) Execute(ctx context.Context, args map[string]any) *ToolRe
 	}
 
 	return OK(string(body))
+}
+
+// isHostAllowed checks if a hostname matches the allowed hosts list
+// using dot-boundary matching to prevent "attackerexample.com" from
+// matching "example.com".
+func (t *webFetchTool) isHostAllowed(host string) bool {
+	host = strings.ToLower(host)
+	for _, allowed := range t.config.AllowedHosts {
+		allowed = strings.ToLower(allowed)
+		if host == allowed || strings.HasSuffix(host, "."+allowed) {
+			return true
+		}
+	}
+	return false
 }

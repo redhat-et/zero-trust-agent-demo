@@ -125,7 +125,17 @@ func (p *AnthropicProvider) CompleteWithTools(ctx context.Context,
 	for _, td := range tools {
 		// Extract properties and required from the parameters map
 		properties := td.Parameters["properties"]
-		required, _ := td.Parameters["required"].([]string)
+		var required []string
+		switch v := td.Parameters["required"].(type) {
+		case []string:
+			required = v
+		case []any:
+			for _, item := range v {
+				if s, ok := item.(string); ok {
+					required = append(required, s)
+				}
+			}
+		}
 
 		schema := anthropic.ToolInputSchemaParam{
 			Properties: properties,
