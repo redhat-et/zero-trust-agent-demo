@@ -224,7 +224,7 @@ deployment workflow.
 
 1. **Direct Access**: Alice → DOC-001 ✓ (Alice has engineering)
 2. **Delegated Access**: Alice → summarizer-tech → DOC-001 ✓ (both have engineering)
-3. **Denied Delegation**: Alice → summarizer-hr → DOC-001 ✗ (summarizer-hr lacks engineering)
+3. **Denied Delegation**: Carol → summarizer-tech → DOC-001 ✗ (Carol lacks engineering)
 4. **Agent Without User**: reviewer-general → DOC-001 ✗ (agents require delegation)
 5. **Cross-scope**: Carol → summarizer-hr → DOC-004 ✓ (both have hr)
 
