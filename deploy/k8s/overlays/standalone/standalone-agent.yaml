@@ -1,0 +1,166 @@
+# Standalone zt-agent deployment — no SPIRE, no Kagenti, no OPA.
+# Just a ConfigMap-driven agentic runtime with tool-use capabilities.
+#
+# Prerequisites:
+#   oc new-project zt-standalone   (or use any namespace)
+#   oc create secret generic llm-secret --from-literal=LLM_API_KEY=sk-...
+#
+# Deploy:
+#   oc apply -f standalone-agent.yaml
+#
+# Test:
+#   curl -X POST http://$(oc get route standalone-agent -o jsonpath='{.spec.host}')/a2a \
+#     -H "Content-Type: application/json" \
+#     -d '{"jsonrpc":"2.0","method":"message/send","id":"1",
+#          "params":{"message":{"messageId":"m1","role":"user",
+#          "parts":[{"kind":"text","text":"List files in /tmp"}]}}}'
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: standalone-agent-config
+data:
+  system-prompt.txt: |
+    You are a helpful research assistant with access to tools.
+
+    You can:
+    - Execute shell commands (exec)
+    - Fetch web pages (web_fetch)
+    - Read and write files in your workspace (read_file, write_file)
+
+    When given a task, break it into steps and use your tools to complete it.
+    Be concise in your responses. Show your work.
+  agent-card.json: |
+    {
+      "name": "standalone-agent",
+      "description": "Standalone research agent with tool-use capabilities",
+      "version": "2.0.0",
+      "protocolVersion": "0.3.0",
+      "url": "http://standalone-agent:8000",
+      "skills": [
+        {
+          "id": "research",
+          "name": "Research",
+          "description": "Research topics using web and local tools",
+          "tags": ["research", "analysis"],
+          "examples": ["Fetch the Go release notes and summarize them"]
+        }
+      ],
+      "capabilities": {},
+      "defaultInputModes": ["application/json"],
+      "defaultOutputModes": ["text/plain"]
+    }
+  agent-config.yaml: |
+    tools:
+      allowed:
+        - exec
+        - web_fetch
+        - read_file
+        - write_file
+      exec:
+        timeout: 30
+        max_output: 50000
+      workspace: /tmp/agent-workspace
+    loop:
+      max_iterations: 10
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: standalone-agent
+  labels:
+    app: standalone-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: standalone-agent
+  template:
+    metadata:
+      labels:
+        app: standalone-agent
+    spec:
+      containers:
+        - name: zt-agent
+          image: ghcr.io/redhat-et/zero-trust-agent-demo/zt-agent:latest
+          args:
+            - serve
+            - --config-dir
+            - /config/agent
+            - --listen-plain-http
+          ports:
+            - containerPort: 8000
+              name: http
+            - containerPort: 8100
+              name: health
+          env:
+            - name: SPIFFE_DEMO_SERVICE_PORT
+              value: "8000"
+          envFrom:
+            - secretRef:
+                name: llm-secret
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: health
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          volumeMounts:
+            - name: agent-config
+              mountPath: /config/agent
+              readOnly: true
+            - name: workspace
+              mountPath: /tmp/agent-workspace
+      volumes:
+        - name: agent-config
+          configMap:
+            name: standalone-agent-config
+        - name: workspace
+          emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: standalone-agent
+  labels:
+    app: standalone-agent
+spec:
+  selector:
+    app: standalone-agent
+  ports:
+    - port: 8000
+      targetPort: 8000
+      name: http
+
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: standalone-agent
+  labels:
+    app: standalone-agent
+spec:
+  to:
+    kind: Service
+    name: standalone-agent
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
